@@ -1,4 +1,4 @@
-import hashlib,os,re,sys,time,uuid
+import copy,hashlib,os,re,sys,time,uuid
 from datetime import datetime,timezone
 from urllib.parse import urljoin,urlparse
 from category_groups import CATEGORY_GROUPS,assignments
@@ -13,7 +13,7 @@ DELAY=max(.25,float(os.getenv("SHOPBASE_REQUEST_DELAY_SECONDS","0.35")))
 MARKUP=max(0,float(os.getenv("AARO_MARKUP_PERCENT","20")))
 CAP=max(0,int(os.getenv("SHOPBASE_MAX_PRODUCTS_PER_RUN","0")))
 DETAIL_REFRESH_DAYS=max(1,int(os.getenv("SHOPBASE_DETAIL_REFRESH_DAYS","7")))
-DETAILS_VERSION=3
+DETAILS_VERSION=4
 DIGITS=str.maketrans("০১২৩৪৫৬৭৮৯٠١٢٣٤٥٦٧٨٩","01234567890123456789")
 class SyncError(RuntimeError): pass
 def now(): return datetime.now(timezone.utc).isoformat()
@@ -23,6 +23,9 @@ def digest(*parts): return hashlib.sha256("\x1f".join(parts).encode()).hexdigest
 def details_are_stale(product):
  if os.getenv("SHOPBASE_FORCE_DETAIL_REFRESH","false").strip().lower() in ("1","true","yes","on"): return True
  if int(product.get("detailsVersion",0) or 0)<DETAILS_VERSION: return True
+ stored=str(product.get("details") or product.get("description") or "").strip()
+ title=str(product.get("title") or "").strip()
+ if not stored or re.sub(r"\\s+"," ",stored).casefold()==re.sub(r"\\s+"," ",title).casefold(): return True
  try:
   updated=datetime.fromisoformat(product.get("detailsFetchedAt",""))
   age=(datetime.now(timezone.utc)-updated).total_seconds()
@@ -90,20 +93,58 @@ def cards(soup,cat):
   image=urljoin(BASE,image) if image else ""; sid=m.group(1)
   rows[sid]={"sourceId":sid,"title":title,"category":cat["name"],"categorySourceId":cat["sourceId"],"wholesalePrice":price,"sourceImage":image,"detailPath":path,"listFingerprint":digest(title,cat["sourceId"],str(price),image)}
  return list(rows.values())
+DESCRIPTION_HEADING=re.compile(r"^(?:📌\\s*)?পণ্যের\\s+বিবরণ\\s*[:：]?$",re.I)
+COPY_LABEL=re.compile(r"^(?:কপি\\s*করুন|কপি|copy(?:\\s+(?:text|details))?)$",re.I)
+def clean_detail_text(node,title):
+ if node is None: return ""
+ if hasattr(node,"select"):
+  node=copy.deepcopy(node)
+  for junk in node.select("button,input,script,style,svg,nav"):
+   junk.decompose()
+  raw=node.get_text("\\n",strip=True)
+ else:
+  raw=str(node).strip()
+ lines=[]
+ for line in raw.splitlines():
+  line=re.sub(r"\\s+"," ",line).strip()
+  if not line or DESCRIPTION_HEADING.fullmatch(line) or COPY_LABEL.fullmatch(line): continue
+  lines.append(line)
+ result="\\n".join(lines).strip()
+ normalize=lambda value:re.sub(r"\\s+"," ",str(value)).strip().casefold()
+ return result if result and normalize(result)!=normalize(title) else ""
+def extract_description(soup,title):
+ for selector in (".descriptionCopy",".product-description",".product_details","[itemprop='description']"):
+  node=soup.select_one(selector)
+  text=clean_detail_text(node,title)
+  if text: return node,text
+ for marker in soup.find_all(string=True):
+  if not DESCRIPTION_HEADING.fullmatch(re.sub(r"\\s+"," ",str(marker)).strip()): continue
+  current=marker.parent
+  for _ in range(6):
+   if current is None: break
+   pieces=[]; sibling=current.next_sibling
+   while sibling is not None and sum(map(len,pieces))<12000:
+    text=clean_detail_text(sibling,title)
+    if text: pieces.append(text)
+    sibling=sibling.next_sibling
+   candidate=clean_detail_text("\\n".join(pieces),title)
+   if candidate: return None,candidate
+   current=current.parent
+ return None,""
 def detail(soup,row):
+ detail_node,detail_text=extract_description(soup,row["title"])
+ if not detail_text:
+  raise SyncError(f"Could not find product description for {row['sourceId']}; details were left unchanged.")
+ description=detail_text
  text=soup.get_text(" ",strip=True)
- d=soup.select_one(".descriptionCopy, .product-description, .product_details, [itemprop='description']")
- description=d.get_text("\n",strip=True) if d else row["title"]
- description=re.sub(r"\n{3,}","\n\n",description).strip()
- detail_text=d.get_text("\n",strip=True) if d else ""
  size_chart=""
  for node in soup.select("table, .size-chart, .sizeChart, [class*='size-guide'], [id*='size-chart'], [id*='size-guide']"):
-  candidate=node.get_text("\n",strip=True)
+  candidate=node.get_text("\\n",strip=True)
   if candidate and re.search(r"size|measurement|মাপ|সাইজ|পরিমাপ",candidate,re.I):
    size_chart=candidate[:12000]
    break
  if not size_chart:
-  match=re.search(r"(?:Size\s*Measurement|Size\s*Chart|সাইজ\s*চার্ট|পরিমাপ)[\s\S]{0,4000}",detail_text,re.I)
+  match=re.search(r"(?:Size\\s*Measurement|Size\\s*Chart|সাইজ\\s*চার্ট|পরিমাপ)[\\s\\S]{0,4000}",detail_text,re.I)
   if match: size_chart=match.group(0).strip()
  main=soup.select_one('a[href*="/public/uploads/shop/products/"]')
  image=main.get("href","") if main else ""
@@ -113,11 +154,11 @@ def detail(soup,row):
  image=urljoin(BASE,image) if image else row.get("sourceImage","")
  if not image: raise SyncError(f"No main product image found for {row['sourceId']}.")
  imgs=[image]
- available=bool(re.search(r"স্টক\s*[:：]?\s*আছে",text))
- unavailable=bool(re.search(r"স্টক\s*[:：]?\s*(নাই|নেই|out)",text,re.I))
+ available=bool(re.search(r"স্টক\\s*[:：]?\\s*আছে",text))
+ unavailable=bool(re.search(r"স্টক\\s*[:：]?\\s*(নাই|নেই|out)",text,re.I))
  if not available and not unavailable: raise SyncError(f"Could not read stock state for {row['sourceId']}; stopping safely.")
  stock=1 if available else 0
- sku=re.search(r"SKU\s*[:：]?\s*([A-Za-z0-9_-]+)",text,re.I)
+ sku=re.search(r"SKU\\s*[:：]?\\s*([A-Za-z0-9_-]+)",text,re.I)
  sm=re.search(r"(?:সর্বোচ্চ|maximum)[^০-৯0-9]{0,24}([০-৯0-9,]+)",text,re.I); suggested=number(sm.group(1)) if sm else None
  if suggested is not None and suggested < row["wholesalePrice"]: suggested=None
  sizes=[]; option_values={}
@@ -133,7 +174,7 @@ def detail(soup,row):
    values=[v for v in values if v and not re.search(r"select|choose|বাছাই",v,re.I)]
   else:
    values=[value] if value else []
-   if label_text: values=[re.sub(r"\s+"," ",label_text).strip()]
+   if label_text: values=[re.sub(r"\\s+"," ",label_text).strip()]
   values=[v for v in values if v and len(v)<80]
   if values:
    option_name="Size" if size_context else (name or "Option")
@@ -146,11 +187,13 @@ def detail(soup,row):
    value=node.get_text(" ",strip=True)
    if value and len(value)<20: sizes.append(value)
  sizes=list(dict.fromkeys(v for v in sizes if v))
- attributes=[]
- if d:
-  for row_node in d.select("tr, li, p"):
+ if detail_node is not None and hasattr(detail_node,"select"):
+  attributes=[]
+  for row_node in detail_node.select("tr, li, p"):
    line=row_node.get_text(" ",strip=True)
    if line and line not in attributes: attributes.append(line[:500])
+ else:
+  attributes=[line[:500] for line in detail_text.splitlines() if line.strip()]
  cost=row["wholesalePrice"]; retail=max(cost,round(cost*(1+MARKUP/100)/10)*10)
  if suggested: retail=suggested
  parent=row.get("parentCategory",{})
