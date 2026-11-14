@@ -1,3 +1,4 @@
+import logging
 import os
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -23,8 +24,12 @@ def public_product(product, include_details=False):
     # The supplier's suggested retail price is the storefront price. Keep the
     # wholesale value in MongoDB, but never expose it in the public catalog.
     product["price"] = product.get("suggestedRetailPrice") or product.get("price", 0)
-    if product.get("compareAt") and product["compareAt"] <= product["price"]:
-        product["compareAt"] = None
+    if product.get("compareAt"):
+        try:
+            if float(product["compareAt"]) <= float(product["price"]):
+                product["compareAt"] = None
+        except (TypeError, ValueError):
+            product["compareAt"] = None
     for private_field in ("wholesalePrice", "listFingerprint", "lastSeenRun", "missingRuns", "detailsFetchedAt", "detailsVersion", "imageOverride", "sourceImage", "sourceImages"):
         product.pop(private_field, None)
     product.setdefault("rating", 0)
@@ -57,6 +62,7 @@ def catalog():
     except HTTPException:
         raise
     except Exception:
+        logging.exception("Catalog load failed")
         raise HTTPException(status_code=503, detail="Could not load catalog.")
 
 @app.get("/api/products/{source_id}")
