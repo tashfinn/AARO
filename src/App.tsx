@@ -48,9 +48,18 @@ function mergeCategoryGroups(saved: CategoryGroup[], live: CategoryGroup[]): Cat
   })
 }
 
+function slugify(value: string) { return value.normalize('NFKC').trim().toLocaleLowerCase().replace(/[^\\p{L}\\p{N}]+/gu, '-').replace(/^-|-$/g, '') || 'item' }
+function storePath(page: StorePage, category = 'All', groups: CategoryGroup[] = [], sourceId = '', parentId = '') {
+  if (page === 'trending' || page === 'offers' || page === 'combos' || page === 'wishlist' || page === 'terms') return `/${page}`
+  if (page !== 'category' || category === 'All') return '/'
+  const parent = groups.find((group) => group.id === parentId)
+  const child = parent?.children.find((item) => item.sourceId === sourceId || item.name === category)
+  return parent ? `/category/${slugify(parent.name)}${child ? `/${slugify(child.name)}` : ''}` : `/category/${slugify(category)}`
+}
 function productPath(product: Product) {
-  const slug = product.title.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
-  return `/products/${slug}/${encodeURIComponent(product.id)}`
+  const parent = slugify(product.parentCategory || 'catalog')
+  const subcategory = slugify(product.category || 'products')
+  return `/category/${parent}/${subcategory}/${slugify(product.title)}-${encodeURIComponent(product.id)}`
 }
 
 function productIdFromPath() {
@@ -170,12 +179,19 @@ export default function App() {
       setAuthRoute(window.location.pathname === '/login' ? 'login' : window.location.pathname === '/register' ? 'register' : null)
       setProductRouteId(productIdFromPath())
       setCheckout(window.location.pathname === '/checkout')
-      if (window.location.pathname === '/account') setPage('account')
-      else if (window.location.pathname !== '/admin' && !productIdFromPath() && window.location.pathname !== '/checkout') setPage('shop')
+      const parts = window.location.pathname.split('/').filter(Boolean)
+      if (parts[0] === 'account') setPage('account')
+      else if (['trending','offers','combos','wishlist','terms'].includes(parts[0] || '')) setPage(parts[0] as StorePage)
+      else if (parts[0] === 'category') {
+        const groups = categoryGroups
+        const parent = groups.find((group) => slugify(group.name) === parts[1])
+        const child = parent?.children.find((item) => slugify(item.name) === parts[2])
+        setPage('category'); setSelectedParentCategoryId(parent?.id || ''); setSelectedCategorySourceId(child?.sourceId || ''); setCategory(child?.name || parent?.name || 'All')
+      } else if (window.location.pathname !== '/admin' && !productIdFromPath() && window.location.pathname !== '/checkout') setPage('shop')
     }
     window.addEventListener('popstate', syncRoute)
     return () => window.removeEventListener('popstate', syncRoute)
-  }, [])
+  }, [categoryGroups])
   useEffect(() => {
     if (!accountToken || !API_BASE) { setAccountProfile(null); setCustomerOrders([]); return }
     const headers = { Authorization: `Bearer ${accountToken}` }
@@ -289,7 +305,7 @@ export default function App() {
   function notify(message: string) { setToast(message) }
   function updateState(updater: (current: StoreState) => StoreState) { setState((current) => updater(current)) }
   function showStore(pageToShow: StorePage, nextCategory = 'All', sourceCategoryId = '', parentCategoryId = '') {
-    setAdmin(false); setAuthRoute(null); setCheckout(false); setActiveCategoryMenuId(''); setPage(pageToShow); setCategory(nextCategory); setSelectedCategorySourceId(sourceCategoryId); setSelectedParentCategoryId(parentCategoryId); setQuery(''); setSubmittedQuery(''); setProductRouteId(null); setCategoryMenuOpen(false); setMobileMenu(false); history.replaceState({}, '', '/'); window.scrollTo({ top: 0, behavior: 'smooth' })
+    setAdmin(false); setAuthRoute(null); setCheckout(false); setActiveCategoryMenuId(''); setPage(pageToShow); setCategory(nextCategory); setSelectedCategorySourceId(sourceCategoryId); setSelectedParentCategoryId(parentCategoryId); setQuery(''); setSubmittedQuery(''); setProductRouteId(null); setCategoryMenuOpen(false); setMobileMenu(false); history.pushState({ aaroRoute: true }, '', storePath(pageToShow, nextCategory, categoryGroups, sourceCategoryId, parentCategoryId)); window.scrollTo({ top: 0, behavior: 'smooth' })
   }
   function showAuth(mode: 'login' | 'register') {
     setAuthRoute(mode); setAdmin(false); setMobileMenu(false); setProductRouteId(null); setCheckout(false)
