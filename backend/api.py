@@ -13,6 +13,7 @@ from fastapi import FastAPI, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from pymongo import MongoClient
+import requests
 from category_groups import category_group_payload
 
 app = FastAPI(title="AARO catalog API", version="0.1.0")
@@ -25,6 +26,9 @@ class CustomerCredentials(BaseModel):
     identifier: str = Field(min_length=3, max_length=254)
     password: str = Field(min_length=10, max_length=256)
     name: str | None = Field(default=None, min_length=2, max_length=120)
+
+class SyncRequest(BaseModel):
+    refresh_details: bool = True
 
 class AdminCredentials(BaseModel):
     identifier: str = Field(min_length=1, max_length=120)
@@ -315,12 +319,152 @@ def admin_orders(authorization: str | None = Header(default=None)):
     _admin_from_auth(authorization)
     return list(db().orders.find({}, {"_id": 0}).sort("createdAt", -1))
 
+def _github_sync_settings():
+    token = os.getenv("GITHUB_ACTIONS_TOKEN", "").strip()
+    repository = os.getenv("GITHUB_SYNC_REPOSITORY", "tashfinn/AARO").strip()
+    workflow = os.getenv("GITHUB_SYNC_WORKFLOW", "shopbase-sync.yml").strip()
+    if not token:
+        raise HTTPException(status_code=503, detail="Add GITHUB_ACTIONS_TOKEN to the Render API environment to enable Sync Now.")
+    if repository.count("/") != 1 or not workflow:
+        raise HTTPException(status_code=500, detail="GitHub sync repository or workflow configuration is invalid.")
+    return token, repository, workflow
+
+def _github_headers(token: str):
+    return {
+        "Accept": "application/vnd.github+json",
+        "Authorization": f"Bearer {token}",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+
+def _github_sync_runs(token: str, repository: str, workflow: str):
+    url = f"https://api.github.com/repos/{repository}/actions/workflows/{workflow}/runs"
+    response = requests.get(url, headers=_github_headers(token), params={"per_page": 20}, timeout=15)
+    if response.status_code in (401, 403):
+        raise HTTPException(status_code=502, detail="GitHub rejected GITHUB_ACTIONS_TOKEN. It needs Actions read and write access to this repository.")
+    response.raise_for_status()
+    payload = response.json()
+    return payload.get("workflow_runs", []) if isinstance(payload, dict) else []
+
+def _stamp(value: str | None):
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+
+@app.post("/api/admin/sync/run")
+def start_admin_sync(input: SyncRequest, authorization: str | None = Header(default=None)):
+    _admin_from_auth(authorization)
+    token, repository, workflow = _github_sync_settings()
+    try:
+        runs = _github_sync_runs(token, repository, workflow)
+        active = next((run for run in runs if run.get("status") in ("queued", "in_progress")), None)
+        if active:
+            requested_at = active.get("created_at") or datetime.now(timezone.utc).isoformat()
+            db().sync_control.update_one({"_id": "manual"}, {"$set": {
+                "requestedAt": requested_at,
+                "runId": active.get("id"),
+                "status": active.get("status"),
+                "htmlUrl": active.get("html_url"),
+                "repository": repository,
+                "workflow": workflow,
+            }}, upsert=True)
+            return {"status": "running", "requestedAt": requested_at, "workflowRunId": active.get("id"), "workflowUrl": active.get("html_url"), "alreadyRunning": True}
+
+        requested_at = datetime.now(timezone.utc).isoformat()
+        db().sync_control.update_one({"_id": "manual"}, {"$set": {
+            "requestedAt": requested_at,
+            "runId": None,
+            "status": "queued",
+            "htmlUrl": None,
+            "repository": repository,
+            "workflow": workflow,
+            "error": None,
+        }}, upsert=True)
+        url = f"https://api.github.com/repos/{repository}/actions/workflows/{workflow}/dispatches"
+        response = requests.post(
+            url,
+            headers=_github_headers(token),
+            json={"ref": "main", "inputs": {"refresh_details": "true" if input.refresh_details else "false"}},
+            timeout=20,
+        )
+        if response.status_code in (401, 403):
+            raise HTTPException(status_code=502, detail="GitHub rejected GITHUB_ACTIONS_TOKEN. It needs Actions write access to this repository.")
+        if response.status_code != 204:
+            response.raise_for_status()
+            raise HTTPException(status_code=502, detail="GitHub did not accept the sync workflow request.")
+        return {"status": "queued", "requestedAt": requested_at, "refreshDetails": input.refresh_details}
+    except HTTPException as error:
+        db().sync_control.update_one({"_id": "manual"}, {"$set": {"status": "failed", "error": error.detail, "updatedAt": datetime.now(timezone.utc).isoformat()}}, upsert=True)
+        raise
+    except requests.RequestException as error:
+        message = "Could not start the GitHub sync workflow. Check the Render API outbound connection and GitHub token."
+        db().sync_control.update_one({"_id": "manual"}, {"$set": {"status": "failed", "error": message, "updatedAt": datetime.now(timezone.utc).isoformat()}}, upsert=True)
+        raise HTTPException(status_code=502, detail=message) from error
+
 @app.get("/api/admin/sync/progress")
 def admin_sync_progress(authorization: str | None = Header(default=None)):
     _admin_from_auth(authorization)
     fields = {"_id": 0, "runId": 1, "status": 1, "phase": 1, "error": 1, "startedAt": 1, "updatedAt": 1, "finishedAt": 1, "categoriesProcessed": 1, "totalCategories": 1, "productsDiscovered": 1, "productsProcessed": 1, "totalProducts": 1, "created": 1, "changed": 1, "unchanged": 1, "skippedDetails": 1}
-    progress = db().sync_runs.find_one({}, fields, sort=[("startedAt", -1)])
-    return progress or {"status": "not_started", "phase": "idle"}
+    progress = db().sync_runs.find_one({}, fields, sort=[("startedAt", -1)]) or {"status": "not_started", "phase": "idle"}
+    control = db().sync_control.find_one({"_id": "manual"}, {"_id": 0})
+    if not control:
+        return progress
+    response = dict(progress)
+    response["workflowStatus"] = control.get("status", "queued")
+    response["workflowRunId"] = control.get("runId")
+    response["workflowUrl"] = control.get("htmlUrl")
+    requested_at = control.get("requestedAt")
+    progress_at = _stamp(progress.get("startedAt"))
+    request_time = _stamp(requested_at)
+    importer_is_current = bool(progress_at and request_time and progress_at >= request_time)
+    if control.get("status") == "failed" and not importer_is_current:
+        response.update({"status": "failed", "phase": "failed", "error": control.get("error", "Could not start sync.")})
+        return response
+    try:
+        token, repository, workflow = _github_sync_settings()
+        runs = _github_sync_runs(token, repository, workflow)
+        run = next((item for item in runs if item.get("id") == control.get("runId")), None)
+        if not run and request_time:
+            candidates = [
+                item for item in runs
+                if item.get("event") == "workflow_dispatch"
+                and _stamp(item.get("created_at"))
+                and _stamp(item.get("created_at")) >= request_time
+            ]
+            run = candidates[0] if candidates else None
+        if run:
+            response["workflowStatus"] = run.get("status", "queued")
+            response["workflowConclusion"] = run.get("conclusion")
+            response["workflowRunId"] = run.get("id")
+            response["workflowUrl"] = run.get("html_url")
+            db().sync_control.update_one({"_id": "manual"}, {"$set": {
+                "runId": run.get("id"),
+                "status": run.get("status"),
+                "htmlUrl": run.get("html_url"),
+                "updatedAt": datetime.now(timezone.utc).isoformat(),
+            }})
+            if not importer_is_current:
+                if run.get("status") in ("queued", "in_progress"):
+                    response.update({"status": "running", "phase": "queued" if run.get("status") == "queued" else "starting", "startedAt": requested_at})
+                elif run.get("status") == "completed" and run.get("conclusion") != "success":
+                    response.update({"status": "failed", "phase": "failed", "error": "GitHub Actions sync failed before the importer reported progress."})
+                elif run.get("status") == "completed" and run.get("conclusion") == "success":
+                    response.update({"status": "failed", "phase": "failed", "error": "The workflow completed without writing importer progress. Check the GitHub Actions run."})
+    except (HTTPException, requests.RequestException):
+        if not importer_is_current and control.get("status") in ("queued", "in_progress"):
+            response.update({"status": "running", "phase": "queued", "startedAt": requested_at})
+    if response.get("status") in ("success", "success_with_skipped_details"):
+        response["progressPercent"] = 100
+    elif response.get("phase") == "updating_products" and response.get("totalProducts"):
+        response["progressPercent"] = 15 + round((response.get("productsProcessed", 0) / response["totalProducts"]) * 85)
+    elif response.get("totalCategories"):
+        response["progressPercent"] = round((response.get("categoriesProcessed", 0) / response["totalCategories"]) * 15)
+    else:
+        response["progressPercent"] = 0
+    return response
+
 
 @app.patch("/api/admin/orders/{order_id}")
 def update_order(order_id: str, input: OrderStatusInput, authorization: str | None = Header(default=None)):
