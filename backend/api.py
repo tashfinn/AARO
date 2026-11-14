@@ -59,6 +59,17 @@ class CouponInput(BaseModel):
     minimum: float | None = Field(default=None, ge=0)
     active: bool = True
 
+
+class OfferInput(BaseModel):
+    id: str = Field(min_length=1, max_length=80)
+    productId: str = Field(min_length=1, max_length=120)
+    kind: str
+    value: float = Field(default=0, ge=0)
+    discountKind: str = "percent"
+    quantity: int = Field(default=1, ge=1, le=1000)
+    freeQuantity: int = Field(default=1, ge=1, le=1000)
+    active: bool = True
+
 class OrderStatusInput(BaseModel):
     status: str
 
@@ -266,6 +277,37 @@ def create_order(input: OrderInput, authorization: str | None = Header(default=N
     db().orders.insert_one(order)
     order.pop("_id", None)
     return order
+
+
+@app.get("/api/offers")
+def public_offers():
+    return list(db().offers.find({"active": True}, {"_id": 0}))
+
+@app.get("/api/admin/offers")
+def list_offers(authorization: str | None = Header(default=None)):
+    _admin_from_auth(authorization)
+    return list(db().offers.find({}, {"_id": 0}))
+
+@app.post("/api/admin/offers")
+def save_offer(input: OfferInput, authorization: str | None = Header(default=None)):
+    _admin_from_auth(authorization)
+    if input.kind not in ("special_price", "quantity_discount", "buy_x_get_y_free"):
+        raise HTTPException(status_code=422, detail="Unknown offer type.")
+    if input.kind == "quantity_discount" and input.discountKind not in ("percent", "amount"):
+        raise HTTPException(status_code=422, detail="Discount must be a percentage or fixed amount.")
+    if input.kind != "buy_x_get_y_free" and input.value <= 0:
+        raise HTTPException(status_code=422, detail="Enter a positive offer value.")
+    offer = input.model_dump()
+    db().offers.replace_one({"id": offer["id"]}, offer, upsert=True)
+    return offer
+
+@app.delete("/api/admin/offers/{offer_id}")
+def remove_offer(offer_id: str, authorization: str | None = Header(default=None)):
+    _admin_from_auth(authorization)
+    result = db().offers.delete_one({"id": offer_id})
+    if not result.deleted_count:
+        raise HTTPException(status_code=404, detail="Offer not found.")
+    return {"ok": True}
 
 @app.get("/api/admin/orders")
 def admin_orders(authorization: str | None = Header(default=None)):
