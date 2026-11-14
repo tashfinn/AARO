@@ -20,6 +20,7 @@ const AUTH_TOKEN_KEY = 'aaro-auth-token-v1'
 const ADMIN_TOKEN_KEY = 'aaro-admin-token-v1'
 const ADMIN_SESSION_TOKEN_KEY = 'aaro-admin-session-token-v1'
 const CATEGORY_GROUPS_KEY = 'aaro-category-groups-v1'
+const PRODUCT_VIEWS_KEY = 'aaro-product-views-v1'
 const API_BASE = import.meta.env.VITE_API_URL?.replace(/\/$/, '') || ''
 type Address = { id: string; label?: string; recipient: string; phone: string; area: string; address: string; isDefault?: boolean }
 type AccountProfile = { id: string; name: string; email: string; phone: string; addresses: Address[]; defaultAddressId?: string }
@@ -269,6 +270,8 @@ export default function App() {
       if (priceSort === 'low-high') products = [...products].sort((a, b) => a.price - b.price)
       if (priceSort === 'high-low') products = [...products].sort((a, b) => b.price - a.price)
     }
+    const views = (() => { try { return JSON.parse(localStorage.getItem(PRODUCT_VIEWS_KEY) || '{}') as Record<string, number> } catch { return {} } })()
+    products = [...products].sort((a, b) => (views[b.id] || 0) - (views[a.id] || 0))
     return products
   }, [activeProducts, category, categoryGroups, maxPrice, minPrice, page, priceSort, selectedCategorySourceId, selectedParentCategoryId, submittedQuery, state.content.offerIds, state.content.trendingIds, wishlist])
   const searchSuggestions = useMemo(() => {
@@ -316,6 +319,7 @@ export default function App() {
     setCartOpen(true)
   }
   function openProduct(product: Product) {
+    try { const views = JSON.parse(localStorage.getItem(PRODUCT_VIEWS_KEY) || '{}') as Record<string, number>; views[product.id] = (views[product.id] || 0) + 1; localStorage.setItem(PRODUCT_VIEWS_KEY, JSON.stringify(views)) } catch { /* viewing still works if storage is unavailable */ }
     setAdmin(false); setProductRouteId(product.id); setShowSearch(false); setQuery(''); setSubmittedQuery(''); setCategoryMenuOpen(false)
     history.pushState({ productId: product.id, aaroProduct: true }, '', productPath(product)); window.scrollTo({ top: 0, behavior: 'smooth' })
   }
@@ -493,7 +497,7 @@ export default function App() {
   const selectedOfferProducts = activeProducts.filter((product) => state.content.offerIds.includes(product.id) || product.offer)
   const discountedProducts = activeProducts.filter((product) => product.compareAt && product.compareAt > product.price)
   const homeOfferProducts = (selectedOfferProducts.length ? selectedOfferProducts : discountedProducts).slice(0, 4)
-  const homeCategories = useMemo(() => state.categories.filter((item) => item !== 'All').map((category) => ({ category, products: activeProducts.filter((product) => product.category === category) })).filter((item) => item.products.length > 0).sort((a, b) => b.products.length - a.products.length).slice(0, 3), [activeProducts, state.categories])
+  const homeCategories = useMemo(() => state.categories.filter((item) => item !== 'All').map((category) => ({ category, products: activeProducts.filter((product) => product.category === category) })).filter((item) => item.products.length > 0).sort(() => Math.random() - 0.5).slice(0, 3), [activeProducts, state.categories])
 
   return <>
     {admin ? <div className={`admin-shell ${darkTheme ? 'theme-dark' : ''}`}>
