@@ -54,7 +54,8 @@ def catalog():
     try:
         store = db()
         fields = {"_id": 0, "sourceId": 1, "title": 1, "category": 1, "categorySourceId": 1, "parentCategory": 1, "parentCategoryId": 1, "price": 1, "suggestedRetailPrice": 1, "compareAt": 1, "image": 1, "stock": 1, "active": 1, "source": 1, "updatedAt": 1, "trending": 1, "offer": 1, "badge": 1, "rating": 1, "reviews": 1}
-        products = [public_product(item) for item in store.products.find({"active": True}, fields).sort("title", 1).limit(20000)]
+        products = [public_product(item) for item in store.products.find({"active": True}, fields).limit(20000)]
+        products.sort(key=lambda item: str(item.get("title", "")).casefold())
         categories = list(store.categories.find({"source": "shopbase", "type": {"$ne": "parent"}}, {"_id": 0, "sourceId": 1, "name": 1, "parentId": 1, "parentName": 1, "sortOrder": 1}).sort([("sortOrder", 1), ("name", 1)]))
         groups = category_group_payload(categories)
         latest = store.sync_runs.find_one({"status": "success"}, {"_id": 0}, sort=[("finishedAt", -1)])
