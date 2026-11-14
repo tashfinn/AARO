@@ -29,7 +29,7 @@ export type Product = {
 
 export type CategoryGroup = { id: string; name: string; children: { sourceId?: string; name: string; sortOrder?: number }[] }
 
-export type OfferDeal = { id: string; productId: string; kind: 'special_price' | 'quantity_discount' | 'buy_x_get_y_free'; value: number; discountKind: 'percent' | 'amount'; quantity: number; freeQuantity: number; active: boolean }
+export type OfferDeal = { title: string; id: string; productId: string; kind: 'special_price' | 'quantity_discount' | 'buy_x_get_y_free'; value: number; discountKind: 'percent' | 'amount'; quantity: number; freeQuantity: number; active: boolean }
 export type Coupon = { code: string; kind: 'percent' | 'amount'; value: number; active: boolean; minimum?: number }
 export type OrderStatus = 'Pending confirmation' | 'Confirmed' | 'Processing' | 'Shipped' | 'Delivered' | 'Cancelled'
 export type Order = {
