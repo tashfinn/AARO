@@ -13,7 +13,7 @@ DELAY=max(.25,float(os.getenv("SHOPBASE_REQUEST_DELAY_SECONDS","0.35")))
 MARKUP=max(0,float(os.getenv("AARO_MARKUP_PERCENT","20")))
 CAP=max(0,int(os.getenv("SHOPBASE_MAX_PRODUCTS_PER_RUN","0")))
 DETAIL_REFRESH_DAYS=max(1,int(os.getenv("SHOPBASE_DETAIL_REFRESH_DAYS","7")))
-DETAILS_VERSION=2
+DETAILS_VERSION=3
 DIGITS=str.maketrans("০১২৩৪৫৬৭৮৯٠١٢٣٤٥٦٧٨٩","01234567890123456789")
 class SyncError(RuntimeError): pass
 def now(): return datetime.now(timezone.utc).isoformat()
@@ -74,10 +74,10 @@ def cards(soup,cat):
   if not pm: continue
   price=number(pm.group(1))
   if price is None: continue
-  im=box.find("img"); image=(im.get("data-src") or im.get("src") or "") if im else ""
-  if not image and im and im.get("srcset"): image=im["srcset"].split(",")[0].strip().split(" ")[0]
+  il=box.select_one('a[href*="/public/uploads/shop/products/"]'); image=il.get("href","") if il else ""
   if not image:
-   il=box.select_one('a[href*="/public/uploads/shop/products/"]'); image=il.get("href","") if il else ""
+   im=box.find("img"); image=(im.get("data-src") or im.get("src") or "") if im else ""
+   if not image and im and im.get("srcset"): image=im["srcset"].split(",")[0].strip().split(" ")[0]
   image=urljoin(BASE,image) if image else ""; sid=m.group(1)
   rows[sid]={"sourceId":sid,"title":title,"category":cat["name"],"categorySourceId":cat["sourceId"],"wholesalePrice":price,"sourceImage":image,"detailPath":path,"listFingerprint":digest(title,cat["sourceId"],str(price),image)}
  return list(rows.values())
@@ -96,14 +96,14 @@ def detail(soup,row):
  if not size_chart:
   match=re.search(r"(?:Size\s*Measurement|Size\s*Chart|সাইজ\s*চার্ট|পরিমাপ)[\s\S]{0,4000}",detail_text,re.I)
   if match: size_chart=match.group(0).strip()
- imgs=[]
- for n in soup.select('a[href*="/public/uploads/shop/products/"],img[src*="/public/uploads/shop/products/"]'):
-  u=n.get("href") if n.name=="a" else n.get("src")
-  if u:
-   u=urljoin(BASE,u)
-   if u not in imgs: imgs.append(u)
- if row["sourceImage"] and row["sourceImage"] not in imgs: imgs.insert(0,row["sourceImage"])
- if not imgs: raise SyncError(f"No images found for {row['sourceId']}.")
+ main=soup.select_one('a[href*="/public/uploads/shop/products/"]')
+ image=main.get("href","") if main else ""
+ if not image:
+  node=soup.select_one('img[src*="/public/uploads/shop/products/"],img[data-src*="/public/uploads/shop/products/"]')
+  image=(node.get("data-src") or node.get("src") or "") if node else ""
+ image=urljoin(BASE,image) if image else row.get("sourceImage","")
+ if not image: raise SyncError(f"No main product image found for {row['sourceId']}.")
+ imgs=[image]
  available=bool(re.search(r"স্টক\s*[:：]?\s*আছে",text))
  unavailable=bool(re.search(r"স্টক\s*[:：]?\s*(নাই|নেই|out)",text,re.I))
  if not available and not unavailable: raise SyncError(f"Could not read stock state for {row['sourceId']}; stopping safely.")
@@ -162,20 +162,13 @@ def run():
   s=session(); cats=categories(get(s,"/store/products/all"))
   if len(cats)<30: raise SyncError(f"Only {len(cats)} categories parsed; refusing a partial catalog scan.")
   category_map,_=assignments(cats)
-  known_group_ids={group["id"] for group in CATEGORY_GROUPS}
-  previous_categories={item["sourceId"]:item for item in c.find({"source":"shopbase"},{"sourceId":1,"name":1,"parentId":1,"parentName":1,"sortOrder":1,"unmatchedCategoryLabel":1})}
-  unmatched=[]
-  for cat in cats:
-   previous=previous_categories.get(cat["sourceId"],{})
-   if previous.get("name")==cat["name"] and previous.get("parentId") in known_group_ids:
-    category_map[cat["sourceId"]]={"parentId":previous["parentId"],"parentName":previous.get("parentName", ""),"sortOrder":previous.get("sortOrder", 1000),"unmatched":bool(previous.get("unmatchedCategoryLabel",False))}
-   if category_map[cat["sourceId"]]["unmatched"]: unmatched.append(cat["name"])
+  unmatched=[cat["name"] for cat in cats if category_map[cat["sourceId"]]["unmatched"]]
   for order,group in enumerate(CATEGORY_GROUPS):
    c.update_one({"sourceId":f"aaro-parent:{group['id']}"},{"$set":{"name":group["name"],"slug":group["id"],"type":"parent","source":"aaro","sortOrder":order,"updatedAt":now()}},upsert=True)
   listing={}
-  for cat in cats:
+  for source_order,cat in enumerate(cats):
    parent=category_map[cat["sourceId"]]
-   c.update_one({"sourceId":cat["sourceId"]},{"$set":{"name":cat["name"],"source":"shopbase","type":"subcategory","parentId":parent["parentId"],"parentName":parent["parentName"],"sortOrder":parent["sortOrder"],"unmatchedCategoryLabel":parent["unmatched"],"updatedAt":now()}},upsert=True)
+   c.update_one({"sourceId":cat["sourceId"]},{"$set":{"name":cat["name"],"source":"shopbase","type":"subcategory","parentId":parent["parentId"],"parentName":parent["parentName"],"sortOrder":parent["sortOrder"],"unmatchedCategoryLabel":parent["unmatched"],"sourceOrder":source_order,"updatedAt":now()}},upsert=True)
    first=get(s,cat["url"])
    for page in range(1,pages(first,cat["sourceId"])+1):
     soup=first if page==1 else get(s,f"/store/products/{cat['sourceId']}/{page}")
@@ -192,7 +185,7 @@ def run():
     p.update_one({"sourceId":sid,"source":"shopbase"},{"$set":{"lastSeenRun":runid,"missingRuns":0,"parentCategory":row["parentCategory"]["parentName"],"parentCategoryId":row["parentCategory"]["parentId"]}}); unchanged+=1
    else:
     doc=detail(get(s,row["detailPath"]),row); hosted=mirror(doc["sourceImage"],sid)
-    doc.update({"images":[hosted,*doc["sourceImages"][1:]],"image":(prev.get("imageOverride") or hosted) if prev else hosted,"imageOverride":prev.get("imageOverride") if prev else None,"active":bool(doc["stock"]),"detailsFetchedAt":now(),"detailsVersion":DETAILS_VERSION,"lastSeenRun":runid,"missingRuns":0})
+    doc.update({"images":[hosted],"image":(prev.get("imageOverride") or hosted) if prev else hosted,"imageOverride":prev.get("imageOverride") if prev else None,"active":bool(doc["stock"]),"detailsFetchedAt":now(),"detailsVersion":DETAILS_VERSION,"lastSeenRun":runid,"missingRuns":0})
     batch.append(UpdateOne({"sourceId":sid,"source":"shopbase"},{"$set":doc},upsert=True))
     if prev: changed+=1
     else: created+=1
@@ -209,4 +202,3 @@ def run():
 if __name__=="__main__":
  try: run()
  except Exception as e: print(f"Catalog sync failed: {e}",file=sys.stderr); raise SystemExit(1)
-
