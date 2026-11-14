@@ -12,6 +12,11 @@ MONGODB_URI, MONGODB_DATABASE=aaro, SHOPBASE_SESSION_COOKIE, AARO_MARKUP_PERCENT
 
 The ShopBase cookie is as sensitive as a password. Do not paste it into chat or commit it. The importer displays the supplier's suggested retail price when it can parse that field; otherwise it falls back to the configured markup. Wholesale cost remains in MongoDB and is excluded from public API responses.
 
+
+## Admin Sync Now
+
+The Product Sync screen can dispatch the existing GitHub Actions workflow and poll importer counters from MongoDB. Add a server-only `GITHUB_ACTIONS_TOKEN` environment variable to the Render API service. Use a fine-grained GitHub token restricted to `tashfinn/AARO` with Actions read and write access. Never add this token to Vercel or storefront code. Optional settings are `GITHUB_SYNC_REPOSITORY` (defaults to `tashfinn/AARO`) and `GITHUB_SYNC_WORKFLOW` (defaults to `shopbase-sync.yml`). Manual runs refresh product details and show category/product counts, completion percentage, and the GitHub Actions run link.
+
 ## Deploy
 
 1. Push this project to a private GitHub repository.
