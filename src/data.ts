@@ -8,7 +8,7 @@ export const initialState: StoreState = {
   content: {
     heroTitle: '10,000+ products\nAcross 100+ categories',
     heroSubtitle: 'Thoughtful finds for bright everyday living.',
-    heroImage: '/images/warm-boutique-clothing-display.png',
+    heroImage: '/images/warm-boutique-clothing-display-v2.png',
     heroCta: 'Explore',
     offerTitle: 'A little treat\nfor your cart.',
     offerSubtitle: 'Discover current offers across the AARO collection.',
