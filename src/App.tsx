@@ -359,6 +359,7 @@ export default function App() {
   }, 0)
   const couponDiscount = coupon && coupon.active && subtotal >= (coupon.minimum || 0) ? Math.min(subtotal, coupon.kind === 'percent' ? subtotal * coupon.value / 100 : coupon.value) : 0
   const discount = Math.min(subtotal, offerSavings + couponDiscount)
+  const deliveryFee = outsideDhaka ? state.content.deliveryOutsideDhaka : state.content.deliveryInDhaka
   const total = subtotal + deliveryFee - discount
   const revenue = state.orders.filter((order) => !['Cancelled', 'Pending confirmation'].includes(order.status)).reduce((sum, order) => sum + order.total, 0)
   const customerCount = new Set(state.orders.map((order) => order.customer.phone)).size
