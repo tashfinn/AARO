@@ -61,6 +61,7 @@ class CouponInput(BaseModel):
 
 
 class OfferInput(BaseModel):
+    title: str = Field(default="", max_length=120)
     id: str = Field(min_length=1, max_length=80)
     productId: str = Field(min_length=1, max_length=120)
     kind: str
