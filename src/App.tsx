@@ -76,14 +76,25 @@ function readState(): StoreState {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return { ...initialState }
     const saved = JSON.parse(raw) as Partial<StoreState>
-    const content = { ...initialState.content, ...saved.content }
+    const savedContent = saved.content && typeof saved.content === 'object' ? saved.content : {}
+    const content = { ...initialState.content, ...savedContent }
+    for (const key of ['heroTitle', 'heroSubtitle', 'heroImage', 'heroCta', 'offerTitle', 'offerSubtitle', 'offerImage', 'announcement'] as const) {
+      if (typeof content[key] !== 'string') content[key] = initialState.content[key]
+    }
+    content.trendingIds = Array.isArray(content.trendingIds) ? content.trendingIds.filter((id): id is string => typeof id === 'string') : []
+    content.offerIds = Array.isArray(content.offerIds) ? content.offerIds.filter((id): id is string => typeof id === 'string') : []
+    content.combos = Array.isArray(content.combos) ? content.combos.filter((combo) => combo && typeof combo.title === 'string' && typeof combo.subtitle === 'string' && typeof combo.image === 'string' && Number.isFinite(combo.price)) : []
+    content.deliveryInDhaka = Number.isFinite(content.deliveryInDhaka) ? content.deliveryInDhaka : initialState.content.deliveryInDhaka
+    content.deliveryOutsideDhaka = Number.isFinite(content.deliveryOutsideDhaka) ? content.deliveryOutsideDhaka : initialState.content.deliveryOutsideDhaka
     if (content.heroImage.startsWith('https://images.unsplash.com/photo-1490481651871-ab68de25d43d')) content.heroImage = '/images/warm-boutique-clothing-display-v2.png'
     if (content.deliveryInDhaka === 70 && content.deliveryOutsideDhaka === 130) {
       content.deliveryInDhaka = 60
       content.deliveryOutsideDhaka = 120
     }
-    return { ...initialState, ...saved, products: Array.isArray(saved.products) ? saved.products : [], categories: Array.isArray(saved.categories) ? saved.categories : initialState.categories, coupons: Array.isArray(saved.coupons) ? saved.coupons : [], offers: Array.isArray(saved.offers) ? saved.offers : [], orders: Array.isArray(saved.orders) ? saved.orders : [], content }
-  } catch { return { ...initialState, content: { ...initialState.content }, products: [], categories: [...initialState.categories], coupons: [], offers: [], orders: [] } }
+    const products = Array.isArray(saved.products) ? saved.products.filter((item) => item && typeof item.id === 'string' && typeof item.title === 'string' && typeof item.category === 'string' && Number.isFinite(item.price)) : []
+    const categories = Array.isArray(saved.categories) ? saved.categories.filter((item): item is string => typeof item === 'string') : [...initialState.categories]
+    return { ...initialState, ...saved, products, categories: categories.length ? categories : [...initialState.categories], coupons: Array.isArray(saved.coupons) ? saved.coupons.filter(Boolean) : [], offers: Array.isArray(saved.offers) ? saved.offers.filter(Boolean) : [], orders: Array.isArray(saved.orders) ? saved.orders.filter(Boolean) : [], views: Number.isFinite(saved.views) ? Number(saved.views) : 0, content }
+  } catch { return { ...initialState, content: { ...initialState.content }, products: [], categories: [...initialState.categories], coupons: [], offers: [], orders: [], views: 0 } }
 }
 
 function money(amount: number) { return `৳${Math.max(0, Math.round(amount)).toLocaleString('en-BD')}` }
