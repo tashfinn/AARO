@@ -18,6 +18,7 @@ const USER_KEY = 'aaro-user-v1'
 const THEME_KEY = 'aaro-theme-v1'
 const AUTH_TOKEN_KEY = 'aaro-auth-token-v1'
 const ADMIN_TOKEN_KEY = 'aaro-admin-token-v1'
+const ADMIN_SESSION_TOKEN_KEY = 'aaro-admin-session-token-v1'
 const CATEGORY_GROUPS_KEY = 'aaro-category-groups-v1'
 const API_BASE = import.meta.env.VITE_API_URL?.replace(/\/$/, '') || ''
 type Address = { id: string; label?: string; recipient: string; phone: string; area: string; address: string; isDefault?: boolean }
@@ -53,6 +54,7 @@ function readState(): StoreState {
 function money(amount: number) { return `৳${Math.max(0, Math.round(amount)).toLocaleString('en-BD')}` }
 function dateLabel(value: string) { return new Intl.DateTimeFormat('en-BD', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(value)) }
 function shortDate(value: string) { return new Intl.DateTimeFormat('en-BD', { day: 'numeric', month: 'short' }).format(new Date(value)) }
+function readAdminToken() { return localStorage.getItem(ADMIN_TOKEN_KEY) || sessionStorage.getItem(ADMIN_SESSION_TOKEN_KEY) || '' }
 
 function ImageView({ src, alt, className = '', loading = 'lazy' }: { src: string; alt: string; className?: string; loading?: 'lazy' | 'eager' }) {
   return <img src={src} alt={alt} loading={loading} className={className} onError={(event) => { event.currentTarget.style.opacity = '0' }} />
@@ -96,7 +98,7 @@ export default function App() {
   const [accountProfile, setAccountProfile] = useState<AccountProfile | null>(null)
   const [customerOrders, setCustomerOrders] = useState<Order[]>([])
   const [adminRoute] = useState(() => window.location.pathname === '/admin')
-  const [adminToken, setAdminToken] = useState(() => localStorage.getItem(ADMIN_TOKEN_KEY) || '')
+  const [adminToken, setAdminToken] = useState(readAdminToken)
   const [darkTheme, setDarkTheme] = useState(() => localStorage.getItem(THEME_KEY) === 'dark')
   const [loginOpen, setLoginOpen] = useState(false)
   const [toast, setToast] = useState('')
@@ -168,7 +170,7 @@ export default function App() {
     const headers = { Authorization: `Bearer ${adminToken}` }
     Promise.all([fetch(`${API_BASE}/api/admin/coupons`, { headers }), fetch(`${API_BASE}/api/admin/orders`, { headers })])
       .then(async ([couponsResponse, ordersResponse]) => { if (!couponsResponse.ok || !ordersResponse.ok) throw new Error('Admin session expired.'); const [coupons, orders] = await Promise.all([couponsResponse.json(), ordersResponse.json()]) as [Coupon[], Order[]]; setState((current) => ({ ...current, coupons, orders })); setAdmin(true) })
-      .catch(() => { localStorage.removeItem(ADMIN_TOKEN_KEY); setAdminToken('') })
+      .catch(() => { localStorage.removeItem(ADMIN_TOKEN_KEY); sessionStorage.removeItem(ADMIN_SESSION_TOKEN_KEY); setAdminToken('') })
   }, [adminRoute, adminToken])
   useEffect(() => {
     const apiUrl = import.meta.env.VITE_API_URL?.replace(/\/$/, '')
@@ -472,7 +474,7 @@ export default function App() {
       {productFormOpen && <ProductEditor product={editingProduct} categories={state.categories.filter((item) => item !== 'All')} onClose={() => setProductFormOpen(false)} onSave={saveProduct} />}
       {couponFormOpen && <CouponEditor onClose={() => setCouponFormOpen(false)} onSave={saveCoupon} />}
       {toast && <div className="toast"><CheckCircle2 size={17} />{toast}</div>}
-    </div> : adminRoute ? <AdminLogin apiBase={API_BASE} onSuccess={(token) => { localStorage.setItem(ADMIN_TOKEN_KEY, token); setAdminToken(token); setAdmin(true) }} /> : <div className={`storefront ${darkTheme ? 'theme-dark' : ''} ${mobileMenu ? 'storefront-menu-open' : ''}`}>
+    </div> : adminRoute ? <AdminLogin apiBase={API_BASE} onSuccess={(token, rememberMe) => { localStorage.removeItem(ADMIN_TOKEN_KEY); sessionStorage.removeItem(ADMIN_SESSION_TOKEN_KEY); (rememberMe ? localStorage : sessionStorage).setItem(rememberMe ? ADMIN_TOKEN_KEY : ADMIN_SESSION_TOKEN_KEY, token); setAdminToken(token); setAdmin(true) }} /> : <div className={`storefront ${darkTheme ? 'theme-dark' : ''} ${mobileMenu ? 'storefront-menu-open' : ''}`}>
       <div className="announcement"><Sparkles size={14} /><span>{state.content.announcement}</span><button onClick={() => showStore('offers')}>Shop offers <ArrowRight size={13} /></button></div>
       <header className={`site-header ${mobileMenu ? 'mobile-menu-active' : ''}`}>
         <div className="header-main page-width"><button className="mobile-menu-trigger storefront-menu" onClick={() => setMobileMenu(!mobileMenu)} aria-label="Open navigation"><Menu size={22} /></button><button className="wordmark" onClick={() => showStore('shop')} aria-label="AARO home">AARO<span>.</span></button>
@@ -612,20 +614,21 @@ function AccountDashboard({ apiBase, token, profile, orders, onProfile, onSignOu
   return <section className="listing-page page-width account-dashboard"><div className="listing-heading"><div><span className="section-kicker">AARO / YOUR ACCOUNT</span><h1>Hello, {profile.name}</h1><p>Track your orders and manage your account details.</p></div><button className="secondary-button" onClick={onSignOut}>Sign out</button></div><div className="stat-grid"><div className="stat-card"><span>Total orders</span><strong>{orders.length}</strong></div><div className="stat-card"><span>Total spent</span><strong>{money(spent)}</strong></div></div>{error && <p role="alert">{error}</p>}<section className="panel recent-panel" id="account-orders"><div className="panel-heading"><div><h2>Order history</h2><p>Current status for each order</p></div></div>{orders.length ? orders.map((order) => <div className="account-order" key={order.id}><strong>{order.id}</strong><span>{dateLabel(order.createdAt)}</span><StatusPill status={order.status} /><b>{money(order.total)}</b><small>{order.items.map((item) => `${item.title} × ${item.quantity}`).join(', ')}</small></div>) : <p className="empty-row">Your orders will appear here.</p>}</section><div className="content-grid"><form className="panel settings-form" onSubmit={saveProfile}><h2>Account details</h2><label>Full name<input name="name" required defaultValue={profile.name} /></label><label>Email<input name="email" type="email" defaultValue={profile.email} /></label><label>Phone<input name="phone" defaultValue={profile.phone} /></label><button className="primary-button">Save details</button></form><form className="panel settings-form" onSubmit={saveAddress}><h2>Default shipping address</h2><label>Recipient<input name="recipient" defaultValue={address?.recipient || profile.name} required /></label><label>Phone<input name="phone" defaultValue={address?.phone || profile.phone} required /></label><label>Area<input name="area" defaultValue={address?.area || ''} required /></label><label>Address<textarea name="address" defaultValue={address?.address || ''} required /></label><button className="primary-button">Save default address</button></form></div><form className="panel settings-form" onSubmit={changePassword}><h2>Change password</h2><div className="settings-two"><label>Current password<input name="current_password" type="password" required /></label><label>New password<input name="new_password" type="password" minLength={10} required /></label></div><button className="primary-button">Update password</button></form></section>
 }
 
-function AdminLogin({ apiBase, onSuccess }: { apiBase: string; onSuccess: (token: string) => void }) {
+function AdminLogin({ apiBase, onSuccess }: { apiBase: string; onSuccess: (token: string, rememberMe: boolean) => void }) {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [rememberMe, setRememberMe] = useState(false)
   return <main className="admin-login-page"><form className="login-modal" onSubmit={async (event) => {
     event.preventDefault(); setBusy(true); setError('')
     const form = new FormData(event.currentTarget)
     try {
-      const response = await fetch(`${apiBase}/api/admin/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ identifier: form.get('identifier'), password: form.get('password') }) })
+      const response = await fetch(`${apiBase}/api/admin/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ identifier: form.get('identifier'), password: form.get('password'), remember_me: rememberMe }) })
       const body = await response.json()
       if (!response.ok) throw new Error(body.detail || 'Sign in failed.')
-      onSuccess(body.accessToken)
+      onSuccess(body.accessToken, rememberMe)
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not reach the admin service.') }
     finally { setBusy(false) }
-  }}><span className="section-kicker">AARO / ADMIN</span><h1>Admin sign in</h1><label>Admin ID<input name="identifier" autoComplete="username" required /></label><label>Password<input name="password" type="password" autoComplete="current-password" required /></label>{error && <p role="alert">{error}</p>}<button className="dark-button" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'} <ArrowRight size={16} /></button></form></main>
+  }}><span className="section-kicker">AARO / ADMIN</span><h1>Admin sign in</h1><label>Admin ID<input name="identifier" autoComplete="username" placeholder="Finn" required /></label><label>Password<input name="password" type="password" autoComplete="current-password" required /></label><label className="remember-me-row"><input type="checkbox" checked={rememberMe} onChange={(event) => setRememberMe(event.target.checked)} /> Remember me on this browser</label><p className="admin-login-hint">Enter only your admin ID in the first box; keep your password in the password box.</p>{error && <p role="alert">{error}</p>}<button className="dark-button" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'} <ArrowRight size={16} /></button></form></main>
 }
 
 function LoginModal({ onClose, user, apiBase, onAuth, onProfile, onSignOut, notify }: { onClose: () => void; user: string | null; apiBase: string; onAuth: (token: string, identifier: string) => void; onProfile: () => void; onSignOut: () => void; notify: (message: string) => void }) {

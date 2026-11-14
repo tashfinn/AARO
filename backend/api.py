@@ -29,6 +29,7 @@ class CustomerCredentials(BaseModel):
 class AdminCredentials(BaseModel):
     identifier: str = Field(min_length=1, max_length=120)
     password: str = Field(min_length=1, max_length=256)
+    remember_me: bool = False
 
 class ProfileUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=2, max_length=120)
@@ -102,8 +103,9 @@ def _auth_secret() -> bytes:
         raise HTTPException(status_code=503, detail="Authentication is not configured.")
     return value.encode()
 
-def _make_token(subject: str, role: str) -> str:
-    payload = _b64(json.dumps({"sub": subject, "role": role, "exp": int(time.time()) + 60 * 60 * 12}, separators=(",", ":")).encode())
+def _make_token(subject: str, role: str, remember_me: bool = False) -> str:
+    lifetime = 60 * 60 * 24 * 30 if remember_me else 60 * 60 * 12
+    payload = _b64(json.dumps({"sub": subject, "role": role, "exp": int(time.time()) + lifetime}, separators=(",", ":")).encode())
     signature = _b64(hmac.new(_auth_secret(), payload.encode(), hashlib.sha256).digest())
     return f"{payload}.{signature}"
 
@@ -226,7 +228,7 @@ def login_admin(input: AdminCredentials):
     password_hash = os.getenv("ADMIN_PASSWORD_HASH", "")
     if not expected_id or not password_hash or not hmac.compare_digest(input.identifier.strip(), expected_id) or not _password_matches(input.password, password_hash):
         raise HTTPException(status_code=401, detail="ID or password is incorrect.")
-    return {"accessToken": _make_token(expected_id, "admin"), "adminId": expected_id}
+    return {"accessToken": _make_token(expected_id, "admin", input.remember_me), "adminId": expected_id}
 
 @app.get("/api/admin/coupons")
 def list_coupons(authorization: str | None = Header(default=None)):
