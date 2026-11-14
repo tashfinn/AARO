@@ -21,6 +21,7 @@ def number(s):
  s=re.sub(r"[^0-9]","",s.translate(DIGITS)); return int(s) if s else None
 def digest(*parts): return hashlib.sha256("\x1f".join(parts).encode()).hexdigest()
 def details_are_stale(product):
+ if os.getenv("SHOPBASE_FORCE_DETAIL_REFRESH","false").strip().lower() in ("1","true","yes","on"): return True
  if int(product.get("detailsVersion",0) or 0)<DETAILS_VERSION: return True
  try:
   updated=datetime.fromisoformat(product.get("detailsFetchedAt",""))
