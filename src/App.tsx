@@ -91,9 +91,12 @@ function readState(): StoreState {
       content.deliveryInDhaka = 60
       content.deliveryOutsideDhaka = 120
     }
-    const products = Array.isArray(saved.products) ? saved.products.filter((item) => item && typeof item.id === 'string' && typeof item.title === 'string' && typeof item.category === 'string' && Number.isFinite(item.price)) : []
+    const products = Array.isArray(saved.products) ? saved.products.filter((item) => item && typeof item.id === 'string' && typeof item.title === 'string' && typeof item.category === 'string' && typeof item.image === 'string' && typeof item.description === 'string' && Number.isFinite(item.price)) : []
     const categories = Array.isArray(saved.categories) ? saved.categories.filter((item): item is string => typeof item === 'string') : [...initialState.categories]
-    return { ...initialState, ...saved, products, categories: categories.length ? categories : [...initialState.categories], coupons: Array.isArray(saved.coupons) ? saved.coupons.filter(Boolean) : [], offers: Array.isArray(saved.offers) ? saved.offers.filter(Boolean) : [], orders: Array.isArray(saved.orders) ? saved.orders.filter(Boolean) : [], views: Number.isFinite(saved.views) ? Number(saved.views) : 0, content }
+    const coupons = Array.isArray(saved.coupons) ? saved.coupons.filter((item): item is Coupon => Boolean(item && typeof item.code === 'string' && (item.kind === 'percent' || item.kind === 'amount') && Number.isFinite(item.value) && typeof item.active === 'boolean')) : []
+    const offers = Array.isArray(saved.offers) ? saved.offers.filter((item): item is OfferDeal => Boolean(item && typeof item.id === 'string' && typeof item.title === 'string' && typeof item.productId === 'string' && ['special_price', 'quantity_discount', 'buy_x_get_y_free'].includes(item.kind) && Number.isFinite(item.value) && typeof item.active === 'boolean')) : []
+    const orders = Array.isArray(saved.orders) ? saved.orders.filter((item): item is Order => Boolean(item && typeof item.id === 'string' && item.customer && typeof item.customer.phone === 'string' && Array.isArray(item.items) && Number.isFinite(item.total))) : []
+    return { ...initialState, ...saved, products, categories: categories.length ? categories : [...initialState.categories], coupons, offers, orders, views: Number.isFinite(saved.views) ? Number(saved.views) : 0, content }
   } catch { return { ...initialState, content: { ...initialState.content }, products: [], categories: [...initialState.categories], coupons: [], offers: [], orders: [], views: 0 } }
 }
 
@@ -259,17 +262,21 @@ export default function App() {
     fetch(`${apiUrl}/api/catalog`)
       .then((response) => {
         if (!response.ok) throw new Error(`Catalog API returned ${response.status}`)
-        return response.json() as Promise<{ products: Product[]; categories: string[]; categoryGroups?: CategoryGroup[]; lastSync?: string }>
+        return response.json() as Promise<{ products?: unknown; categories?: unknown; categoryGroups?: unknown; lastSync?: string }>
       })
       .then((catalog) => {
         if (cancelled) return
-        const savedGroups = JSON.parse(localStorage.getItem(CATEGORY_GROUPS_KEY) || 'null') as CategoryGroup[] | null
-        setCategoryGroups(mergeCategoryGroups(savedGroups || [], catalog.categoryGroups || []))
+        const catalogProducts = Array.isArray(catalog.products) ? catalog.products.filter((item): item is Product => Boolean(item && typeof item.id === 'string' && typeof item.title === 'string' && typeof item.category === 'string' && typeof item.image === 'string' && typeof item.description === 'string' && Number.isFinite(item.price))) : []
+        const catalogCategories = Array.isArray(catalog.categories) ? catalog.categories.filter((item): item is string => typeof item === 'string') : []
+        const catalogGroups = Array.isArray(catalog.categoryGroups) ? catalog.categoryGroups.filter((group): group is CategoryGroup => Boolean(group && typeof group.id === 'string' && typeof group.name === 'string' && Array.isArray(group.children))).map((group) => ({ ...group, children: group.children.filter((child) => child && typeof child.name === 'string') })) : []
+        const rawSavedGroups: unknown = JSON.parse(localStorage.getItem(CATEGORY_GROUPS_KEY) || 'null')
+        const savedGroups = Array.isArray(rawSavedGroups) ? rawSavedGroups.filter((group): group is CategoryGroup => Boolean(group && typeof group.id === 'string' && typeof group.name === 'string' && Array.isArray(group.children))) : []
+        setCategoryGroups(mergeCategoryGroups(savedGroups, catalogGroups))
         setState((current) => {
-          const synced = catalog.products.map((product) => ({ ...product, source: 'shopbase' as const }))
+          const synced = catalogProducts.map((product) => ({ ...product, source: 'shopbase' as const }))
           const manual = current.products.filter((product) => product.source === 'custom')
           const customCategories = current.categories.filter((item) => item !== 'All' && !initialState.categories.includes(item))
-          return { ...current, products: [...manual, ...synced], categories: [...new Set(['All', ...catalog.categories, ...customCategories])] }
+          return { ...current, products: [...manual, ...synced], categories: [...new Set(['All', ...catalogCategories, ...customCategories])] }
         })
         if (catalog.lastSync) setLastSync(catalog.lastSync)
       })
