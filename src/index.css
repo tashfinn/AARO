@@ -2064,3 +2064,49 @@ img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .theme-dark .sync-progress-card > small { color: #bdc9c2; }
 .theme-dark .sync-progress-track { background: #273831; }
 .theme-dark .sync-progress-track i { background: linear-gradient(90deg,#5fb49a,#f0a044); }
+/* Consistent legal pages and footer brand marks. */
+.social-dots img { width: 15px; height: 15px; display: block; object-fit: contain; }
+.legal-page { min-height: 62vh; padding-top: 26px; padding-bottom: 68px; }
+.legal-card { width: min(100%, 900px); margin: 24px auto 0; padding: clamp(22px, 4vw, 44px); border: 1px solid #e2e9e1; border-radius: 10px; background: #fff; box-shadow: 0 12px 35px rgb(25 52 43 / 5%); color: #334840; }
+.legal-card h1 { margin: 9px 0 14px; color: #193d37; font: 700 clamp(30px, 4vw, 42px)/1.2 var(--font-display); letter-spacing: -.025em; }
+.legal-card .legal-kicker { color: #a8733e; font-size: 11px; font-weight: 700; letter-spacing: .14em; }
+.legal-intro { margin: 0 0 28px; color: #65766e; font-size: 16px; line-height: 1.75; }
+.legal-card section { margin: 24px 0; }
+.legal-card h2 { margin: 0 0 9px; color: #214a40; font: 700 20px/1.35 var(--font-display); }
+.legal-card p, .legal-card li { font-size: 15px; line-height: 1.8; }
+.legal-card section p { margin: 8px 0; }
+.legal-card ul { margin: 8px 0 14px; padding-left: 23px; }
+.terms-card { font-family: 'Hind Siliguri', sans-serif; }
+.terms-card h1 { color: #193d37; text-align: center; letter-spacing: 0; word-spacing: .12em; }
+.terms-card .terms-alert { margin: 0 auto 20px; background: #f0a044; color: #17211d; text-align: center; }
+.terms-card .terms-lead { color: #405b50; text-align: left; font-weight: 600; }
+.terms-card ol { padding-left: 28px; color: #334840; }
+.terms-card li { padding: 7px 0 7px 5px; text-align: left; word-spacing: .08em; }
+.terms-card li::marker { color: #b87328; font-weight: 700; }
+.terms-card .terms-note { color: #405b50; text-align: left; }
+.terms-card > .dark-button { background: #173c39; border-color: #173c39; color: #fff; }
+.legal-contact-note, .contact-help-note { margin: 24px 0 0; padding-top: 18px; border-top: 1px solid #e3e9e2; color: #66776e; font-size: 14px; line-height: 1.7; }
+.contact-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.contact-options a { display: flex; align-items: center; gap: 16px; min-width: 0; padding: 20px; border: 1px solid #e1e8e0; border-radius: 8px; color: #23453e; text-decoration: none; background: #f8faf7; }
+.contact-options a:hover { border-color: #c98b48; transform: translateY(-1px); }
+.contact-option-icon { width: 44px; height: 44px; flex: none; display: grid; place-items: center; border-radius: 50%; background: #eaf2ec; color: #1e6355; }
+.contact-options a > span:last-child { display: grid; gap: 4px; min-width: 0; }
+.contact-options small { color: #9a6b3b; font-size: 10px; font-weight: 700; letter-spacing: .12em; }
+.contact-options b { overflow-wrap: anywhere; font-size: 17px; }
+.contact-options i { display: inline-flex; align-items: center; gap: 5px; color: #728078; font-size: 13px; font-style: normal; }
+.theme-dark .legal-card { border-color: #34463f; background: #18231f; color: #dbe5de; }
+.theme-dark .legal-card h1, .theme-dark .legal-card h2 { color: #edf3ef; }
+.theme-dark .legal-intro, .theme-dark .legal-card p, .theme-dark .legal-card li, .theme-dark .terms-card .terms-note { color: #c1cec7; }
+.theme-dark .terms-card .terms-lead { color: #d9e4dc; }
+.theme-dark .terms-card .terms-alert { background: #583b21; color: #ffe0b7; }
+.theme-dark .terms-card > .dark-button { background: #f0a044; border-color: #f0a044; color: #17211d; }
+.theme-dark .contact-options a { border-color: #34463f; background: #111a17; color: #edf3ef; }
+.theme-dark .contact-option-icon { background: #293b33; color: #a9d7c5; }
+.theme-dark .contact-options i, .theme-dark .legal-contact-note, .theme-dark .contact-help-note { color: #c1cec7; }
+.theme-dark .legal-contact-note, .theme-dark .contact-help-note { border-color: #34463f; }
+@media (max-width: 600px) {
+  .legal-page { padding-top: 18px; padding-bottom: 42px; }
+  .legal-card { margin-top: 16px; padding: 22px 18px; }
+  .legal-card p, .legal-card li { font-size: 15px; }
+  .contact-options { grid-template-columns: 1fr; }
+}
