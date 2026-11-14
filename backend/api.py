@@ -10,6 +10,12 @@ origins = [x.strip() for x in os.getenv("FRONTEND_ORIGINS", "http://localhost:51
 app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=False, allow_methods=["GET"], allow_headers=["*"])
 _client = None
 
+@app.api_route("/", methods=["GET", "HEAD"], include_in_schema=False)
+def root():
+    # UptimeRobot's HTTP monitor checks the service root with HEAD. Return a
+    # successful response here so a healthy API isn't reported as an outage.
+    return {"ok": True, "service": "AARO catalog API"}
+
 def db():
     global _client
     uri = os.getenv("MONGODB_URI")
