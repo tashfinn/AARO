@@ -2426,3 +2426,58 @@ body :is(div,p,li,label,small,button,a,span,b,strong,i,td,th,summary,dt,dd,input
   border-color: #35453d;
   color: #bdc9c2;
 }
+
+
+/* Keep category edit controls on the card edge and counts directly beneath names. */
+.category-group-admin-heading { align-items: center; }
+.category-group-admin-heading .category-edit-name {
+  flex: 1 1 auto;
+  justify-content: space-between;
+  gap: 12px;
+  text-align: left;
+}
+.category-admin-card > div:nth-child(2) { min-width: 0; }
+.category-admin-card .category-edit-name {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 32px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #536b5e;
+  text-align: left;
+  cursor: pointer;
+}
+.category-admin-card .category-edit-name span { min-width: 0; }
+.category-admin-card .category-edit-name svg {
+  flex: none;
+  margin-left: auto;
+  color: #c28747;
+  opacity: .8;
+}
+.category-admin-card .category-edit-name:hover svg { opacity: 1; }
+.category-admin-card small {
+  display: block;
+  margin-top: 2px;
+  color: #7d8b83;
+  font-size: 14px;
+  line-height: 1.45;
+}
+.category-group-admin-heading > span { white-space: nowrap; }
+.theme-dark .category-admin-card .category-edit-name { color: #edf3ef; }
+.theme-dark .category-admin-card small,
+.theme-dark .category-group-admin-heading > span { color: #bdc9c2; }
+.sync-now-button { min-height: 44px; padding-inline: 16px; font-size: 15px; }
+.sync-actions { align-items: center; gap: 10px; }
+.sync-progress-heading span { font-size: 14px; font-weight: 700; }
+.sync-progress-card > p > a { color: #176c5c; font-weight: 700; text-decoration: underline; text-underline-offset: 2px; }
+.theme-dark .sync-progress-card > p > a { color: #f0b66c; }
+@media (max-width: 600px) {
+  .category-group-admin-heading { align-items: stretch; flex-direction: column; }
+  .category-group-admin-heading .category-edit-name { width: 100%; }
+  .category-group-admin-heading > span { align-self: flex-start; }
+  .sync-actions > button { min-height: 44px; }
+}
