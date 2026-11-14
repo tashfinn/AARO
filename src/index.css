@@ -2110,3 +2110,24 @@ img { display: block; width: 100%; height: 100%; object-fit: cover; }
   .legal-card p, .legal-card li { font-size: 15px; }
   .contact-options { grid-template-columns: 1fr; }
 }
+
+
+/* Readable type scale across storefront, customer pages, and admin. Keep all
+   ordinary interface copy at least 14px, while preserving larger inherited type. */
+body :is(div,p,li,label,small,button,a,span,b,strong,i,td,th,summary,dt,dd,input,textarea,select) {
+  font-size: max(14px, 1em) !important;
+}
+.footer-contact button {
+  min-height: 44px;
+  padding: 0 12px;
+  font-size: 16px !important;
+}
+.contact-options b { font-size: 19px !important; }
+.contact-options i { font-size: 14px !important; }
+.contact-card .legal-intro,
+.legal-card p,
+.legal-card li { font-size: 16px !important; line-height: 1.75; }
+@media (max-width: 600px) {
+  .contact-options b { font-size: 18px !important; }
+  .footer-contact button { min-height: 46px; }
+}
