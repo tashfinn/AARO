@@ -159,6 +159,8 @@ export default function App() {
   const [darkTheme, setDarkTheme] = useState(() => localStorage.getItem(THEME_KEY) === 'dark')
   const [toast, setToast] = useState('')
   const [admin, setAdmin] = useState(false)
+  const [storeIsLive, setStoreIsLive] = useState(true)
+  const [storeStatusBusy, setStoreStatusBusy] = useState(false)
   const [adminTab, setAdminTab] = useState<AdminTab>('overview')
   const [editingProduct, setEditingProduct] = useState<Product | null>(null)
   const [productFormOpen, setProductFormOpen] = useState(false)
@@ -181,6 +183,32 @@ export default function App() {
   const [importNote, setImportNote] = useState('')
   const searchRef = useRef<HTMLInputElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (!API_BASE) return
+    fetch(`${API_BASE}/api/store-status`, { cache: 'no-store' })
+      .then((response) => response.ok ? response.json() as Promise<{ isLive?: unknown }> : null)
+      .then((status) => { if (typeof status?.isLive === 'boolean') setStoreIsLive(status.isLive) })
+      .catch(() => { /* Keep the storefront available if the status API is temporarily unreachable. */ })
+  }, [])
+
+  async function toggleStoreStatus() {
+    if (!API_BASE || !adminToken || storeStatusBusy) return
+    setStoreStatusBusy(true)
+    try {
+      const response = await fetch(`${API_BASE}/api/admin/store-status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
+        body: JSON.stringify({ isLive: !storeIsLive }),
+      })
+      const result = await response.json()
+      if (!response.ok || typeof result.isLive !== 'boolean') throw new Error(result.detail || 'Store status could not be changed.')
+      setStoreIsLive(result.isLive)
+      notify(result.isLive ? 'Store is live.' : 'Store is closed to customers.')
+    } catch (error) {
+      notify(error instanceof Error ? error.message : 'Store status could not be changed.')
+    } finally { setStoreStatusBusy(false) }
+  }
 
   useEffect(() => {
     if (!mobileMenu) {
@@ -594,7 +622,7 @@ export default function App() {
     {admin ? <div className={`admin-shell ${darkTheme ? 'theme-dark' : ''}`}>
       <aside className={`admin-sidebar ${mobileMenu ? 'admin-sidebar-open' : ''}`}>
         <div className="admin-brand"><button className="admin-brand-home" onClick={() => window.location.assign('/')} aria-label="Go to AARO storefront"><span className="brand-mark">A</span><span>AARO</span></button><IconButton label="Close menu" className="mobile-only" onClick={() => setMobileMenu(false)}><X size={18} /></IconButton></div>
-        <div className="admin-store-pill"><span className="store-live-dot" />Live store <ChevronDown size={15} /></div>
+        <button type="button" className={`admin-store-pill ${storeIsLive ? 'is-live' : 'is-closed'}`} onClick={toggleStoreStatus} disabled={storeStatusBusy} aria-label={storeIsLive ? 'Store is live. Click to close it.' : 'Store is closed. Click to open it.'}><span className="store-live-dot" />{storeStatusBusy ? 'Saving…' : storeIsLive ? 'Live store' : 'Store closed'}<span className="store-status-action">{storeIsLive ? 'Close store' : 'Open store'}</span><ChevronDown size={15} /></button>
         <p className="sidebar-caption">WORKSPACE</p>
         <nav className="admin-nav">{navItems.map(({ label, icon: Icon, tab }) => <button key={tab} className={adminTab === tab ? 'active' : ''} onClick={() => { setAdminTab(tab); setMobileMenu(false) }}><Icon size={18} /><span>{label}</span>{tab === 'orders' && state.orders.filter((order) => order.status === 'Pending confirmation').length > 0 && <b>{state.orders.filter((order) => order.status === 'Pending confirmation').length}</b>}</button>)}</nav>
         <div className="sidebar-bottom"><div className="admin-profile"><div className="avatar">A</div><div><strong>Store admin</strong><small>AARO</small></div></div><button className="back-store" onClick={() => window.location.assign('/')}><House size={17} /> View storefront <ArrowUpRight size={15} /></button><button className="admin-logout-button" onClick={logoutAdmin}><LogOut size={17} /> Log out</button></div>
@@ -616,7 +644,7 @@ export default function App() {
       {couponFormOpen && <CouponEditor onClose={() => setCouponFormOpen(false)} onSave={saveCoupon} />}
       {offerFormOpen && <OfferEditor products={activeProducts} onClose={() => setOfferFormOpen(false)} onSave={saveOffer} />}
       {toast && <div className="toast"><CheckCircle2 size={17} />{toast}</div>}
-    </div> : adminRoute ? <AdminLogin apiBase={API_BASE} onSuccess={(token, rememberMe) => { localStorage.removeItem(ADMIN_TOKEN_KEY); sessionStorage.removeItem(ADMIN_SESSION_TOKEN_KEY); (rememberMe ? localStorage : sessionStorage).setItem(rememberMe ? ADMIN_TOKEN_KEY : ADMIN_SESSION_TOKEN_KEY, token); setAdminToken(token); setAdmin(true) }} /> : (authRoute || (page === 'account' && !accountToken)) ? <AccountAccessPage key={authRoute || 'login'} mode={authRoute || 'login'} apiBase={API_BASE} darkTheme={darkTheme} onToggleTheme={() => setDarkTheme((current) => !current)} onModeChange={showAuth} onBack={() => showStore('shop')} onAuth={(token, identifier) => { setAccountToken(token); localStorage.setItem(AUTH_TOKEN_KEY, token); setUser(identifier); localStorage.setItem(USER_KEY, identifier); showAccount() }} /> : <div className={`storefront ${darkTheme ? 'theme-dark' : ''} ${mobileMenu ? 'storefront-menu-open' : ''}`}>
+    </div> : adminRoute ? <AdminLogin apiBase={API_BASE} onSuccess={(token, rememberMe) => { localStorage.removeItem(ADMIN_TOKEN_KEY); sessionStorage.removeItem(ADMIN_SESSION_TOKEN_KEY); (rememberMe ? localStorage : sessionStorage).setItem(rememberMe ? ADMIN_TOKEN_KEY : ADMIN_SESSION_TOKEN_KEY, token); setAdminToken(token); setAdmin(true) }} /> : !storeIsLive ? <main className={`store-closed-page ${darkTheme ? 'theme-dark' : ''}`}><span className="wordmark">AARO<span>.</span></span><h1>We’ll be back soon</h1><p>Our store is temporarily closed while we make a few updates. Please check back shortly.</p></main> : (authRoute || (page === 'account' && !accountToken)) ? <AccountAccessPage key={authRoute || 'login'} mode={authRoute || 'login'} apiBase={API_BASE} darkTheme={darkTheme} onToggleTheme={() => setDarkTheme((current) => !current)} onModeChange={showAuth} onBack={() => showStore('shop')} onAuth={(token, identifier) => { setAccountToken(token); localStorage.setItem(AUTH_TOKEN_KEY, token); setUser(identifier); localStorage.setItem(USER_KEY, identifier); showAccount() }} /> : <div className={`storefront ${darkTheme ? 'theme-dark' : ''} ${mobileMenu ? 'storefront-menu-open' : ''}`}>
       <div className="announcement"><Sparkles size={14} /><span>{state.content.announcement}</span><button onClick={() => showStore('offers')}>Shop offers <ArrowRight size={13} /></button></div>
       <header className={`site-header ${mobileMenu ? 'mobile-menu-active' : ''}`}>
         <div className="header-main page-width"><button className="mobile-menu-trigger storefront-menu" onClick={() => setMobileMenu(!mobileMenu)} aria-label="Open navigation"><Menu size={22} /></button><button className="wordmark" onClick={() => showStore('shop')} aria-label="AARO home">AARO<span>.</span></button>

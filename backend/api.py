@@ -78,11 +78,29 @@ class OfferInput(BaseModel):
 class OrderStatusInput(BaseModel):
     status: str
 
+class StoreStatusInput(BaseModel):
+    isLive: bool
+
 @app.api_route("/", methods=["GET", "HEAD"], include_in_schema=False)
 def root():
     # UptimeRobot's HTTP monitor checks the service root with HEAD. Return a
     # successful response here so a healthy API isn't reported as an outage.
     return {"ok": True, "service": "AARO catalog API"}
+
+@app.get("/api/store-status")
+def public_store_status():
+    setting = db().store_settings.find_one({"_id": "store-status"}, {"_id": 0, "isLive": 1})
+    return {"isLive": setting.get("isLive", True) if setting else True}
+
+@app.patch("/api/admin/store-status")
+def update_store_status(input: StoreStatusInput, authorization: str | None = Header(default=None)):
+    _admin_from_auth(authorization)
+    db().store_settings.update_one(
+        {"_id": "store-status"},
+        {"$set": {"isLive": input.isLive, "updatedAt": datetime.now(timezone.utc).isoformat()}},
+        upsert=True,
+    )
+    return {"isLive": input.isLive}
 
 def db():
     global _client
