@@ -74,6 +74,7 @@ function readState(): StoreState {
     if (!raw) return { ...initialState }
     const saved = JSON.parse(raw) as Partial<StoreState>
     const content = { ...initialState.content, ...saved.content }
+    if (content.heroImage.startsWith('https://images.unsplash.com/photo-1490481651871-ab68de25d43d')) content.heroImage = '/images/warm-boutique-clothing-display.png'
     if (content.deliveryInDhaka === 70 && content.deliveryOutsideDhaka === 130) {
       content.deliveryInDhaka = 60
       content.deliveryOutsideDhaka = 120
