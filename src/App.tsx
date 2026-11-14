@@ -3,9 +3,9 @@ import {
   ArrowRight, ArrowUpRight, CalendarDays, Check, CheckCircle2,
   ChevronDown, ChevronLeft, ChevronRight, CircleDollarSign, Clock3, Copy, Download, Eye,
   Filter, Heart, House, LayoutDashboard, Mail, Menu, Minus,
-  MoreHorizontal, Package, Pencil, Phone, Plus, RotateCcw, Search, ShieldCheck, UserRound,
+  Package, Pencil, Phone, Plus, RotateCcw, Search, ShieldCheck, UserRound,
   ShoppingBag, ShoppingCart, SlidersHorizontal, Sparkles, Tags, TicketPercent, Trash2,
-  Truck, Upload, UsersRound, X, Moon, Sun
+  Truck, Upload, UsersRound, X, Moon, Sun, LogOut
 } from 'lucide-react'
 import { initialState } from './data'
 import { manualCategoryGroups } from './data/category-groups'
@@ -401,6 +401,14 @@ export default function App() {
     updateState((current) => ({ ...current, content: { ...current.content, heroTitle: String(form.get('heroTitle')), heroSubtitle: String(form.get('heroSubtitle')), heroImage: String(form.get('heroImage')), heroCta: String(form.get('heroCta')), offerTitle: String(form.get('offerTitle')), offerSubtitle: String(form.get('offerSubtitle')), offerImage: String(form.get('offerImage')), announcement: String(form.get('announcement')), combos, deliveryInDhaka: Number(form.get('deliveryInDhaka')), deliveryOutsideDhaka: Number(form.get('deliveryOutsideDhaka')) } }))
     notify('Storefront content saved')
   }
+  function logoutAdmin() {
+    localStorage.removeItem(ADMIN_TOKEN_KEY)
+    sessionStorage.removeItem(ADMIN_SESSION_TOKEN_KEY)
+    setAdminToken('')
+    setAdmin(false)
+    setMobileMenu(false)
+    window.scrollTo({ top: 0 })
+  }
   function importCsv(file?: File) {
     if (!file) return
     const reader = new FileReader()
@@ -456,10 +464,10 @@ export default function App() {
         <div className="admin-store-pill"><span className="store-live-dot" />Live store <ChevronDown size={15} /></div>
         <p className="sidebar-caption">WORKSPACE</p>
         <nav className="admin-nav">{navItems.map(({ label, icon: Icon, tab }) => <button key={tab} className={adminTab === tab ? 'active' : ''} onClick={() => { setAdminTab(tab); setMobileMenu(false) }}><Icon size={18} /><span>{label}</span>{tab === 'orders' && state.orders.filter((order) => order.status === 'Pending confirmation').length > 0 && <b>{state.orders.filter((order) => order.status === 'Pending confirmation').length}</b>}</button>)}</nav>
-        <div className="sidebar-bottom"><div className="admin-profile"><div className="avatar">A</div><div><strong>Store admin</strong><small>AARO</small></div><MoreHorizontal size={18} /></div><button className="back-store" onClick={() => { setAdmin(false); window.scrollTo(0, 0) }}><House size={17} /> View storefront <ArrowUpRight size={15} /></button></div>
+        <div className="sidebar-bottom"><div className="admin-profile"><div className="avatar">A</div><div><strong>Store admin</strong><small>AARO</small></div></div><button className="back-store" onClick={() => { setAdmin(false); window.scrollTo(0, 0) }}><House size={17} /> View storefront <ArrowUpRight size={15} /></button><button className="admin-logout-button" onClick={logoutAdmin}><LogOut size={17} /> Log out</button></div>
       </aside>
       <main className="admin-main">
-        <header className="admin-topbar"><button className="mobile-menu-trigger" onClick={() => setMobileMenu(true)}><Menu size={20} /></button><div><p className="eyebrow">AARO <span>/</span> {navItems.find((item) => item.tab === adminTab)?.label.toUpperCase()}</p><h1>{adminTab === 'overview' ? 'Good morning, Admin' : navItems.find((item) => item.tab === adminTab)?.label}</h1></div><div className="admin-top-actions"><span className="date-chip"><CalendarDays size={15} /> {dateLabel(new Date().toISOString())}</span><button className="admin-view-store" onClick={() => setAdmin(false)}>View store <ArrowUpRight size={15} /></button><div className="avatar avatar-small">A</div></div></header>
+        <header className="admin-topbar"><button className="mobile-menu-trigger" onClick={() => setMobileMenu(true)}><Menu size={20} /></button><div><p className="eyebrow">AARO <span>/</span> {navItems.find((item) => item.tab === adminTab)?.label.toUpperCase()}</p><h1>{adminTab === 'overview' ? 'Good morning, Admin' : navItems.find((item) => item.tab === adminTab)?.label}</h1></div><div className="admin-top-actions"><span className="date-chip"><CalendarDays size={15} /> {dateLabel(new Date().toISOString())}</span><button className="admin-view-store" onClick={() => setAdmin(false)}>View store <ArrowUpRight size={15} /></button><button className="admin-logout-button admin-logout-top" onClick={logoutAdmin}><LogOut size={16} /> Log out</button><div className="avatar avatar-small">A</div></div></header>
         <div className="admin-content">
           {adminTab === 'overview' && <AdminOverview state={state} revenue={revenue} customerCount={customerCount} onTab={setAdminTab} updateOrderStatus={updateOrderStatus} />}
           {adminTab === 'products' && <AdminProducts state={state} onAdd={() => startEditProduct()} onEdit={startEditProduct} onDelete={deleteProduct} />}
