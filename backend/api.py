@@ -272,6 +272,13 @@ def admin_orders(authorization: str | None = Header(default=None)):
     _admin_from_auth(authorization)
     return list(db().orders.find({}, {"_id": 0}).sort("createdAt", -1))
 
+@app.get("/api/admin/sync/progress")
+def admin_sync_progress(authorization: str | None = Header(default=None)):
+    _admin_from_auth(authorization)
+    fields = {"_id": 0, "runId": 1, "status": 1, "phase": 1, "error": 1, "startedAt": 1, "updatedAt": 1, "finishedAt": 1, "categoriesProcessed": 1, "totalCategories": 1, "productsDiscovered": 1, "productsProcessed": 1, "totalProducts": 1, "created": 1, "changed": 1, "unchanged": 1, "skippedDetails": 1}
+    progress = db().sync_runs.find_one({}, fields, sort=[("startedAt", -1)])
+    return progress or {"status": "not_started", "phase": "idle"}
+
 @app.patch("/api/admin/orders/{order_id}")
 def update_order(order_id: str, input: OrderStatusInput, authorization: str | None = Header(default=None)):
     _admin_from_auth(authorization)

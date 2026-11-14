@@ -1,4 +1,4 @@
-name: Daily ShopBase catalog sync
+name: ShopBase catalog sync every 48 hours
 
 on:
   schedule:
@@ -19,7 +19,27 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  cadence:
+    runs-on: ubuntu-latest
+    outputs:
+      due: ${{ steps.cadence.outputs.due }}
+    steps:
+      - id: cadence
+        shell: bash
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "due=true" >> "$GITHUB_OUTPUT"
+          else
+            utc_day=$(( $(date -u +%s) / 86400 ))
+            if [ $((utc_day % 2)) -eq 0 ]; then
+              echo "due=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "due=false" >> "$GITHUB_OUTPUT"
+            fi
+          fi
   sync:
+    needs: cadence
+    if: needs.cadence.outputs.due == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 360
     defaults:

@@ -166,10 +166,16 @@ def run():
  if not URI: raise SyncError("MONGODB_URI is missing.")
  runid,started=str(uuid.uuid4()),now(); client=MongoClient(URI,serverSelectionTimeoutMS=10000); db=client[DB]
  p,c,runs=db.products,db.categories,db.sync_runs; p.create_index("sourceId",unique=True,partialFilterExpression={"source":"shopbase"}); c.create_index("sourceId",unique=True)
- seen=created=changed=unchanged=0; failed_details=[]
+ seen=created=changed=unchanged=0; failed_details=[]; categories_processed=0; products_discovered=0
+ runs.update_one({"runId":runid},{"$set":{"runId":runid,"status":"running","phase":"connecting","startedAt":started,"updatedAt":started,"categoriesProcessed":0,"totalCategories":0,"productsProcessed":0,"totalProducts":0,"productsDiscovered":0,"created":0,"changed":0,"unchanged":0,"skippedDetails":0}},upsert=True)
+ def report_progress(**values):
+  values["updatedAt"]=now()
+  runs.update_one({"runId":runid},{"$set":values})
  try:
+  report_progress(phase="reading_categories")
   s=session(); cats=categories(get(s,"/store/products/all"))
   if len(cats)<30: raise SyncError(f"Only {len(cats)} categories parsed; refusing a partial catalog scan.")
+  report_progress(phase="scanning_categories",totalCategories=len(cats),categoriesProcessed=0)
   category_map,_=assignments(cats)
   unmatched=[cat["name"] for cat in cats if category_map[cat["sourceId"]]["unmatched"]]
   for order,group in enumerate(CATEGORY_GROUPS):
@@ -184,7 +190,11 @@ def run():
     for row in cards(soup,cat):
      row["parentCategory"]=parent
      listing[row["sourceId"]]=row
+   categories_processed=source_order+1; products_discovered=len(listing)
+   report_progress(phase="scanning_categories",categoriesProcessed=categories_processed,totalCategories=len(cats),productsDiscovered=products_discovered)
   if not listing: raise SyncError("Zero product cards found; existing items were not pruned.")
+  products_discovered=len(listing)
+  report_progress(phase="updating_products",categoriesProcessed=len(cats),totalCategories=len(cats),productsDiscovered=products_discovered,totalProducts=products_discovered,productsProcessed=0,created=0,changed=0,unchanged=0,skippedDetails=0)
   previous_count=p.count_documents({"source":"shopbase"})
   if previous_count and len(listing)<int(previous_count*.7): raise SyncError("Catalog count dropped sharply; refusing a partial scan.")
   old={x["sourceId"]:x for x in p.find({"source":"shopbase"},{"sourceId":1,"listFingerprint":1,"imageOverride":1,"detailsFetchedAt":1,"detailsVersion":1})}; batch=[]
@@ -199,6 +209,7 @@ def run():
      print(f"Detail skipped after retries for product {sid}: {error}",file=sys.stderr)
      if prev: p.update_one({"sourceId":sid,"source":"shopbase"},{"$set":{"lastSeenRun":runid,"missingRuns":0,"parentCategory":row["parentCategory"]["parentName"],"parentCategoryId":row["parentCategory"]["parentId"]}})
      seen+=1
+     if seen%25==0 or seen==len(listing): report_progress(phase="updating_products",productsProcessed=seen,totalProducts=len(listing),productsDiscovered=len(listing),created=created,changed=changed,unchanged=unchanged,skippedDetails=len(failed_details))
      continue
     hosted=mirror(doc["sourceImage"],sid)
     doc.update({"images":[hosted],"image":(prev.get("imageOverride") or hosted) if prev else hosted,"imageOverride":prev.get("imageOverride") if prev else None,"active":bool(doc["stock"]),"detailsFetchedAt":now(),"detailsVersion":DETAILS_VERSION,"lastSeenRun":runid,"missingRuns":0})
@@ -207,13 +218,14 @@ def run():
     else: created+=1
     if len(batch)>=250: p.bulk_write(batch,ordered=False); batch.clear()
    seen+=1
+   if seen%25==0 or seen==len(listing): report_progress(phase="updating_products",productsProcessed=seen,totalProducts=len(listing),productsDiscovered=len(listing),created=created,changed=changed,unchanged=unchanged,skippedDetails=len(failed_details))
   if batch: p.bulk_write(batch,ordered=False)
   for missing in p.find({"source":"shopbase","lastSeenRun":{"$ne":runid}},{"sourceId":1,"missingRuns":1}):
    n=int(missing.get("missingRuns",0))+1; p.update_one({"sourceId":missing["sourceId"],"source":"shopbase"},{"$set":{"missingRuns":n,"active":n<2,"stock":0 if n>=2 else None,"sourceStatus":"missing" if n>=2 else "not_seen"}})
-  summary={"runId":runid,"status":"success_with_skipped_details" if failed_details else "success","categories":len(cats),"categoryGroups":len(CATEGORY_GROUPS),"unmatchedCategories":unmatched,"failedDetails":failed_details,"seen":seen,"created":created,"changed":changed,"unchanged":unchanged,"startedAt":started,"finishedAt":now()}
-  runs.insert_one(summary.copy()); print({k:v for k,v in summary.items() if k!="runId"})
+  summary={"runId":runid,"status":"success_with_skipped_details" if failed_details else "success","phase":"complete","categories":len(cats),"categoryGroups":len(CATEGORY_GROUPS),"unmatchedCategories":unmatched,"failedDetails":failed_details,"seen":seen,"productsDiscovered":len(listing),"productsProcessed":seen,"totalProducts":len(listing),"categoriesProcessed":len(cats),"totalCategories":len(cats),"created":created,"changed":changed,"unchanged":unchanged,"skippedDetails":len(failed_details),"startedAt":started,"finishedAt":now(),"updatedAt":now()}
+  runs.update_one({"runId":runid},{"$set":summary},upsert=True); print({k:v for k,v in summary.items() if k!="runId"})
  except Exception as e:
-  runs.insert_one({"runId":runid,"status":"failed","error":str(e)[:500],"startedAt":started,"finishedAt":now(),"seen":seen}); raise
+  runs.update_one({"runId":runid},{"$set":{"status":"failed","phase":"failed","error":str(e)[:500],"startedAt":started,"finishedAt":now(),"updatedAt":now(),"seen":seen,"productsProcessed":seen,"categoriesProcessed":categories_processed,"productsDiscovered":products_discovered,"created":created,"changed":changed,"unchanged":unchanged,"skippedDetails":len(failed_details)}},upsert=True); raise
  finally: client.close()
 if __name__=="__main__":
  try: run()

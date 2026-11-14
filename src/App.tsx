@@ -545,7 +545,7 @@ export default function App() {
           {adminTab === 'offers' && <AdminOffers state={state} onNew={() => setCouponFormOpen(true)} toggleCoupon={toggleCoupon} deleteCoupon={deleteCoupon} onEdit={startEditProduct} updateState={updateState} notify={notify} />}
           {adminTab === 'orders' && <AdminOrders orders={state.orders} filter={orderFilter} setFilter={setOrderFilter} search={orderSearch} setSearch={setOrderSearch} onStatus={updateOrderStatus} />}
           {adminTab === 'content' && <section className="content-grid"><div className="panel content-editor"><div className="panel-heading"><div><h2>Storefront & campaigns</h2><p>Manage the homepage, promo banner, combos, and delivery estimates.</p></div><span className="saved-badge"><CheckCircle2 size={15} /> Saved to this browser</span></div><form className="settings-form" onSubmit={saveContent}><label>Announcement bar<input name="announcement" defaultValue={state.content.announcement} /></label><label>Hero headline<textarea name="heroTitle" rows={2} defaultValue={state.content.heroTitle} /></label><label>Hero supporting line<textarea name="heroSubtitle" rows={3} defaultValue={state.content.heroSubtitle} /></label><div className="settings-two"><label>Hero call to action<input name="heroCta" defaultValue={state.content.heroCta} /></label><label>Hero image URL<input name="heroImage" defaultValue={state.content.heroImage} /></label></div><h3 className="settings-subhead">Promotional banner</h3><label>Banner headline<textarea name="offerTitle" rows={2} defaultValue={state.content.offerTitle} /></label><label>Banner supporting line<textarea name="offerSubtitle" rows={2} defaultValue={state.content.offerSubtitle} /></label><label>Banner image URL<input name="offerImage" defaultValue={state.content.offerImage} /></label><h3 className="settings-subhead">Homepage combo cards</h3>{state.content.combos.map((combo, index) => <div className="combo-editor" key={`${combo.title}-${index}`}><b>Combo 0{index + 1}</b><label>Title<input name={`comboTitle${index}`} defaultValue={combo.title} /></label><div className="settings-two"><label>Subtitle<input name={`comboSubtitle${index}`} defaultValue={combo.subtitle} /></label><label>Price from (৳)<input name={`comboPrice${index}`} type="number" defaultValue={combo.price} /></label></div><label>Image URL<input name={`comboImage${index}`} defaultValue={combo.image} /></label></div>)}<h3 className="settings-subhead">Delivery charges</h3><div className="settings-two"><label>Inside Dhaka (৳)<input name="deliveryInDhaka" type="number" defaultValue={state.content.deliveryInDhaka} /></label><label>Outside Dhaka (৳)<input name="deliveryOutsideDhaka" type="number" defaultValue={state.content.deliveryOutsideDhaka} /></label></div><p className="form-help">Current delivery charges are ৳60 inside Dhaka and ৳120 outside Dhaka. You can update them here.</p><button className="primary-button"><Check size={17} /> Save storefront</button></form></div><div className="panel preview-panel"><div className="panel-heading"><div><h3>Homepage preview</h3><p>How the edit appears to customers</p></div><button className="subtle-icon" onClick={() => setAdmin(false)} aria-label="Open storefront"><ArrowUpRight size={17} /></button></div><div className="mini-hero" style={{ backgroundImage: `linear-gradient(90deg,rgba(26,44,43,.24),rgba(26,44,43,0)),url("${state.content.heroImage}")` }}><span>AARO / THE EVERYDAY EDIT</span><b>{state.content.heroTitle.replace('\n', ' ')}</b><button onClick={() => setAdmin(false)}>{state.content.heroCta} <ArrowRight size={13} /></button></div><div className="preview-note"><ShieldCheck size={17} /> Updates become visible on the storefront in this browser.</div></div></section>}
-          {adminTab === 'sync' && <SyncPanel lastSync={lastSync} importNote={importNote} fileRef={fileRef} onImport={importCsv} products={state.products} />}
+          {adminTab === 'sync' && <SyncPanel lastSync={lastSync} importNote={importNote} fileRef={fileRef} onImport={importCsv} products={state.products} apiBase={API_BASE} token={adminToken} />}
         </div>
       </main>
       {mobileMenu && <button className="admin-backdrop" onClick={() => setMobileMenu(false)} aria-label="Close menu" />}
@@ -776,25 +776,74 @@ function CouponEditor({ onClose, onSave }: { onClose: () => void; onSave: (event
   return <div className="modal-backdrop"><div className="form-modal small-form-modal"><div className="modal-heading"><div><span className="section-kicker">AARO / CHECKOUT</span><h2>Create coupon</h2></div><IconButton label="Close coupon form" onClick={onClose}><X size={19} /></IconButton></div><form className="settings-form" onSubmit={onSave}><label>Coupon code<input name="code" required minLength={3} placeholder="e.g. AARO15" /></label><div className="settings-two"><label>Discount type<select name="kind"><option value="percent">Percentage</option><option value="amount">Fixed amount</option></select></label><label>Value<input name="value" type="number" min="1" required /></label></div><label>Minimum order (৳), optional<input name="minimum" type="number" min="0" /></label><div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Cancel</button><button className="primary-button"><Check size={16} /> Save coupon</button></div></form></div></div>
 }
 
-function SyncPanel({ lastSync, importNote, fileRef, onImport, products }: { lastSync: string; importNote: string; fileRef: { current: HTMLInputElement | null }; onImport: (file?: File) => void; products: Product[] }) {
+function SyncPanel({ lastSync, importNote, fileRef, onImport, products, apiBase, token }: { lastSync: string; importNote: string; fileRef: { current: HTMLInputElement | null }; onImport: (file?: File) => void; products: Product[]; apiBase: string; token: string }) {
   const imported = products.filter((product) => product.source === 'shopbase')
+  const [syncProgress, setSyncProgress] = useState<{ status: string; phase?: string; error?: string; startedAt?: string; updatedAt?: string; finishedAt?: string; categoriesProcessed?: number; totalCategories?: number; productsDiscovered?: number; productsProcessed?: number; totalProducts?: number; created?: number; changed?: number; unchanged?: number; skippedDetails?: number } | null>(null)
+  const [progressLoading, setProgressLoading] = useState(false)
+  const [progressError, setProgressError] = useState('')
+  const refreshProgress = async () => {
+    if (!apiBase || !token) { setProgressError('Sync progress needs an active admin session and catalog API.'); return }
+    setProgressLoading(true)
+    setProgressError('')
+    try {
+      const response = await fetch(`${apiBase}/api/admin/sync/progress`, { cache: 'no-store', headers: { Authorization: `Bearer ${token}` } })
+      if (!response.ok) throw new Error('Could not load sync progress.')
+      setSyncProgress(await response.json())
+    } catch (error) {
+      setProgressError(error instanceof Error ? error.message : 'Could not load sync progress.')
+    } finally { setProgressLoading(false) }
+  }
+  useEffect(() => {
+    if (syncProgress?.status !== 'running' || !apiBase || !token) return
+    const poll = window.setInterval(async () => {
+      try {
+        const response = await fetch(`${apiBase}/api/admin/sync/progress`, { cache: 'no-store', headers: { Authorization: `Bearer ${token}` } })
+        if (response.ok) setSyncProgress(await response.json())
+      } catch { /* Keep the last reported progress visible during temporary network interruptions. */ }
+    }, 10000)
+    return () => window.clearInterval(poll)
+  }, [syncProgress?.status, apiBase, token])
+  const progress = syncProgress
+  const totalProducts = progress?.totalProducts || 0
+  const progressPercent = progress?.status === 'success' || progress?.status === 'success_with_skipped_details' ? 100
+    : progress?.phase === 'updating_products' && totalProducts > 0 ? 15 + Math.round(((progress.productsProcessed || 0) / totalProducts) * 85)
+    : progress?.totalCategories ? Math.round(((progress.categoriesProcessed || 0) / progress.totalCategories) * 15) : 0
+  const phaseLabel = progress?.status === 'running' ? ({
+    connecting: 'Connecting to the catalog',
+    reading_categories: 'Reading categories',
+    scanning_categories: 'Finding products in categories',
+    updating_products: 'Updating product details',
+  } as Record<string, string>)[progress.phase || ''] || 'Preparing the sync'
+    : progress?.status === 'failed' ? 'Sync failed'
+    : progress?.status === 'not_started' ? 'No sync run has been recorded yet'
+    : progress ? 'Sync finished' : ''
   return <div className="sync-layout">
     <section className="panel sync-hero-panel">
       <div className="sync-symbol"><RotateCcw size={24} /></div>
       <span className="section-kicker">CATALOG / SHOPBASE BD</span>
       <h2>Your catalog, all in one place.</h2>
-      <p>Supplier updates belong in your catalog first. A scheduled GitHub Actions workflow refreshes your stored catalog every 24 hours.</p>
+      <p>Supplier updates belong in your catalog first. A scheduled GitHub Actions workflow refreshes your stored catalog every 48 hours.</p>
       <div className="sync-status-box">
         <div className="sync-status-icon"><Clock3 size={19} /></div>
-        <span><b>{imported.length ? `${imported.length.toLocaleString()} imported products` : 'ShopBase catalog not synced'}</b><small>{lastSync ? `Last catalog update ${dateLabel(lastSync)}` : imported.length ? 'Products are available from your connected catalog API.' : 'Add the ShopBase session cookie to GitHub Actions secrets to enable the daily job.'}</small></span>
+        <span><b>{imported.length ? `${imported.length.toLocaleString()} imported products` : 'ShopBase catalog not synced'}</b><small>{lastSync ? `Last catalog update ${dateLabel(lastSync)}` : imported.length ? 'Products are available from your connected catalog API.' : 'Add the ShopBase session cookie to GitHub Actions secrets to enable the scheduled job.'}</small></span>
         <span className={`status-pill ${imported.length ? 'status-green' : 'status-amber'}`}><i />{imported.length ? 'Connected' : 'Needs sync'}</span>
       </div>
-      <div className="sync-actions"><button className="primary-button" onClick={() => fileRef.current?.click()}><Upload size={17} /> Import supplier CSV</button><input ref={fileRef} type="file" accept=".csv,text/csv" hidden onChange={(event) => onImport(event.target.files?.[0])} /><button className="secondary-button" onClick={() => fileRef.current?.click()}><Download size={16} /> Select CSV file</button></div>
+      <div className="sync-actions"><button className="primary-button" onClick={() => fileRef.current?.click()}><Upload size={17} /> Import supplier CSV</button><input ref={fileRef} type="file" accept=".csv,text/csv" hidden onChange={(event) => onImport(event.target.files?.[0])} /><button className="secondary-button" onClick={() => fileRef.current?.click()}><Download size={16} /> Select CSV file</button><button className="secondary-button" onClick={refreshProgress} disabled={progressLoading}><RotateCcw size={16} /> {progressLoading ? 'Checking progress…' : 'View sync progress'}</button></div>
+      {progressError && <div className="import-result sync-progress-error">{progressError}</div>}
+      {progress && <div className="sync-progress-card" aria-live="polite">
+        <div className="sync-progress-heading"><b>{phaseLabel}</b><span>{progress.status === 'running' ? 'Live' : progress.status.replace(/_/g, ' ')}</span></div>
+        <div className="sync-progress-track"><i style={{ width: `${Math.min(100, progressPercent)}%` }} /></div>
+        {progress.totalCategories ? <p>Categories: {(progress.categoriesProcessed || 0).toLocaleString()} / {progress.totalCategories.toLocaleString()}</p> : null}
+        {progress.totalProducts ? <p>Products: {(progress.productsProcessed || 0).toLocaleString()} / {progress.totalProducts.toLocaleString()} processed{progress.productsDiscovered ? ` · ${progress.productsDiscovered.toLocaleString()} found` : ''}</p> : null}
+        {(progress.totalProducts || 0) > 0 && <p>New: {progress.created || 0} · Updated: {progress.changed || 0} · Unchanged: {progress.unchanged || 0} · Detail issues: {progress.skippedDetails || 0}</p>}
+        {progress.error && <p className="sync-progress-error">{progress.error}</p>}
+        {progress.updatedAt && <small>Last update: {new Date(progress.updatedAt).toLocaleString()}</small>}
+      </div>}
       {importNote && <div className="import-result"><CheckCircle2 size={16} />{importNote}</div>}
-      <div className="sync-note"><ShieldCheck size={17} /><span><b>Daily catalog sync is configured</b><small>The scheduled workflow reads the ShopBase session cookie from GitHub secrets. Keep it out of storefront code.</small></span></div>
+      <div className="sync-note"><ShieldCheck size={17} /><span><b>48-hour catalog sync is configured</b><small>The scheduled workflow reads the ShopBase session cookie from GitHub secrets. Keep it out of storefront code.</small></span></div>
     </section>
     <section className="panel sync-side-panel">
-      <div className="panel-heading"><div><h3>How updates work</h3><p>Daily catalog schedule</p></div></div>
+      <div className="panel-heading"><div><h3>How updates work</h3><p>48-hour catalog schedule</p></div></div>
       <div className="sync-flow"><div><i>01</i><span><b>Read the reseller catalog</b><small>Use the ShopBase session secret on the server, never in browser code.</small></span></div><div><i>02</i><span><b>Update changed products</b><small>Match by the ShopBase product ID and preserve AARO edits and image overrides.</small></span></div><div><i>03</i><span><b>Recheck at checkout</b><small>Verify the selected product’s latest price and availability before accepting the order.</small></span></div><div><i>04</i><span><b>Review orders</b><small>Confirm with your customer, then submit the order in the ShopBase app until order API access exists.</small></span></div></div>
       <div className="csv-format"><b>CSV columns supported</b><code>id, title, category, price, compare_at, image, description, stock</code></div>
     </section>

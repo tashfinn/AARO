@@ -2037,3 +2037,30 @@ img { display: block; width: 100%; height: 100%; object-fit: cover; }
   border-color: #f0a044;
   color: #17211d;
 }
+
+/* Show live catalog-sync progress clearly in the admin panel. */
+.sync-actions { flex-wrap: wrap; }
+.sync-progress-card {
+  margin-top: 12px;
+  padding: 14px;
+  border: 1px solid #dfe8df;
+  border-radius: 6px;
+  background: #f8faf7;
+  color: #405b50;
+}
+.sync-progress-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.sync-progress-heading b { color: #173c39; font-size: 14px; }
+.sync-progress-heading span { color: #60766b; font-size: 12px; text-transform: capitalize; }
+.sync-progress-track { height: 9px; margin: 12px 0 10px; overflow: hidden; border-radius: 9px; background: #e2e9e2; }
+.sync-progress-track i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg,#173c39,#f0a044); transition: width .35s ease; }
+.sync-progress-card p { margin: 5px 0; color: #526a60; font-size: 13px; line-height: 1.5; }
+.sync-progress-card > small { display: block; margin-top: 9px; color: #72847a; font-size: 11px; }
+.sync-progress-card .sync-progress-error,
+.sync-progress-error { color: #a33b34; }
+.theme-dark .sync-progress-card { background: #111a17; color: #d7e2dc; border-color: #34463f; }
+.theme-dark .sync-progress-heading b,
+.theme-dark .sync-progress-card p { color: #edf3ef; }
+.theme-dark .sync-progress-heading span,
+.theme-dark .sync-progress-card > small { color: #bdc9c2; }
+.theme-dark .sync-progress-track { background: #273831; }
+.theme-dark .sync-progress-track i { background: linear-gradient(90deg,#5fb49a,#f0a044); }
