@@ -1526,7 +1526,6 @@ img { display: block; width: 100%; height: 100%; object-fit: cover; }
 }
 .theme-dark .site-header,
 .theme-dark .header-main,
-.theme-dark .desktop-nav,
 .theme-dark .category-dropdown,
 .theme-dark .search-wrap,
 .theme-dark .search-suggestions,
@@ -1572,7 +1571,6 @@ img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .theme-dark .category-dropdown button:hover,
 .theme-dark .category-menu-child:hover { background: #25342e; color: #fff !important; }
 .theme-dark .product-image,
-.theme-dark .product-meta,
 .theme-dark .coupon-row,
 .theme-dark .checkout-form input,
 .theme-dark .checkout-form textarea,
@@ -1580,6 +1578,7 @@ img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .theme-dark .search-wrap input { background: #111a17; color: #edf3ef; border-color: #34463f; }
 .theme-dark .site-header,
 .theme-dark .header-main { background: #111a17; }
+.theme-dark .desktop-nav { background: transparent; }
 .theme-dark .wordmark { color: #f4a340; }
 .theme-dark .wordmark span { color: #ffd27b; }
 .theme-dark .dark-button { border-color: #f0a044; background: #f0a044; color: #17211d; box-shadow: 0 5px 14px rgb(240 160 68 / 20%); }
@@ -1598,6 +1597,9 @@ img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .theme-dark .text-link,
 .theme-dark .product-meta .price,
 .theme-dark .price { color: #f3bf77; }
+.theme-dark .product-card,
+.theme-dark .product-image { background-color: #18231f; }
+.theme-dark .product-meta { background: transparent; border-color: transparent; }
 .theme-dark .price del { color: #b5c0ba; }
 .theme-dark .filter-button,
 .theme-dark .sort-control,
@@ -1608,6 +1610,7 @@ img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .theme-dark .filter-chips button.selected,
 .theme-dark .filter-chips button:hover { background: #d88a36; border-color: #d88a36; color: #17211d; }
 .theme-dark .search-wrap { background: #18231f; border-color: #43564d; color: #d6e1db; }
+.theme-dark .search-wrap input { background: transparent; }
 .theme-dark .search-wrap input::placeholder { color: #aebbb4; }
 .theme-dark .desktop-nav button.nav-current { color: #ffc16f; border-color: #e99a43; }
 .theme-dark .category-menu-view-all { color: #f0b66c; }
