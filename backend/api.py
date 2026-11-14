@@ -30,6 +30,9 @@ class CustomerCredentials(BaseModel):
 class SyncRequest(BaseModel):
     refresh_details: bool = True
 
+class SyncScheduleInput(BaseModel):
+    intervalHours: int
+
 class AdminCredentials(BaseModel):
     identifier: str = Field(min_length=1, max_length=120)
     password: str = Field(min_length=1, max_length=256)
@@ -370,6 +373,25 @@ def _stamp(value: str | None):
         return datetime.fromisoformat(value.replace("Z", "+00:00"))
     except (TypeError, ValueError):
         return None
+
+@app.get("/api/admin/sync/schedule")
+def admin_sync_schedule(authorization: str | None = Header(default=None)):
+    _admin_from_auth(authorization)
+    settings = db().sync_settings.find_one({"_id": "catalog-schedule"}, {"_id": 0, "intervalHours": 1}) or {}
+    interval = settings.get("intervalHours", 24)
+    return {"intervalHours": interval if interval in (6, 12, 24, 48) else 24}
+
+@app.patch("/api/admin/sync/schedule")
+def update_admin_sync_schedule(input: SyncScheduleInput, authorization: str | None = Header(default=None)):
+    _admin_from_auth(authorization)
+    if input.intervalHours not in (6, 12, 24, 48):
+        raise HTTPException(status_code=422, detail="Choose a 6, 12, 24, or 48 hour sync interval.")
+    db().sync_settings.update_one(
+        {"_id": "catalog-schedule"},
+        {"$set": {"intervalHours": input.intervalHours, "updatedAt": datetime.now(timezone.utc).isoformat()}},
+        upsert=True,
+    )
+    return {"intervalHours": input.intervalHours}
 
 @app.post("/api/admin/sync/run")
 def start_admin_sync(input: SyncRequest, authorization: str | None = Header(default=None)):

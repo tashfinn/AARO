@@ -1,8 +1,8 @@
-name: ShopBase catalog sync every 48 hours
+name: ShopBase catalog sync
 
 on:
   schedule:
-    - cron: '0 18 * * *'
+    - cron: '0 */6 * * *'
   workflow_dispatch:
     inputs:
       refresh_details:
@@ -24,19 +24,26 @@ jobs:
     outputs:
       due: ${{ steps.cadence.outputs.due }}
     steps:
-      - id: cadence
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install schedule checker dependency
+        run: pip install pymongo
+      - name: Check saved sync interval
+        id: cadence
         shell: bash
         run: |
           if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
             echo "due=true" >> "$GITHUB_OUTPUT"
           else
-            utc_day=$(( $(date -u +%s) / 86400 ))
-            if [ $((utc_day % 2)) -eq 0 ]; then
-              echo "due=true" >> "$GITHUB_OUTPUT"
-            else
-              echo "due=false" >> "$GITHUB_OUTPUT"
-            fi
+            python backend/sync_schedule.py
           fi
+        env:
+          MONGODB_URI: ${{ secrets.MONGODB_URI }}
+          MONGODB_DATABASE: aaro
   sync:
     needs: cadence
     if: needs.cadence.outputs.due == 'true'
