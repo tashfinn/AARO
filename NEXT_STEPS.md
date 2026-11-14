@@ -1,27 +1,16 @@
-# AARO setup: daily catalog sync
+# AARO production setup checklist
 
-The daily importer and read-only catalog API are in backend/. Never put passwords, cookies, database URIs, or Cloudinary secrets in chat or source code.
+## Services and secrets
 
-## 1. Push to a private GitHub repository
+- Render web service: deploy from `backend/`; run `pip install -r requirements.txt` and `uvicorn api:app --host 0.0.0.0 --port $PORT`.
+- Render environment: configure MongoDB, the application auth secret and password hash, and `FRONTEND_ORIGINS` for the exact Vercel domain.
+- GitHub repository secrets: configure `MONGODB_URI` and `SHOPBASE_SESSION_COOKIE` for the scheduled catalog workflow. Keep supplier credentials out of source code and browser settings.
+- Vercel: set `VITE_API_URL` to the Render web service URL.
+- Catalog workflow: GitHub Actions refreshes the catalog daily at 12:00 a.m. Bangladesh time (18:00 UTC). Use its manual run option for an on-demand sync and inspect the run summary and progress.
 
-The D: project must be in a private Git repository before Render can deploy it.
+## Before accepting orders
 
-## 2. Create MongoDB Atlas
-
-Create a cluster and a database user with read/write access restricted to the aaro database. In Atlas Network Access, allow the outbound IP ranges shown for your Render region; avoid 0.0.0.0/0. Add the Atlas connection string to Render as MONGODB_URI.
-
-## 3. Deploy on Render
-
-Create a Web Service and Cron Job from the same repository. Root directory: backend. Build command: pip install -r requirements.txt. Web command: uvicorn api:app --host 0.0.0.0 --port $PORT. Cron command: python sync_shopbase.py. Schedule: 0 7 * * * (13:00 Bangladesh time). Render Cron Jobs currently have a $1/month minimum plus runtime usage.
-
-Set MONGODB_URI and MONGODB_DATABASE=aaro on both services. Set SHOPBASE_SESSION_COOKIE on the Cron Job only. While logged into ShopBase, inspect a category request in Chrome DevTools Network and copy its Cookie request header. Save it directly in Render; do not paste it into chat. Refresh it if the job is redirected to login.
-
-## 4. Add Cloudinary (optional)
-
-Create a Cloudinary account and add the cloud name, API key, and API secret to Render's Cron Job environment. The secret stays server-side. The importer can mirror the primary image; gallery URLs remain supplier URLs. Set CLOUDINARY_MIRROR_IMAGES=true only after reviewing your Cloudinary usage for a first import of thousands of images.
-
-## 5. Connect Vercel
-
-Set FRONTEND_ORIGINS to the exact Vercel storefront origin on the Web Service. Set VITE_API_URL to the Render service URL in Vercel and redeploy. Check /api/health and manually trigger one Cron Job run.
-
-Review the default 20% markup, supplier suggested-price parsing, stock status, and image URLs before taking real orders. Listing prices are checked daily; unchanged product descriptions and galleries are refreshed in staggered weekly batches. Storefront order/account/admin writes and checkout availability checks still need backend integration.
+- Check `/api/health` and confirm the live catalog loads from MongoDB.
+- Review imported prices, the single primary image, descriptions, size/options, category mapping, and availability after a successful sync.
+- Place a test order and verify it appears in the admin review queue. Staff currently confirm orders by phone and submit them to ShopBase manually.
+- Keep in mind that product edits, manual categories, category groupings, featured-product flags, and storefront content are currently saved in the admin browser only. They are not shared or persisted in MongoDB yet.

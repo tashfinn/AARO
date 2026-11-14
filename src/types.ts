@@ -56,7 +56,6 @@ export type StoreContent = {
   announcement: string
   trendingIds: string[]
   offerIds: string[]
-  combos: { title: string; subtitle: string; image: string; price: number }[]
   deliveryInDhaka: number
   deliveryOutsideDhaka: number
 }
@@ -69,5 +68,4 @@ export type StoreState = {
   offers: OfferDeal[]
   orders: Order[]
   content: StoreContent
-  views: number
 }

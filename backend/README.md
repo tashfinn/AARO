@@ -1,16 +1,16 @@
-# AARO backend and daily ShopBase sync
+# AARO backend and ShopBase catalog sync
 
-The backend reads product data from MongoDB; a daily GitHub Actions workflow scans the authenticated reseller catalog. It reads category/card snapshots. Product detail pages supply descriptions, attribute lines, size charts, size/options, images, stock, and suggested retail prices. The next run refreshes existing records once with the updated detail parser; later routine detail refreshes are staggered across daily runs. A missing item must be absent from two successful scans before it is marked unavailable.
+The FastAPI service reads the public catalog from MongoDB. GitHub Actions runs the authenticated ShopBase importer daily at 12:00 a.m. Bangladesh time (18:00 UTC). The importer reads category and product-card data, then product detail pages for descriptions, attribute lines, size charts/options, the main image, stock, and suggested retail pricing. A manually started workflow can force-refresh existing product details. A product is marked unavailable only after it is absent from two successful catalog scans.
 
-ShopBase's 107 source categories are subcategories in AARO. `category_groups.py` defines the 13 storefront parent categories and maps the source labels into them. The importer writes each mapping by stable ShopBase category ID and recreates the AARO parent-category documents on every run, so source category refreshes do not erase the hierarchy. Unrecognized source labels remain visible under Other Categories and are listed in the sync summary for review.
+ShopBase's 107 source categories are grouped under AARO's 13 parent categories in `category_groups.py`. The importer stores mappings by stable ShopBase category ID and restores the parent-category documents on each run. Unrecognized source labels remain under Other Categories and are included in the sync summary for review.
 
-This is an HTML importer rather than an official API. It uses a ShopBase session cookie, makes sequential requests with a delay, and stops without pruning if authentication fails or zero products are found. The initial scan of thousands of items may take much longer than two minutes. Later runs should be faster when few products changed.
+This is an HTML importer, not an official ShopBase API. It uses an authenticated ShopBase session cookie, makes sequential requests with a delay, and avoids pruning when authentication fails or no products are found. A first scan of thousands of products may take hours.
 
-## Secrets (set only in Render)
+## Secrets and environment
 
-MONGODB_URI, MONGODB_DATABASE=aaro, SHOPBASE_SESSION_COOKIE, AARO_MARKUP_PERCENT=20, SHOPBASE_REQUEST_DELAY_SECONDS=0.35, SHOPBASE_DETAIL_REFRESH_DAYS=7, CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET, CLOUDINARY_MIRROR_IMAGES=false by default; set true only after checking your usage, FRONTEND_ORIGINS.
+Configure the Render web service with `MONGODB_URI`, `MONGODB_DATABASE=aaro`, `FRONTEND_ORIGINS`, and the admin/account auth settings. Configure GitHub Actions repository secrets with `MONGODB_URI` and `SHOPBASE_SESSION_COOKIE`. Optional Cloudinary secrets are `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, and `CLOUDINARY_API_SECRET`; image mirroring is off unless `CLOUDINARY_MIRROR_IMAGES=true` is explicitly set. The workflow also sets the request delay, markup, and detail-refresh interval.
 
-The ShopBase cookie is as sensitive as a password. Do not paste it into chat or commit it. The importer displays the supplier's suggested retail price when it can parse that field; otherwise it falls back to the configured markup. Wholesale cost remains in MongoDB and is excluded from public API responses.
+Treat the ShopBase cookie like a password. Keep it in GitHub secrets, never in the storefront or repository. The importer uses the supplier's suggested price when available and otherwise applies the configured markup. Wholesale cost is excluded from public API responses.
 
 
 ## Admin Sync Now
@@ -19,12 +19,10 @@ The Product Sync screen can dispatch the existing GitHub Actions workflow and po
 
 ## Deploy
 
-1. Push this project to a private GitHub repository.
-2. Create an Atlas cluster and a database user restricted to the aaro database. In Atlas Network Access, allow the outbound IP ranges shown for your Render region. Do not use 0.0.0.0/0 in normal operation.
-3. Create a Render Web Service from the repository with root directory backend, build command pip install -r requirements.txt, start command uvicorn api:app --host 0.0.0.0 --port $PORT. Add the Mongo variables. It serves /api/health and /api/catalog.
-4. Create a Render Cron Job from the same repository with root directory backend, build command pip install -r requirements.txt, command python sync_shopbase.py, schedule 0 7 * * * (13:00 Bangladesh time). Add MongoDB, ShopBase, and optional Cloudinary variables. Render Cron Jobs have a $1/month minimum plus usage.
-5. While logged into ShopBase, use Chrome DevTools Network to inspect a category request and copy its Cookie request header. Save it directly in Render as SHOPBASE_SESSION_COOKIE. Refresh this secret if a job is redirected to login.
-6. Set FRONTEND_ORIGINS to the exact Vercel origin. Set VITE_API_URL in Vercel to the Render Web Service URL and redeploy.
-7. Cloudinary mirrors primary images only when enabled with CLOUDINARY_MIRROR_IMAGES=true. Gallery image URLs are preserved as supplier URLs.
+1. Deploy the `backend` directory as a Render Web Service with `pip install -r requirements.txt` and `uvicorn api:app --host 0.0.0.0 --port $PORT`.
+2. Add MongoDB, CORS, and auth variables to Render. Set `FRONTEND_ORIGINS` to the exact Vercel storefront origin.
+3. Add the MongoDB URI and ShopBase session cookie as GitHub repository secrets for the scheduled workflow.
+4. Set `VITE_API_URL` in Vercel to the Render Web Service URL and redeploy the frontend.
+5. Check `/api/health`, run the GitHub Actions catalog workflow when needed, and review the run summary and catalog before accepting orders.
 
-Trigger the first Cron Job manually in Render. Review the logs, catalog, prices, image behavior, and stock status before accepting real orders.
+Customer orders are saved for review, but staff still confirm with the customer and submit orders in ShopBase manually because supplier order submission is not connected. Product, category, and storefront-content edits in the current admin panel are browser-local; they are not durable MongoDB changes.
