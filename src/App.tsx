@@ -191,7 +191,7 @@ export default function App() {
       if (!products.length) products = activeProducts
     }
     if (page === 'wishlist') products = products.filter((product) => wishlist.includes(product.id))
-    if (page === 'category' && category !== 'All') products = products.filter((product) => selectedCategorySourceId ? product.categorySourceId === selectedCategorySourceId : selectedParentCategoryId ? product.parentCategoryId === selectedParentCategoryId || parentChildIds.includes(product.categorySourceId || '') || (!parentChildIds.length && parentChildren.some((child) => child.name === product.category)) : product.category === category)
+    if (page === 'category' && category !== 'All') products = products.filter((product) => selectedCategorySourceId ? product.categorySourceId === selectedCategorySourceId : selectedParentCategoryId ? parentChildIds.includes(product.categorySourceId || '') || parentChildren.some((child) => child.name === product.category) : product.category === category)
     if (needle) products = products.filter((product) => `${product.title} ${product.category} ${product.description}`.toLowerCase().includes(needle))
     if (page === 'category') {
       products = products.filter((product) => product.price >= minPrice && product.price <= maxPrice)
@@ -426,7 +426,10 @@ export default function App() {
         {(page !== 'shop' && page !== 'combos') || submittedQuery ? <section className="listing-page page-width">
           <div className="breadcrumb"><button onClick={() => showStore('shop')}>Home</button><ChevronRight size={14} /><span>{submittedQuery ? 'Search results' : page === 'category' ? category : formatPageTitle}</span></div>
           <div className="listing-heading"><div><span className="section-kicker">THE AARO EDIT / {visibleProducts.length} FINDS</span><h1>{submittedQuery ? `Results for “${submittedQuery}”` : formatPageTitle}</h1><p>{page === 'offers' ? 'Little extras to make a good find feel even better.' : page === 'trending' ? 'The pieces customers keep coming back for.' : page === 'wishlist' ? 'All the things you have saved for later.' : 'Good things, picked with your everyday in mind.'}</p></div>{page === 'category' && <button className="filter-button" aria-expanded={filtersOpen} onClick={() => setFiltersOpen((open) => !open)}><SlidersHorizontal size={16} /> Filters <ChevronDown size={14} /></button>}</div>
-          <div className="filter-chips">{state.categories.filter((item) => item !== 'All').map((item) => <button className={category === item ? 'selected' : ''} key={item} onClick={() => { setPage('category'); setCategory(item); setSubmittedQuery('') }}>{item}</button>)}</div>
+          {page === 'category' && <>
+            <div className="filter-chips">{categoryGroups.map((group) => <button className={selectedParentCategoryId === group.id && !selectedCategorySourceId ? 'selected' : ''} key={group.id} onClick={() => showStore('category', group.name, '', group.id)}>{group.name}</button>)}</div>
+            {selectedParentCategoryId && !selectedCategorySourceId && <div className="filter-chips subcategory-chips">{(categoryGroups.find((group) => group.id === selectedParentCategoryId)?.children || []).map((child) => <button key={`${selectedParentCategoryId}-${child.sourceId || child.name}`} onClick={() => showStore('category', child.name, child.sourceId || '', selectedParentCategoryId)}>{child.name}</button>)}</div>}
+          </>}
           {page === 'category' && filtersOpen && <div className="catalog-filters"><label className="sort-control">Sort by<select value={priceSort} onChange={(event) => setPriceSort(event.target.value as typeof priceSort)}><option value="recommended">Recommended</option><option value="low-high">Price: low to high</option><option value="high-low">Price: high to low</option></select></label><div className="price-range"><div className="price-range-heading"><b>Price range</b><span>{money(minPrice)} – {money(Math.min(maxPrice, catalogMaxPrice))}</span></div><label>Minimum price<input aria-label="Minimum price" type="range" min="0" max={catalogMaxPrice} step="100" value={Math.min(minPrice, catalogMaxPrice)} onChange={(event) => setMinPrice(Math.min(Number(event.target.value), maxPrice))} /></label><label>Maximum price<input aria-label="Maximum price" type="range" min="0" max={catalogMaxPrice} step="100" value={Math.min(maxPrice, catalogMaxPrice)} onChange={(event) => setMaxPrice(Math.max(Number(event.target.value), minPrice))} /></label></div><button className="reset-filters" onClick={() => { setMinPrice(0); setMaxPrice(catalogMaxPrice); setPriceSort('recommended') }}>Reset filters</button></div>}
           {visibleProducts.length ? <><div className="product-grid listing-grid">{visibleProducts.slice(0, productsToShow).map((product) => <ProductCard key={product.id} product={product} wished={wishlist.includes(product.id)} onWish={toggleWish} onOpen={openProduct} onAdd={addToCart} />)}</div>{visibleProducts.length > productsToShow && <button className="load-more-button" onClick={() => setProductsToShow((count) => Math.min(count + 48, visibleProducts.length))}>Load more products <span>{Math.min(48, visibleProducts.length - productsToShow)} more</span></button>}</> : <div className="empty-state"><Search size={27} /><h3>{page === 'wishlist' ? 'Nothing saved just yet' : 'No finds in this range'}</h3><p>{page === 'wishlist' ? 'Tap the heart on anything you love and it will show up here.' : 'Adjust the price range or browse another category.'}</p><button className="dark-button" onClick={() => { setQuery(''); showStore('shop') }}>Explore all products <ArrowRight size={16} /></button></div>}
         </section> : null}
@@ -513,9 +516,10 @@ function ProductPage({ product, relatedProducts, wishlist, wished, onClose, onWi
     return () => { current = false }
   }, [apiUrl, product.id, product.sourceId])
   const detailProduct = fullDetails || product
-  const detailImages = [...new Set([detailProduct.image, ...(detailProduct.images || [])].filter(Boolean))]
+  const primaryImage = detailProduct.images?.[0] || detailProduct.image
+  const detailImages = primaryImage ? [primaryImage] : []
   const [activeImage, setActiveImage] = useState(product.image)
-  useEffect(() => { setActiveImage(detailProduct.image) }, [detailProduct.id, detailProduct.image])
+  useEffect(() => { setActiveImage(primaryImage) }, [detailProduct.id, primaryImage])
   useEffect(() => { setSize(detailProduct.sizes?.[0] || '') }, [detailProduct.id, detailProduct.sizes?.join('|')])
   return <section className="product-page page-width">
     <button className="product-back" onClick={onClose}><ChevronLeft size={17} /> Back to shopping</button>

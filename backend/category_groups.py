@@ -110,17 +110,8 @@ def category_group_payload(categories):
     """Return API-ready main categories with their source subcategories."""
     assigned, _ = assignments(categories)
     by_id = {str(item.get("sourceId")): item for item in categories}
-    # Once the importer has written a manual assignment, trust that stable
-    # source-ID mapping. Name-based matching is only the bootstrap path.
-    for source_id, item in by_id.items():
-        parent_id = item.get("parentId")
-        if parent_id and any(group["id"] == parent_id for group in CATEGORY_GROUPS):
-            assigned[source_id] = {
-                "parentId": parent_id,
-                "parentName": item.get("parentName") or next(group["name"] for group in CATEGORY_GROUPS if group["id"] == parent_id),
-                "sortOrder": item.get("sortOrder", 1000),
-                "unmatched": bool(item.get("unmatchedCategoryLabel", False)),
-            }
+    # Recompute from the curated labels and source order instead of trusting
+    # stored assignments, which may have been created by an older bad mapping.
     groups = []
     for group in CATEGORY_GROUPS:
         children = []

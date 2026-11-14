@@ -35,6 +35,16 @@ def public_product(product, include_details=False):
     product.setdefault("rating", 0)
     product.setdefault("reviews", 0)
     product.setdefault("source", "shopbase")
+    # Older catalog runs stored recommendation thumbnails alongside the
+    # product's actual image. The first item is the primary, high-resolution
+    # product photo; never expose the recommendation images as a gallery.
+    primary_image = (product.get("images") or [None])[0] or product.get("image")
+    if primary_image:
+        product["image"] = primary_image
+    if include_details:
+        product["images"] = [primary_image] if primary_image else []
+    else:
+        product.pop("images", None)
     if not include_details:
         product["description"] = ""
     return product
@@ -56,7 +66,11 @@ def catalog():
         fields = {"_id": 0, "sourceId": 1, "title": 1, "category": 1, "categorySourceId": 1, "parentCategory": 1, "parentCategoryId": 1, "price": 1, "suggestedRetailPrice": 1, "compareAt": 1, "image": 1, "stock": 1, "active": 1, "source": 1, "updatedAt": 1, "trending": 1, "offer": 1, "badge": 1, "rating": 1, "reviews": 1}
         products = [public_product(item) for item in store.products.find({"active": True}, fields).limit(20000)]
         products.sort(key=lambda item: str(item.get("title", "")).casefold())
-        categories = list(store.categories.find({"source": "shopbase", "type": {"$ne": "parent"}}, {"_id": 0, "sourceId": 1, "name": 1, "parentId": 1, "parentName": 1, "sortOrder": 1}).sort([("sortOrder", 1), ("name", 1)]))
+        categories = list(store.categories.find({"source": "shopbase", "type": {"$ne": "parent"}}, {"_id": 0, "sourceId": 1, "name": 1, "parentId": 1, "parentName": 1, "sortOrder": 1, "sourceOrder": 1}))
+        # The supplier's catalog order is the tie-breaker for same-named child
+        # categories (e.g. Denim Jacket under two parent collections).
+        if categories and all(item.get("sourceOrder") is not None for item in categories):
+            categories.sort(key=lambda item: item["sourceOrder"])
         groups = category_group_payload(categories)
         latest = store.sync_runs.find_one({"status": "success"}, {"_id": 0}, sort=[("finishedAt", -1)])
         return {"products": products, "categories": [item["name"] for item in categories], "categoryGroups": groups, "lastSync": (latest or {}).get("finishedAt")}
