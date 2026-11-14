@@ -1,0 +1,167 @@
+/* Mobile navigation drawer. Loaded after the storefront's base stylesheet. */
+@media (max-width: 780px) {
+  /* Let the fixed drawer escape the storefront's horizontal-overflow clip. */
+  .storefront:has(.desktop-nav-open) { overflow: visible; }
+  body:has(.desktop-nav-open) { overflow: hidden; }
+  .site-header.mobile-menu-active { z-index: 1000; backdrop-filter: none; }
+
+  .mobile-nav-backdrop {
+    position: fixed;
+    z-index: 1001;
+    inset: 0;
+    display: block;
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: rgb(12 22 19 / 48%);
+    touch-action: manipulation;
+  }
+
+  .desktop-nav.desktop-nav-open {
+    position: fixed;
+    z-index: 1002;
+    inset: 0 auto 0 0;
+    display: flex;
+    width: min(370px, calc(100vw - 44px));
+    height: 100vh;
+    height: 100dvh;
+    max-height: 100vh;
+    max-height: 100dvh;
+    min-height: 0;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 0 18px max(20px, env(safe-area-inset-bottom));
+    border: 0;
+    border-right: 1px solid #e1e8e1;
+    border-radius: 0 18px 18px 0;
+    background: #fafbf8;
+    box-shadow: 18px 0 42px rgb(16 34 31 / 22%);
+    transform: translateX(0);
+    visibility: visible;
+    pointer-events: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .desktop-nav-open .mobile-nav-heading {
+    position: sticky;
+    z-index: 3;
+    top: 0;
+    flex: 0 0 64px;
+    min-height: 64px;
+    margin: 0 -18px 10px;
+    padding: max(12px, env(safe-area-inset-top)) 16px 8px;
+    background: #fafbf8;
+  }
+
+  .desktop-nav-open > button,
+  .desktop-nav-open .category-nav > button {
+    display: flex;
+    width: 100%;
+    min-height: 52px;
+    height: auto;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 12px;
+    border: 0;
+    border-bottom: 1px solid #e8ece6;
+    border-radius: 0;
+    background: transparent;
+    color: #173c39;
+    font-size: 16px;
+    font-weight: 650;
+    text-align: left;
+  }
+  .desktop-nav-open > button.nav-current::after { display: none; }
+  .desktop-nav-open .category-nav {
+    position: static;
+    display: block;
+    flex: 0 0 auto;
+    height: auto;
+    min-height: 0;
+  }
+  .desktop-nav-open .category-nav > button svg { transition: transform .18s ease; }
+  .desktop-nav-open .category-nav.category-nav-open > button svg { transform: rotate(180deg); }
+
+  /* Tapping Categories opens a bounded, independently scrollable list. */
+  .desktop-nav-open .category-nav:not(.category-nav-open) .category-dropdown { display: none !important; }
+  .desktop-nav-open .category-nav.category-nav-open .category-dropdown,
+  .desktop-nav-open .category-nav.category-nav-open .category-dropdown.category-dropdown-expanded {
+    position: static;
+    display: block !important;
+    width: 100%;
+    max-height: min(48dvh, 430px);
+    min-height: 0;
+    margin: 0;
+    padding: 0 0 4px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    border: 0;
+    border-bottom: 1px solid #e5eae3;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  .desktop-nav-open .category-menu-list {
+    display: block;
+    width: 100%;
+    max-height: none;
+    overflow: visible;
+  }
+  .desktop-nav-open .category-menu-group { display: block; min-height: 0; padding: 0; }
+  .desktop-nav-open .category-menu-group > .category-menu-parent {
+    display: flex;
+    width: 100%;
+    min-height: 49px;
+    height: auto;
+    justify-content: space-between;
+    padding: 0 12px;
+    border: 0;
+    border-bottom: 1px solid #edf0ec;
+    border-radius: 0;
+    color: #244642;
+    font-size: 15px;
+    font-weight: 600;
+  }
+  .desktop-nav-open .category-menu-group-active > .category-menu-parent { background: #eef4ee; }
+  .desktop-nav-open .category-menu-inline-children {
+    display: none;
+    height: auto;
+    max-height: none;
+    overflow: visible;
+    padding: 3px 0 8px 12px;
+    background: #f2f6f2;
+  }
+  .desktop-nav-open .category-menu-group-active .category-menu-inline-children { display: block; }
+  .desktop-nav-open .category-menu-inline-children .category-menu-child {
+    display: flex;
+    width: 100%;
+    min-height: 44px;
+    height: auto;
+    justify-content: flex-start;
+    padding: 0 12px;
+    border: 0;
+    color: #526a60;
+    font-size: 14px;
+    text-align: left;
+  }
+  .desktop-nav-open .category-menu-subcategories { display: none; }
+
+  .theme-dark .desktop-nav-open,
+  .theme-dark .desktop-nav-open .mobile-nav-heading { background: #111a17; }
+  .theme-dark .desktop-nav-open > button,
+  .theme-dark .desktop-nav-open .category-nav > button,
+  .theme-dark .desktop-nav-open .category-menu-group > .category-menu-parent { color: #edf3ef; border-color: #34463f; }
+  .theme-dark .desktop-nav-open .category-menu-group-active > .category-menu-parent,
+  .theme-dark .desktop-nav-open .category-menu-inline-children { background: #25342e; }
+  .theme-dark .desktop-nav-open .category-menu-inline-children .category-menu-child { color: #c7d5ce; }
+}
