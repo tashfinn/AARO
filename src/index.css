@@ -2134,3 +2134,56 @@ body :is(div,p,li,label,small,button,a,span,b,strong,i,td,th,summary,dt,dd,input
 
 /* Separate the footer contact call-to-action from its supporting copy. */
 .footer-contact button { margin-top: 12px; }
+
+
+/* Offers admin: balanced empty states and comfortable text sizing. */
+.offers-feature { align-items: center; }
+.offers-feature-copy { flex: 1 1 auto; min-width: 0; }
+.offers-feature h2 { font-size: 25px; line-height: 1.25; }
+.offers-feature p { max-width: 620px; font-size: 15px; line-height: 1.6; }
+.offers-actions { display: flex; flex-wrap: wrap; gap: 12px; }
+.offers-actions button { min-height: 46px; padding-inline: 17px; font-size: 15px; }
+.empty-row { padding: 24px 18px; text-align: center; font-size: 15px; line-height: 1.6; }
+.offer-deal-row { min-height: 66px; }
+.offer-deal-row b { font-size: 15px; }
+.offer-deal-row small { font-size: 14px; line-height: 1.45; }
+.offer-deal-row > button { min-height: 38px; padding-inline: 11px; font-size: 14px; }
+.offer-form-modal { width: min(100%, 620px); max-height: min(90vh, 900px); overflow: auto; }
+.offer-form-modal .settings-form { gap: 16px; }
+.offer-form-modal .settings-form > label { font-size: 16px; line-height: 1.45; }
+.offer-form-modal .settings-form input:not([type=checkbox]),
+.offer-form-modal .settings-form select { min-height: 48px; font-size: 16px; }
+.product-offer-callout { display: flex; align-items: center; gap: 11px; margin: 14px 0; padding: 13px 15px; border: 1px solid #ead7b7; border-radius: 7px; color: #5b4528; background: #fff8eb; }
+.product-offer-callout > span { display: grid; gap: 3px; }
+.product-offer-callout b { font-size: 15px; }
+.product-offer-callout small { font-size: 14px; line-height: 1.45; }
+.theme-dark .product-offer-callout { border-color: #695532; color: #f3dfbb; background: #29251b; }
+
+/* Admin categories and campaign editor: readable headings, help copy and controls. */
+.admin-main .panel-heading h2,
+.admin-main .panel-heading h3 { font-size: 22px; line-height: 1.3; }
+.admin-main .panel-heading p { font-size: 15px; line-height: 1.55; }
+.category-group-admin-heading > span,
+.category-admin-card small,
+.category-admin-card strong,
+.category-admin-card .category-edit-name { font-size: 15px; line-height: 1.5; }
+.admin-main .inline-add input,
+.admin-main .settings-form input:not([type=checkbox]),
+.admin-main .settings-form textarea,
+.admin-main .settings-form select { min-height: 48px; font-size: 16px; line-height: 1.45; }
+.admin-main .settings-form > label,
+.admin-main .settings-two label,
+.admin-main .inline-add { font-size: 16px; line-height: 1.5; }
+.admin-main .settings-form .form-help,
+.admin-main .content-editor .form-help { font-size: 14px; line-height: 1.6; }
+.admin-main .settings-subhead { font-size: 18px; line-height: 1.4; }
+.admin-main .saved-badge { font-size: 14px; }
+@media (max-width: 700px) {
+  .offers-feature { align-items: flex-start; }
+  .offers-feature h2 { font-size: 23px; }
+  .offers-feature p { font-size: 15px; }
+  .offers-actions { gap: 10px; }
+  .category-admin-card small,
+  .category-admin-card strong,
+  .category-admin-card .category-edit-name { font-size: 15px; }
+}
