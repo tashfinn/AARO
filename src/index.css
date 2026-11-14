@@ -2131,3 +2131,6 @@ body :is(div,p,li,label,small,button,a,span,b,strong,i,td,th,summary,dt,dd,input
   .contact-options b { font-size: 18px !important; }
   .footer-contact button { min-height: 46px; }
 }
+
+/* Separate the footer contact call-to-action from its supporting copy. */
+.footer-contact button { margin-top: 12px; }
