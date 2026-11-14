@@ -1580,7 +1580,10 @@ img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .theme-dark .search-wrap input { background: #111a17; color: #edf3ef; border-color: #34463f; }
 .theme-dark .site-header,
 .theme-dark .header-main { background: #111a17; }
-.theme-dark .desktop-nav { background: transparent; }
+.theme-dark .desktop-nav { background: #111a17; }
+.theme-dark .suggestion-item > span { color: #edf3ef; }
+.theme-dark .suggestion-item small { color: #aebbb4; }
+.theme-dark .search-suggestions > div:first-child button { color: #f0a044; }
 .theme-dark .wordmark { color: #f4a340; }
 .theme-dark .wordmark span { color: #ffd27b; }
 .theme-dark .dark-button { border-color: #f0a044; background: #f0a044; color: #17211d; box-shadow: 0 5px 14px rgb(240 160 68 / 20%); }
