@@ -2342,3 +2342,87 @@ body :is(div,p,li,label,small,button,a,span,b,strong,i,td,th,summary,dt,dd,input
   .hero-art .hero-stamp b { margin-top: 4px; font-size: 12px !important; }
   .hero-art .hero-stamp i { top: 7px; right: 8px; font-size: 9px !important; }
 }
+
+
+/* Admin dark theme contrast: category cards, dashboard copy, buttons, and chart. */
+.admin-brand-home {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  cursor: pointer;
+}
+.theme-dark .admin-brand,
+.theme-dark .admin-brand-home,
+.theme-dark .admin-topbar h1,
+.theme-dark .admin-welcome h2 { color: #f0b66c; }
+.theme-dark .admin-topbar .eyebrow,
+.theme-dark .admin-welcome p,
+.theme-dark .stat-card-top > span,
+.theme-dark .stat-card-bottom,
+.theme-dark .revenue-total small,
+.theme-dark .chart-legend,
+.theme-dark .chart-y,
+.theme-dark .chart-column span,
+.theme-dark .attention-item small { color: #bdc9c2; }
+.theme-dark .section-kicker { color: #f0b66c; }
+.theme-dark .stat-card strong,
+.theme-dark .revenue-total strong,
+.theme-dark .category-group-admin-heading,
+.theme-dark .category-admin-card strong,
+.theme-dark .category-edit-name { color: #edf3ef; }
+.theme-dark .category-group-admin,
+.theme-dark .category-admin-card {
+  border-color: #34463f;
+  background: #18231f;
+  color: #edf3ef;
+}
+.theme-dark .category-group-admin-heading {
+  border-color: #34463f;
+  background: #202d27;
+}
+.theme-dark .category-group-admin-heading span,
+.theme-dark .category-admin-card small { color: #bdc9c2; }
+.theme-dark .category-admin-card .category-initial {
+  background: #293b33;
+  color: #f0b66c;
+}
+.theme-dark .admin-view-store,
+.theme-dark .admin-logout-top {
+  border-color: #40564b;
+  background: #25342e;
+  color: #edf3ef;
+}
+.theme-dark .attention-foot {
+  border-color: #34463f;
+  background: #25342e;
+  color: #d5e0d9;
+}
+.theme-dark .chart-bars {
+  background: repeating-linear-gradient(to bottom, transparent 0, transparent 34px, #35453d 35px);
+}
+.theme-dark .chart-column i {
+  min-height: 0;
+  background: linear-gradient(180deg, #8bd3ae, #438f70);
+  opacity: .9;
+}
+.chart-column i { min-height: 0; }
+.chart-empty {
+  display: grid;
+  flex: 1;
+  place-items: center;
+  min-width: 0;
+  border-top: 1px solid #edf1ec;
+  color: #738178;
+  font-size: 14px;
+  text-align: center;
+}
+.theme-dark .chart-empty {
+  border-color: #35453d;
+  color: #bdc9c2;
+}
