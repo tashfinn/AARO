@@ -50,7 +50,10 @@ function mergeCategoryGroups(saved: CategoryGroup[], live: CategoryGroup[]): Cat
 
 function slugify(value: string) { return value.normalize('NFKC').trim().toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '') || 'item' }
 function storePath(page: StorePage, category = 'All', groups: CategoryGroup[] = [], sourceId = '', parentId = '') {
-  if (page === 'delivery') return '/delivery-returns'\n  if (page === 'contact') return '/contact-us'\n  if (page === 'terms') return '/terms'\n  if (page === 'trending' || page === 'offers' || page === 'combos' || page === 'wishlist') return `/${page}`
+  if (page === 'delivery') return '/delivery-returns'
+  if (page === 'contact') return '/contact-us'
+  if (page === 'terms') return '/terms'
+  if (page === 'trending' || page === 'offers' || page === 'combos' || page === 'wishlist') return `/${page}`
   if (page !== 'category' || category === 'All') return '/'
   const parent = groups.find((group) => group.id === parentId)
   const child = parent?.children.find((item) => item.sourceId === sourceId || item.name === category)
@@ -184,7 +187,9 @@ export default function App() {
       setProductRouteId(productIdFromPath())
       setCheckout(path === '/checkout')
       if (parts[0] === 'account') setPage('account')
-      else if (parts[0] === 'delivery-returns') setPage('delivery')\n      else if (parts[0] === 'contact-us') setPage('contact')\n      else if (['trending', 'offers', 'combos', 'wishlist', 'terms'].includes(parts[0] || '')) setPage(parts[0] as StorePage)
+      else if (parts[0] === 'delivery-returns') setPage('delivery')
+      else if (parts[0] === 'contact-us') setPage('contact')
+      else if (['trending', 'offers', 'combos', 'wishlist', 'terms'].includes(parts[0] || '')) setPage(parts[0] as StorePage)
       else if (parts[0] === 'category') {
         const parent = categoryGroups.find((group) => slugify(group.name) === parts[1])
         const child = parent?.children.find((item) => slugify(item.name) === parts[2])
