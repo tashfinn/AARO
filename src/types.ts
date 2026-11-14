@@ -27,7 +27,7 @@ export type Product = {
   parentCategoryId?: string
 }
 
-export type CategoryGroup = { id: string; name: string; children: { sourceId: string; name: string; sortOrder?: number }[] }
+export type CategoryGroup = { id: string; name: string; children: { sourceId?: string; name: string; sortOrder?: number }[] }
 
 export type Coupon = { code: string; kind: 'percent' | 'amount'; value: number; active: boolean; minimum?: number }
 export type OrderStatus = 'Pending confirmation' | 'Confirmed' | 'Processing' | 'Shipped' | 'Delivered' | 'Cancelled'
