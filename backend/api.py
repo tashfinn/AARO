@@ -458,7 +458,7 @@ def admin_sync_progress(authorization: str | None = Header(default=None)):
     if response.get("status") in ("success", "success_with_skipped_details"):
         response["progressPercent"] = 100
     elif response.get("phase") == "updating_products" and response.get("totalProducts"):
-        response["progressPercent"] = 15 + round((response.get("productsProcessed", 0) / response["totalProducts"]) * 85)
+        response["progressPercent"] = min(99, 15 + round((response.get("productsProcessed", 0) / response["totalProducts"]) * 85))
     elif response.get("totalCategories"):
         response["progressPercent"] = round((response.get("categoriesProcessed", 0) / response["totalCategories"]) * 15)
     else:
