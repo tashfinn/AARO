@@ -1951,3 +1951,17 @@ img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .terms-card .terms-note { color: #ed3e86; }
 .terms-card > .dark-button { display: flex; width: fit-content; margin: 28px 0 0 auto; background: #13c99a; border-color: #13c99a; font-size: 15px; }
 .theme-dark .terms-card { background: #18231f; color: #edf3ef; border-color: #34463f; }
+
+/* Readability fixes for category navigation, empty results, and dark cart totals. */
+.category-dropdown .category-menu-child,
+.desktop-nav-open .category-menu-inline-children .category-menu-child {
+  font-size: 16px;
+  line-height: 1.5;
+}
+.empty-state .dark-button {
+  min-height: 48px;
+  font-size: 15px;
+}
+.theme-dark .drawer-summary > div:not(.discount-line):not(.summary-total) b {
+  color: #edf3ef;
+}
