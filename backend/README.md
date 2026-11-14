@@ -1,6 +1,8 @@
 # AARO backend and daily ShopBase sync
 
-The backend reads product data from MongoDB; a daily Render Cron Job scans the authenticated reseller catalog. It reads category/card snapshots. Full details load immediately for new products or changed listing fields; otherwise details are refreshed in staggered batches every seven days by default. Set SHOPBASE_DETAIL_REFRESH_DAYS=1 for daily full detail refreshes, which can add thousands of requests per run. A missing item must be absent from two successful scans before it is marked unavailable.
+The backend reads product data from MongoDB; a daily GitHub Actions workflow scans the authenticated reseller catalog. It reads category/card snapshots. Product detail pages supply descriptions, attribute lines, size charts, size/options, images, stock, and suggested retail prices. The next run refreshes existing records once with the updated detail parser; later routine detail refreshes are staggered across daily runs. A missing item must be absent from two successful scans before it is marked unavailable.
+
+ShopBase's 107 source categories are subcategories in AARO. `category_groups.py` defines the 13 storefront parent categories and maps the source labels into them. The importer writes each mapping by stable ShopBase category ID and recreates the AARO parent-category documents on every run, so source category refreshes do not erase the hierarchy. Unrecognized source labels remain visible under Other Categories and are listed in the sync summary for review.
 
 This is an HTML importer rather than an official API. It uses a ShopBase session cookie, makes sequential requests with a delay, and stops without pruning if authentication fails or zero products are found. The initial scan of thousands of items may take much longer than two minutes. Later runs should be faster when few products changed.
 
@@ -8,7 +10,7 @@ This is an HTML importer rather than an official API. It uses a ShopBase session
 
 MONGODB_URI, MONGODB_DATABASE=aaro, SHOPBASE_SESSION_COOKIE, AARO_MARKUP_PERCENT=20, SHOPBASE_REQUEST_DELAY_SECONDS=0.35, SHOPBASE_DETAIL_REFRESH_DAYS=7, CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET, CLOUDINARY_MIRROR_IMAGES=false by default; set true only after checking your usage, FRONTEND_ORIGINS.
 
-The ShopBase cookie is as sensitive as a password. Do not paste it into chat or commit it. The current retail markup default is 20%; review it before real orders. Retail is capped at the supplier's suggested maximum when the parser finds one.
+The ShopBase cookie is as sensitive as a password. Do not paste it into chat or commit it. The importer displays the supplier's suggested retail price when it can parse that field; otherwise it falls back to the configured markup. Wholesale cost remains in MongoDB and is excluded from public API responses.
 
 ## Deploy
 

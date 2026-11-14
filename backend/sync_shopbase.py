@@ -1,6 +1,7 @@
 import hashlib,os,re,sys,time,uuid
 from datetime import datetime,timezone
 from urllib.parse import urljoin,urlparse
+from category_groups import CATEGORY_GROUPS,assignments
 import requests
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
@@ -12,6 +13,7 @@ DELAY=max(.25,float(os.getenv("SHOPBASE_REQUEST_DELAY_SECONDS","0.35")))
 MARKUP=max(0,float(os.getenv("AARO_MARKUP_PERCENT","20")))
 CAP=max(0,int(os.getenv("SHOPBASE_MAX_PRODUCTS_PER_RUN","0")))
 DETAIL_REFRESH_DAYS=max(1,int(os.getenv("SHOPBASE_DETAIL_REFRESH_DAYS","7")))
+DETAILS_VERSION=2
 DIGITS=str.maketrans("০১২৩৪৫৬৭৮৯٠١٢٣٤٥٦٧٨٩","01234567890123456789")
 class SyncError(RuntimeError): pass
 def now(): return datetime.now(timezone.utc).isoformat()
@@ -19,6 +21,7 @@ def number(s):
  s=re.sub(r"[^0-9]","",s.translate(DIGITS)); return int(s) if s else None
 def digest(*parts): return hashlib.sha256("\x1f".join(parts).encode()).hexdigest()
 def details_are_stale(product):
+ if int(product.get("detailsVersion",0) or 0)<DETAILS_VERSION: return True
  try:
   updated=datetime.fromisoformat(product.get("detailsFetchedAt",""))
   age=(datetime.now(timezone.utc)-updated).total_seconds()
@@ -79,7 +82,20 @@ def cards(soup,cat):
   rows[sid]={"sourceId":sid,"title":title,"category":cat["name"],"categorySourceId":cat["sourceId"],"wholesalePrice":price,"sourceImage":image,"detailPath":path,"listFingerprint":digest(title,cat["sourceId"],str(price),image)}
  return list(rows.values())
 def detail(soup,row):
- text=soup.get_text(" ",strip=True); d=soup.select_one(".descriptionCopy"); description=d.get_text("\n",strip=True) if d else row["title"]
+ text=soup.get_text(" ",strip=True)
+ d=soup.select_one(".descriptionCopy, .product-description, .product_details, [itemprop='description']")
+ description=d.get_text("\n",strip=True) if d else row["title"]
+ description=re.sub(r"\n{3,}","\n\n",description).strip()
+ detail_text=d.get_text("\n",strip=True) if d else ""
+ size_chart=""
+ for node in soup.select("table, .size-chart, .sizeChart, [class*='size-guide'], [id*='size-chart'], [id*='size-guide']"):
+  candidate=node.get_text("\n",strip=True)
+  if candidate and re.search(r"size|measurement|মাপ|সাইজ|পরিমাপ",candidate,re.I):
+   size_chart=candidate[:12000]
+   break
+ if not size_chart:
+  match=re.search(r"(?:Size\s*Measurement|Size\s*Chart|সাইজ\s*চার্ট|পরিমাপ)[\s\S]{0,4000}",detail_text,re.I)
+  if match: size_chart=match.group(0).strip()
  imgs=[]
  for n in soup.select('a[href*="/public/uploads/shop/products/"],img[src*="/public/uploads/shop/products/"]'):
   u=n.get("href") if n.name=="a" else n.get("src")
@@ -95,10 +111,41 @@ def detail(soup,row):
  sku=re.search(r"SKU\s*[:：]?\s*([A-Za-z0-9_-]+)",text,re.I)
  sm=re.search(r"(?:সর্বোচ্চ|maximum)[^০-৯0-9]{0,24}([০-৯0-9,]+)",text,re.I); suggested=number(sm.group(1)) if sm else None
  if suggested is not None and suggested < row["wholesalePrice"]: suggested=None
- sizes=list(dict.fromkeys(re.findall(r"chksuccess_([A-Za-z0-9_-]+)",str(soup))))
+ sizes=[]; option_values={}
+ for node in soup.select("input[type='radio'], input[type='checkbox'], select"):
+  name=(node.get("name") or node.get("id") or "").strip()
+  value=(node.get("value") or "").strip()
+  context=node.parent.get_text(" ",strip=True) if node.parent else ""
+  label=node.find_parent("label") or (soup.find("label",attrs={"for":node.get("id")}) if node.get("id") else None)
+  label_text=label.get_text(" ",strip=True) if label else ""
+  size_context=bool(re.search(r"size|সাইজ|মাপ",f"{name} {context} {label_text}",re.I))
+  if node.name=="select":
+   values=[o.get_text(" ",strip=True) or (o.get("value") or "").strip() for o in node.select("option")]
+   values=[v for v in values if v and not re.search(r"select|choose|বাছাই",v,re.I)]
+  else:
+   values=[value] if value else []
+   if label_text: values=[re.sub(r"\s+"," ",label_text).strip()]
+  values=[v for v in values if v and len(v)<80]
+  if values:
+   option_name="Size" if size_context else (name or "Option")
+   option_values.setdefault(option_name,[]).extend(values)
+   if size_context: sizes.extend(values)
+ options=[{"name":name,"values":list(dict.fromkeys(values))} for name,values in option_values.items()]
+ sizes.extend(re.findall(r"chksuccess_([A-Za-z0-9_-]+)",str(soup)))
+ for node in soup.select("label, button, [role='radio']"):
+  if re.search(r"size|sizing", " ".join(node.get("class",[])), re.I):
+   value=node.get_text(" ",strip=True)
+   if value and len(value)<20: sizes.append(value)
+ sizes=list(dict.fromkeys(v for v in sizes if v))
+ attributes=[]
+ if d:
+  for row_node in d.select("tr, li, p"):
+   line=row_node.get_text(" ",strip=True)
+   if line and line not in attributes: attributes.append(line[:500])
  cost=row["wholesalePrice"]; retail=max(cost,round(cost*(1+MARKUP/100)/10)*10)
- if suggested: retail=min(retail,suggested)
- return {"sourceId":row["sourceId"],"supplierSku":sku.group(1) if sku else row["sourceId"],"title":row["title"],"category":row["category"],"categorySourceId":row["categorySourceId"],"wholesalePrice":cost,"suggestedRetailPrice":suggested,"price":retail,"compareAt":suggested if suggested and suggested>retail else None,"description":description,"stock":stock,"sizes":sizes,"sourceStatus":"available" if stock else "out_of_stock","sourceImage":imgs[0],"sourceImages":imgs,"listFingerprint":row["listFingerprint"],"source":"shopbase","updatedAt":now()}
+ if suggested: retail=suggested
+ parent=row.get("parentCategory",{})
+ return {"sourceId":row["sourceId"],"supplierSku":sku.group(1) if sku else row["sourceId"],"title":row["title"],"category":row["category"],"categorySourceId":row["categorySourceId"],"parentCategory":parent.get("parentName"),"parentCategoryId":parent.get("parentId"),"wholesalePrice":cost,"suggestedRetailPrice":suggested,"price":retail,"compareAt":None,"description":description,"details":detail_text,"attributes":attributes,"sizeChart":size_chart,"stock":stock,"sizes":sizes,"options":options,"sourceStatus":"available" if stock else "out_of_stock","sourceImage":imgs[0],"sourceImages":imgs,"listFingerprint":row["listFingerprint"],"source":"shopbase","updatedAt":now()}
 def mirror(url,sid):
  cloud,key,secret=(os.getenv(x,"").strip() for x in ("CLOUDINARY_CLOUD_NAME","CLOUDINARY_API_KEY","CLOUDINARY_API_SECRET"))
  if not(cloud and key and secret and os.getenv("CLOUDINARY_MIRROR_IMAGES","false").lower()=="true"): return url
@@ -114,24 +161,38 @@ def run():
  try:
   s=session(); cats=categories(get(s,"/store/products/all"))
   if len(cats)<30: raise SyncError(f"Only {len(cats)} categories parsed; refusing a partial catalog scan.")
+  category_map,_=assignments(cats)
+  known_group_ids={group["id"] for group in CATEGORY_GROUPS}
+  previous_categories={item["sourceId"]:item for item in c.find({"source":"shopbase"},{"sourceId":1,"name":1,"parentId":1,"parentName":1,"sortOrder":1,"unmatchedCategoryLabel":1})}
+  unmatched=[]
+  for cat in cats:
+   previous=previous_categories.get(cat["sourceId"],{})
+   if previous.get("name")==cat["name"] and previous.get("parentId") in known_group_ids:
+    category_map[cat["sourceId"]]={"parentId":previous["parentId"],"parentName":previous.get("parentName", ""),"sortOrder":previous.get("sortOrder", 1000),"unmatched":bool(previous.get("unmatchedCategoryLabel",False))}
+   if category_map[cat["sourceId"]]["unmatched"]: unmatched.append(cat["name"])
+  for order,group in enumerate(CATEGORY_GROUPS):
+   c.update_one({"sourceId":f"aaro-parent:{group['id']}"},{"$set":{"name":group["name"],"slug":group["id"],"type":"parent","source":"aaro","sortOrder":order,"updatedAt":now()}},upsert=True)
   listing={}
   for cat in cats:
-   c.update_one({"sourceId":cat["sourceId"]},{"$set":{"name":cat["name"],"source":"shopbase","updatedAt":now()}},upsert=True)
+   parent=category_map[cat["sourceId"]]
+   c.update_one({"sourceId":cat["sourceId"]},{"$set":{"name":cat["name"],"source":"shopbase","type":"subcategory","parentId":parent["parentId"],"parentName":parent["parentName"],"sortOrder":parent["sortOrder"],"unmatchedCategoryLabel":parent["unmatched"],"updatedAt":now()}},upsert=True)
    first=get(s,cat["url"])
    for page in range(1,pages(first,cat["sourceId"])+1):
     soup=first if page==1 else get(s,f"/store/products/{cat['sourceId']}/{page}")
-    for row in cards(soup,cat): listing[row["sourceId"]]=row
+    for row in cards(soup,cat):
+     row["parentCategory"]=parent
+     listing[row["sourceId"]]=row
   if not listing: raise SyncError("Zero product cards found; existing items were not pruned.")
   previous_count=p.count_documents({"source":"shopbase"})
   if previous_count and len(listing)<int(previous_count*.7): raise SyncError("Catalog count dropped sharply; refusing a partial scan.")
-  old={x["sourceId"]:x for x in p.find({"source":"shopbase"},{"sourceId":1,"listFingerprint":1,"imageOverride":1,"detailsFetchedAt":1})}; batch=[]
+  old={x["sourceId"]:x for x in p.find({"source":"shopbase"},{"sourceId":1,"listFingerprint":1,"imageOverride":1,"detailsFetchedAt":1,"detailsVersion":1})}; batch=[]
   for sid,row in listing.items():
    prev=old.get(sid)
    if prev and prev.get("listFingerprint")==row["listFingerprint"] and not details_are_stale(prev):
-    p.update_one({"sourceId":sid,"source":"shopbase"},{"$set":{"lastSeenRun":runid,"missingRuns":0}}); unchanged+=1
+    p.update_one({"sourceId":sid,"source":"shopbase"},{"$set":{"lastSeenRun":runid,"missingRuns":0,"parentCategory":row["parentCategory"]["parentName"],"parentCategoryId":row["parentCategory"]["parentId"]}}); unchanged+=1
    else:
     doc=detail(get(s,row["detailPath"]),row); hosted=mirror(doc["sourceImage"],sid)
-    doc.update({"images":[hosted,*doc["sourceImages"][1:]],"image":(prev.get("imageOverride") or hosted) if prev else hosted,"imageOverride":prev.get("imageOverride") if prev else None,"active":bool(doc["stock"]),"detailsFetchedAt":now(),"lastSeenRun":runid,"missingRuns":0})
+    doc.update({"images":[hosted,*doc["sourceImages"][1:]],"image":(prev.get("imageOverride") or hosted) if prev else hosted,"imageOverride":prev.get("imageOverride") if prev else None,"active":bool(doc["stock"]),"detailsFetchedAt":now(),"detailsVersion":DETAILS_VERSION,"lastSeenRun":runid,"missingRuns":0})
     batch.append(UpdateOne({"sourceId":sid,"source":"shopbase"},{"$set":doc},upsert=True))
     if prev: changed+=1
     else: created+=1
@@ -140,7 +201,7 @@ def run():
   if batch: p.bulk_write(batch,ordered=False)
   for missing in p.find({"source":"shopbase","lastSeenRun":{"$ne":runid}},{"sourceId":1,"missingRuns":1}):
    n=int(missing.get("missingRuns",0))+1; p.update_one({"sourceId":missing["sourceId"],"source":"shopbase"},{"$set":{"missingRuns":n,"active":n<2,"stock":0 if n>=2 else None,"sourceStatus":"missing" if n>=2 else "not_seen"}})
-  summary={"runId":runid,"status":"success","categories":len(cats),"seen":seen,"created":created,"changed":changed,"unchanged":unchanged,"startedAt":started,"finishedAt":now()}
+  summary={"runId":runid,"status":"success","categories":len(cats),"categoryGroups":len(CATEGORY_GROUPS),"unmatchedCategories":unmatched,"seen":seen,"created":created,"changed":changed,"unchanged":unchanged,"startedAt":started,"finishedAt":now()}
   runs.insert_one(summary.copy()); print({k:v for k,v in summary.items() if k!="runId"})
  except Exception as e:
   runs.insert_one({"runId":runid,"status":"failed","error":str(e)[:500],"startedAt":started,"finishedAt":now(),"seen":seen}); raise

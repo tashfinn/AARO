@@ -18,7 +18,16 @@ export type Product = {
   sourceId?: string
   updatedAt: string
   sizes?: string[]
+  sizeChart?: string
+  details?: string
+  attributes?: string[]
+  options?: { name: string; values: string[] }[]
+  categorySourceId?: string
+  parentCategory?: string
+  parentCategoryId?: string
 }
+
+export type CategoryGroup = { id: string; name: string; children: { sourceId: string; name: string; sortOrder?: number }[] }
 
 export type Coupon = { code: string; kind: 'percent' | 'amount'; value: number; active: boolean; minimum?: number }
 export type OrderStatus = 'Pending confirmation' | 'Confirmed' | 'Processing' | 'Shipped' | 'Delivered' | 'Cancelled'
@@ -26,7 +35,7 @@ export type Order = {
   id: string
   createdAt: string
   customer: { name: string; phone: string; email?: string; address: string; area: string }
-  items: { productId: string; title: string; image: string; price: number; quantity: number }[]
+  items: { productId: string; title: string; image: string; price: number; quantity: number; size?: string }[]
   subtotal: number
   delivery: number
   discount: number
@@ -54,6 +63,7 @@ export type StoreContent = {
 export type StoreState = {
   products: Product[]
   categories: string[]
+  categoryGroups?: CategoryGroup[]
   coupons: Coupon[]
   orders: Order[]
   content: StoreContent
