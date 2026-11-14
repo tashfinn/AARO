@@ -245,7 +245,7 @@ export default function App() {
     const parentChildren = selectedParentCategoryId ? categoryGroups.find((group) => group.id === selectedParentCategoryId)?.children || [] : []
     const parentChildIds = parentChildren.flatMap((child) => child.sourceId ? [child.sourceId] : [])
     let products = activeProducts
-    if (page === 'trending') products = products.filter((product) => state.content.trendingIds.includes(product.id) || product.trending)
+    if (page === 'trending') { const views = (() => { try { return JSON.parse(localStorage.getItem(PRODUCT_VIEWS_KEY) || '{}') as Record<string, number> } catch { return {} } })(); products = [...products].sort((a, b) => (views[b.id] || 0) - (views[a.id] || 0)).slice(0, 20) }
     if (page === 'offers') {
       const featured = products.filter((product) => state.content.offerIds.includes(product.id) || product.offer)
       products = featured.length ? featured : products.filter((product) => product.compareAt && product.compareAt > product.price)
@@ -492,8 +492,9 @@ export default function App() {
     { label: 'Orders', icon: ShoppingCart, tab: 'orders' }, { label: 'Storefront', icon: Sparkles, tab: 'content' }, { label: 'Product sync', icon: RotateCcw, tab: 'sync' }
   ]
   const formatPageTitle = page === 'trending' ? 'Trending now' : page === 'offers' ? 'Offers for you' : page === 'category' ? category === 'All' ? 'All products' : category : page === 'wishlist' ? 'Your wishlist' : 'The AARO edit'
-  const selectedTrendingProducts = activeProducts.filter((product) => state.content.trendingIds.includes(product.id) || product.trending)
-  const homeTrendingProducts = selectedTrendingProducts.slice(0, 4)
+  const productViews = (() => { try { return JSON.parse(localStorage.getItem(PRODUCT_VIEWS_KEY) || '{}') as Record<string, number> } catch { return {} } })()
+  const selectedTrendingProducts = [...activeProducts].sort((a, b) => (productViews[b.id] || 0) - (productViews[a.id] || 0)).slice(0, 20)
+  const homeTrendingProducts = selectedTrendingProducts.slice(0, 10)
   const selectedOfferProducts = activeProducts.filter((product) => state.content.offerIds.includes(product.id) || product.offer)
   const discountedProducts = activeProducts.filter((product) => product.compareAt && product.compareAt > product.price)
   const homeOfferProducts = (selectedOfferProducts.length ? selectedOfferProducts : discountedProducts).slice(0, 4)
