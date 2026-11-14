@@ -62,9 +62,12 @@ def card_for(a):
 def cards(soup,cat):
  rows={}
  for a in soup.select('a[href*="/store/products/details/"]'):
-  path=urlparse(a.get("href","")).path; m=re.search(r"/store/products/details/(\d+)",path); title=a.get_text(" ",strip=True)
-  if not m or not title: continue
-  box=card_for(a); text=box.get_text(" ",strip=True); pm=re.search(r"প্রাইস\s*[:：]?\s*(?:৳\s*)?([০-৯0-9,]+)",text)
+  path=urlparse(a.get("href","")).path; m=re.search(r"/store/products/details/(\d+)",path)
+  if not m: continue
+  box=card_for(a); title_node=box.select_one(".product-name")
+  title=title_node.get_text(" ",strip=True) if title_node else a.get_text(" ",strip=True)
+  if not title: continue
+  text=box.get_text(" ",strip=True); pm=re.search(r"প্রাইস\s*[:：]?\s*(?:৳\s*)?([০-৯0-9,]+)",text)
   if not pm: continue
   price=number(pm.group(1))
   if price is None: continue
@@ -145,3 +148,4 @@ def run():
 if __name__=="__main__":
  try: run()
  except Exception as e: print(f"Catalog sync failed: {e}",file=sys.stderr); raise SystemExit(1)
+
