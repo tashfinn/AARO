@@ -23,10 +23,10 @@ export const initialState: StoreState = {
     { code: 'WELCOME150', kind: 'amount', value: 150, active: true, minimum: 1200 }
   ],
   orders: [
-    { id: 'AR-2418', createdAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(), customer: { name: 'Nusrat Jahan', phone: '01712 345 678', area: 'Dhanmondi', address: 'Road 8, Dhanmondi, Dhaka' }, items: [{ productId: 'p-001', title: 'Everyday Cotton Co-ord Set', image: 'https://images.unsplash.com/photo-1594633312681-425c7b97ccd1?auto=format&fit=crop&w=160&q=75', price: 1890, quantity: 1 }], subtotal: 1890, delivery: 70, discount: 0, total: 1960, status: 'Confirmed' },
-    { id: 'AR-2417', createdAt: new Date(Date.now() - 36 * 60 * 60 * 1000).toISOString(), customer: { name: 'Tanvir Ahmed', phone: '01819 876 543', area: 'Uttara', address: 'Sector 7, Uttara, Dhaka' }, items: [{ productId: 'p-008', title: 'Wireless Studio Headphones', image: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=160&q=75', price: 3190, quantity: 1 }], subtotal: 3190, delivery: 70, discount: 0, total: 3260, status: 'Processing' },
-    { id: 'AR-2416', createdAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(), customer: { name: 'Maliha Rahman', phone: '01911 234 567', area: 'Chattogram', address: 'GEC Circle, Chattogram' }, items: [{ productId: 'p-006', title: 'Ceramic Table Lamp', image: 'https://images.unsplash.com/photo-1507473885765-e6ed057f782c?auto=format&fit=crop&w=160&q=75', price: 2850, quantity: 1 }], subtotal: 2850, delivery: 130, discount: 0, total: 2980, status: 'Delivered' },
-    { id: 'AR-2415', createdAt: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString(), customer: { name: 'Farhan Kabir', phone: '01610 987 654', area: 'Mirpur', address: 'Mirpur 10, Dhaka' }, items: [{ productId: 'p-005', title: 'The Daily Carry Tote', image: 'https://images.unsplash.com/photo-1590874103328-eac38a683ce7?auto=format&fit=crop&w=160&q=75', price: 1290, quantity: 2 }], subtotal: 2580, delivery: 70, discount: 0, total: 2650, status: 'Pending confirmation' }
+    { id: 'AR-2418', createdAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(), customer: { name: 'Nusrat Jahan', phone: '01712 345 678', area: 'Dhanmondi', address: 'Road 8, Dhanmondi, Dhaka' }, items: [{ productId: 'p-001', title: 'Everyday Cotton Co-ord Set', image: 'https://images.unsplash.com/photo-1594633312681-425c7b97ccd1?auto=format&fit=crop&w=160&q=75', price: 1890, quantity: 1 }], subtotal: 1890, delivery: 60, discount: 0, total: 1950, status: 'Confirmed' },
+    { id: 'AR-2417', createdAt: new Date(Date.now() - 36 * 60 * 60 * 1000).toISOString(), customer: { name: 'Tanvir Ahmed', phone: '01819 876 543', area: 'Uttara', address: 'Sector 7, Uttara, Dhaka' }, items: [{ productId: 'p-008', title: 'Wireless Studio Headphones', image: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=160&q=75', price: 3190, quantity: 1 }], subtotal: 3190, delivery: 60, discount: 0, total: 3250, status: 'Processing' },
+    { id: 'AR-2416', createdAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(), customer: { name: 'Maliha Rahman', phone: '01911 234 567', area: 'Chattogram', address: 'GEC Circle, Chattogram' }, items: [{ productId: 'p-006', title: 'Ceramic Table Lamp', image: 'https://images.unsplash.com/photo-1507473885765-e6ed057f782c?auto=format&fit=crop&w=160&q=75', price: 2850, quantity: 1 }], subtotal: 2850, delivery: 120, discount: 0, total: 2970, status: 'Delivered' },
+    { id: 'AR-2415', createdAt: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString(), customer: { name: 'Farhan Kabir', phone: '01610 987 654', area: 'Mirpur', address: 'Mirpur 10, Dhaka' }, items: [{ productId: 'p-005', title: 'The Daily Carry Tote', image: 'https://images.unsplash.com/photo-1590874103328-eac38a683ce7?auto=format&fit=crop&w=160&q=75', price: 1290, quantity: 2 }], subtotal: 2580, delivery: 60, discount: 0, total: 2640, status: 'Pending confirmation' }
   ],
   content: {
     heroTitle: 'Good finds for\nbright everyday living.',
@@ -44,8 +44,8 @@ export const initialState: StoreState = {
       { title: 'Slow Morning Set', subtitle: 'Make home feel like a pause', image: 'https://images.unsplash.com/photo-1616486338812-3dadae4b4ace?auto=format&fit=crop&w=900&q=82', price: 1890 },
       { title: 'Everyday Tech Pair', subtitle: 'The useful things, together', image: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=900&q=82', price: 3490 }
     ],
-    deliveryInDhaka: 70,
-    deliveryOutsideDhaka: 130
+    deliveryInDhaka: 60,
+    deliveryOutsideDhaka: 120
   },
   views: 0
 }
