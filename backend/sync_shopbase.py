@@ -36,7 +36,15 @@ def session():
  if not COOKIE: raise SyncError("SHOPBASE_SESSION_COOKIE is missing.")
  s=requests.Session(); s.headers.update({"User-Agent":"AARO catalog sync/1.0","Accept":"text/html,application/xhtml+xml","Cookie":COOKIE}); return s
 def get(s,path):
- r=s.get(urljoin(BASE,path),timeout=(10,45))
+ url=urljoin(BASE,path)
+ for attempt in range(5):
+  try: r=s.get(url,timeout=(10,45))
+  except requests.RequestException:
+   if attempt==4: raise
+   time.sleep(min(30,2**attempt)); continue
+  if r.status_code>=500 and attempt<4:
+   time.sleep(min(30,2**attempt)); continue
+  break
  if r.status_code in (401,403): raise SyncError(f"ShopBase denied {urlparse(r.url).path} (HTTP {r.status_code}).")
  r.raise_for_status()
  if "login" in r.url.lower(): raise SyncError("ShopBase redirected to login; refresh the session secret.")
@@ -158,7 +166,7 @@ def run():
  if not URI: raise SyncError("MONGODB_URI is missing.")
  runid,started=str(uuid.uuid4()),now(); client=MongoClient(URI,serverSelectionTimeoutMS=10000); db=client[DB]
  p,c,runs=db.products,db.categories,db.sync_runs; p.create_index("sourceId",unique=True,partialFilterExpression={"source":"shopbase"}); c.create_index("sourceId",unique=True)
- seen=created=changed=unchanged=0
+ seen=created=changed=unchanged=0; failed_details=[]
  try:
   s=session(); cats=categories(get(s,"/store/products/all"))
   if len(cats)<30: raise SyncError(f"Only {len(cats)} categories parsed; refusing a partial catalog scan.")
@@ -185,7 +193,14 @@ def run():
    if prev and prev.get("listFingerprint")==row["listFingerprint"] and not details_are_stale(prev):
     p.update_one({"sourceId":sid,"source":"shopbase"},{"$set":{"lastSeenRun":runid,"missingRuns":0,"parentCategory":row["parentCategory"]["parentName"],"parentCategoryId":row["parentCategory"]["parentId"]}}); unchanged+=1
    else:
-    doc=detail(get(s,row["detailPath"]),row); hosted=mirror(doc["sourceImage"],sid)
+    try: doc=detail(get(s,row["detailPath"]),row)
+    except Exception as error:
+     failed_details.append({"sourceId":sid,"error":str(error)[:240]})
+     print(f"Detail skipped after retries for product {sid}: {error}",file=sys.stderr)
+     if prev: p.update_one({"sourceId":sid,"source":"shopbase"},{"$set":{"lastSeenRun":runid,"missingRuns":0,"parentCategory":row["parentCategory"]["parentName"],"parentCategoryId":row["parentCategory"]["parentId"]}})
+     seen+=1
+     continue
+    hosted=mirror(doc["sourceImage"],sid)
     doc.update({"images":[hosted],"image":(prev.get("imageOverride") or hosted) if prev else hosted,"imageOverride":prev.get("imageOverride") if prev else None,"active":bool(doc["stock"]),"detailsFetchedAt":now(),"detailsVersion":DETAILS_VERSION,"lastSeenRun":runid,"missingRuns":0})
     batch.append(UpdateOne({"sourceId":sid,"source":"shopbase"},{"$set":doc},upsert=True))
     if prev: changed+=1
@@ -195,7 +210,7 @@ def run():
   if batch: p.bulk_write(batch,ordered=False)
   for missing in p.find({"source":"shopbase","lastSeenRun":{"$ne":runid}},{"sourceId":1,"missingRuns":1}):
    n=int(missing.get("missingRuns",0))+1; p.update_one({"sourceId":missing["sourceId"],"source":"shopbase"},{"$set":{"missingRuns":n,"active":n<2,"stock":0 if n>=2 else None,"sourceStatus":"missing" if n>=2 else "not_seen"}})
-  summary={"runId":runid,"status":"success","categories":len(cats),"categoryGroups":len(CATEGORY_GROUPS),"unmatchedCategories":unmatched,"seen":seen,"created":created,"changed":changed,"unchanged":unchanged,"startedAt":started,"finishedAt":now()}
+  summary={"runId":runid,"status":"success_with_skipped_details" if failed_details else "success","categories":len(cats),"categoryGroups":len(CATEGORY_GROUPS),"unmatchedCategories":unmatched,"failedDetails":failed_details,"seen":seen,"created":created,"changed":changed,"unchanged":unchanged,"startedAt":started,"finishedAt":now()}
   runs.insert_one(summary.copy()); print({k:v for k,v in summary.items() if k!="runId"})
  except Exception as e:
   runs.insert_one({"runId":runid,"status":"failed","error":str(e)[:500],"startedAt":started,"finishedAt":now(),"seen":seen}); raise
@@ -203,3 +218,4 @@ def run():
 if __name__=="__main__":
  try: run()
  except Exception as e: print(f"Catalog sync failed: {e}",file=sys.stderr); raise SystemExit(1)
+
