@@ -557,7 +557,7 @@ export default function App() {
   const formatPageTitle = page === 'trending' ? 'Trending now' : page === 'offers' ? 'Offers for you' : page === 'category' ? category === 'All' ? 'All products' : category : page === 'wishlist' ? 'Your wishlist' : page === 'terms' ? 'Terms & Conditions' : page === 'delivery' ? 'Delivery & Returns' : page === 'contact' ? 'Contact us' : 'The AARO edit'
   const productViews = (() => { try { return JSON.parse(localStorage.getItem(PRODUCT_VIEWS_KEY) || '{}') as Record<string, number> } catch { return {} } })()
   const selectedTrendingProducts = [...activeProducts].sort((a, b) => (productViews[b.id] || 0) - (productViews[a.id] || 0)).slice(0, 20)
-  const homeTrendingProducts = selectedTrendingProducts.slice(0, 10)
+  const homeTrendingProducts = selectedTrendingProducts.slice(0, 12)
   const dealProductIds = new Set(state.offers.filter((offer) => offer.active).map((offer) => offer.productId))
   const selectedOfferProducts = activeProducts.filter((product) => state.content.offerIds.includes(product.id) || product.offer || dealProductIds.has(product.id))
   const discountedProducts = activeProducts.filter((product) => product.compareAt && product.compareAt > product.price)
