@@ -2287,3 +2287,20 @@ body :is(div,p,li,label,small,button,a,span,b,strong,i,td,th,summary,dt,dd,input
   .hero-stamp b { font-size: 14px; }
   .hero-stamp i { top: 12px; right: 13px; }
 }
+
+
+/* Keep the header's bag and wishlist counters legible above the global text-size floor. */
+.site-header .action-count {
+  top: -3px;
+  right: -2px;
+  min-width: 16px;
+  width: auto;
+  height: 16px;
+  padding: 0 3px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  font-size: 10px !important;
+  line-height: 1 !important;
+  font-weight: 700;
+}
