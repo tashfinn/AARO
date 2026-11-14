@@ -161,6 +161,7 @@ export default function App() {
   const [admin, setAdmin] = useState(false)
   const [storeIsLive, setStoreIsLive] = useState(true)
   const [storeStatusBusy, setStoreStatusBusy] = useState(false)
+  const [storeMenuOpen, setStoreMenuOpen] = useState(false)
   const [adminTab, setAdminTab] = useState<AdminTab>('overview')
   const [editingProduct, setEditingProduct] = useState<Product | null>(null)
   const [productFormOpen, setProductFormOpen] = useState(false)
@@ -622,7 +623,10 @@ export default function App() {
     {admin ? <div className={`admin-shell ${darkTheme ? 'theme-dark' : ''}`}>
       <aside className={`admin-sidebar ${mobileMenu ? 'admin-sidebar-open' : ''}`}>
         <div className="admin-brand"><button className="admin-brand-home" onClick={() => window.location.assign('/')} aria-label="Go to AARO storefront"><span className="brand-mark">A</span><span>AARO</span></button><IconButton label="Close menu" className="mobile-only" onClick={() => setMobileMenu(false)}><X size={18} /></IconButton></div>
-        <button type="button" className={`admin-store-pill ${storeIsLive ? 'is-live' : 'is-closed'}`} onClick={toggleStoreStatus} disabled={storeStatusBusy} aria-label={storeIsLive ? 'Store is live. Click to close it.' : 'Store is closed. Click to open it.'}><span className="store-live-dot" />{storeStatusBusy ? 'Saving…' : storeIsLive ? 'Live store' : 'Store closed'}<span className="store-status-action">{storeIsLive ? 'Close store' : 'Open store'}</span><ChevronDown size={15} /></button>
+        <div className={`admin-store-control ${storeMenuOpen ? 'is-open' : ''}`}>
+          <button type="button" className={`admin-store-pill ${storeIsLive ? 'is-live' : 'is-closed'}`} onClick={() => setStoreMenuOpen((open) => !open)} aria-expanded={storeMenuOpen} aria-haspopup="menu"><span className="store-live-dot" />{storeIsLive ? 'Live store' : 'Store closed'}<ChevronDown size={15} /></button>
+          {storeMenuOpen && <div className="store-status-menu" role="menu"><button type="button" role="menuitem" onClick={() => { setStoreMenuOpen(false); void toggleStoreStatus() }} disabled={storeStatusBusy}>{storeStatusBusy ? 'Saving…' : storeIsLive ? 'Close store' : 'Open store'}</button></div>}
+        </div>
         <p className="sidebar-caption">WORKSPACE</p>
         <nav className="admin-nav">{navItems.map(({ label, icon: Icon, tab }) => <button key={tab} className={adminTab === tab ? 'active' : ''} onClick={() => { setAdminTab(tab); setMobileMenu(false) }}><Icon size={18} /><span>{label}</span>{tab === 'orders' && state.orders.filter((order) => order.status === 'Pending confirmation').length > 0 && <b>{state.orders.filter((order) => order.status === 'Pending confirmation').length}</b>}</button>)}</nav>
         <div className="sidebar-bottom"><div className="admin-profile"><div className="avatar">A</div><div><strong>Store admin</strong><small>AARO</small></div></div><button className="back-store" onClick={() => window.location.assign('/')}><House size={17} /> View storefront <ArrowUpRight size={15} /></button><button className="admin-logout-button" onClick={logoutAdmin}><LogOut size={17} /> Log out</button></div>
