@@ -101,6 +101,13 @@ function money(amount: number) { return `৳${Math.max(0, Math.round(amount)).to
 function dateLabel(value: string) { return new Intl.DateTimeFormat('en-BD', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(value)) }
 function shortDate(value: string) { return new Intl.DateTimeFormat('en-BD', { day: 'numeric', month: 'short' }).format(new Date(value)) }
 function readAdminToken() { return localStorage.getItem(ADMIN_TOKEN_KEY) || sessionStorage.getItem(ADMIN_SESSION_TOKEN_KEY) || '' }
+function readProductViews(): Record<string, number> {
+  try {
+    const value: unknown = JSON.parse(localStorage.getItem(PRODUCT_VIEWS_KEY) || '{}')
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+    return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, number] => typeof entry[1] === 'number' && Number.isFinite(entry[1]) && entry[1] >= 0))
+  } catch { return {} }
+}
 
 function ImageView({ src, alt, className = '', loading = 'lazy' }: { src: string; alt: string; className?: string; loading?: 'lazy' | 'eager' }) {
   return <img src={src} alt={alt} loading={loading} className={className} onError={(event) => { event.currentTarget.style.opacity = '0' }} />
@@ -125,20 +132,20 @@ export default function App() {
   const [category, setCategory] = useState('All')
   const [selectedCategorySourceId, setSelectedCategorySourceId] = useState('')
   const [selectedParentCategoryId, setSelectedParentCategoryId] = useState('')
-  const [categoryGroups, setCategoryGroups] = useState<CategoryGroup[]>(() => { try { return JSON.parse(localStorage.getItem(CATEGORY_GROUPS_KEY) || 'null') || manualCategoryGroups } catch { return manualCategoryGroups } })
+  const [categoryGroups, setCategoryGroups] = useState<CategoryGroup[]>(() => { try { const value: unknown = JSON.parse(localStorage.getItem(CATEGORY_GROUPS_KEY) || 'null'); if (!Array.isArray(value)) return manualCategoryGroups; const valid = value.filter((group): group is CategoryGroup => Boolean(group && typeof group.id === 'string' && typeof group.name === 'string' && Array.isArray(group.children))).map((group) => ({ ...group, children: group.children.filter((child) => child && typeof child.name === 'string' && (child.sourceId === undefined || typeof child.sourceId === 'string')) })); return valid.length ? valid : manualCategoryGroups } catch { return manualCategoryGroups } })
   const [query, setQuery] = useState('')
   const [submittedQuery, setSubmittedQuery] = useState('')
   const [showSearch, setShowSearch] = useState(false)
   const [categoryMenuOpen, setCategoryMenuOpen] = useState(false)
   const [activeCategoryMenuId, setActiveCategoryMenuId] = useState('')
   const [mobileMenu, setMobileMenu] = useState(false)
-  const [cart, setCart] = useState<CartLine[]>(() => { try { return JSON.parse(localStorage.getItem(CART_KEY) || '[]') as CartLine[] } catch { return [] } })
+  const [cart, setCart] = useState<CartLine[]>(() => { try { const value: unknown = JSON.parse(localStorage.getItem(CART_KEY) || '[]'); return Array.isArray(value) ? value.filter((line): line is CartLine => Boolean(line && typeof line.productId === 'string' && Number.isFinite(line.quantity) && line.quantity > 0 && (line.size === undefined || typeof line.size === 'string'))) : [] } catch { return [] } })
   const [cartOpen, setCartOpen] = useState(false)
   const [checkout, setCheckout] = useState(() => window.location.pathname === '/checkout')
   const [outsideDhaka, setOutsideDhaka] = useState(false)
   const [productRouteId, setProductRouteId] = useState<string | null>(productIdFromPath)
   const selectedProduct = useMemo(() => state.products.find((product) => product.id === productRouteId) || null, [productRouteId, state.products])
-  const [wishlist, setWishlist] = useState<string[]>(() => { try { return JSON.parse(localStorage.getItem(WISHLIST_KEY) || '[]') as string[] } catch { return [] } })
+  const [wishlist, setWishlist] = useState<string[]>(() => { try { const value: unknown = JSON.parse(localStorage.getItem(WISHLIST_KEY) || '[]'); return Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : [] } catch { return [] } })
   const [user, setUser] = useState<string | null>(() => localStorage.getItem(USER_KEY))
   const [accountToken, setAccountToken] = useState(() => localStorage.getItem(AUTH_TOKEN_KEY) || '')
   const [accountProfile, setAccountProfile] = useState<AccountProfile | null>(null)
@@ -293,7 +300,7 @@ export default function App() {
     const parentChildren = selectedParentCategoryId ? categoryGroups.find((group) => group.id === selectedParentCategoryId)?.children || [] : []
     const parentChildIds = parentChildren.flatMap((child) => child.sourceId ? [child.sourceId] : [])
     let products = activeProducts
-    if (page === 'trending') { const views = (() => { try { return JSON.parse(localStorage.getItem(PRODUCT_VIEWS_KEY) || '{}') as Record<string, number> } catch { return {} } })(); products = [...products].sort((a, b) => (views[b.id] || 0) - (views[a.id] || 0)).slice(0, 20) }
+    if (page === 'trending') { const views = readProductViews(); products = [...products].sort((a, b) => (views[b.id] || 0) - (views[a.id] || 0)).slice(0, 20) }
     if (page === 'offers') {
       const dealProductIds = new Set(state.offers.filter((offer) => offer.active).map((offer) => offer.productId))
       const featured = products.filter((product) => state.content.offerIds.includes(product.id) || product.offer || dealProductIds.has(product.id))
@@ -566,7 +573,7 @@ export default function App() {
     { label: 'Orders', icon: ShoppingCart, tab: 'orders' }, { label: 'Storefront', icon: Sparkles, tab: 'content' }, { label: 'Product sync', icon: RotateCcw, tab: 'sync' }
   ]
   const formatPageTitle = page === 'trending' ? 'Trending now' : page === 'offers' ? 'Offers for you' : page === 'category' ? category === 'All' ? 'All products' : category : page === 'wishlist' ? 'Your wishlist' : page === 'terms' ? 'Terms & Conditions' : page === 'delivery' ? 'Delivery & Returns' : page === 'contact' ? 'Contact us' : 'The AARO edit'
-  const productViews = (() => { try { return JSON.parse(localStorage.getItem(PRODUCT_VIEWS_KEY) || '{}') as Record<string, number> } catch { return {} } })()
+  const productViews = readProductViews()
   const selectedTrendingProducts = [...activeProducts].sort((a, b) => (productViews[b.id] || 0) - (productViews[a.id] || 0)).slice(0, 20)
   const homeTrendingProducts = selectedTrendingProducts.slice(0, 12)
   const dealProductIds = new Set(state.offers.filter((offer) => offer.active).map((offer) => offer.productId))
