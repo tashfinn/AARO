@@ -48,7 +48,7 @@ function mergeCategoryGroups(saved: CategoryGroup[], live: CategoryGroup[]): Cat
   })
 }
 
-function slugify(value: string) { return value.normalize('NFKC').trim().toLocaleLowerCase().replace(/[^\\p{L}\\p{N}]+/gu, '-').replace(/^-|-$/g, '') || 'item' }
+function slugify(value: string) { return value.normalize('NFKC').trim().toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '') || 'item' }
 function storePath(page: StorePage, category = 'All', groups: CategoryGroup[] = [], sourceId = '', parentId = '') {
   if (page === 'trending' || page === 'offers' || page === 'combos' || page === 'wishlist' || page === 'terms') return `/${page}`
   if (page !== 'category' || category === 'All') return '/'
@@ -59,11 +59,12 @@ function storePath(page: StorePage, category = 'All', groups: CategoryGroup[] = 
 function productPath(product: Product) {
   const parent = slugify(product.parentCategory || 'catalog')
   const subcategory = slugify(product.category || 'products')
-  return `/category/${parent}/${subcategory}/${slugify(product.title)}-${encodeURIComponent(product.id)}`
+  return `/category/${parent}/${subcategory}/${slugify(product.title)}/${encodeURIComponent(product.id)}`
 }
 
 function productIdFromPath() {
   const parts = window.location.pathname.split('/').filter(Boolean)
+  if (parts[0] === 'category' && parts.length >= 5) return decodeURIComponent(parts[4])
   return parts[0] === 'products' && parts.length > 2 ? decodeURIComponent(parts[parts.length - 1]) : null
 }
 
@@ -176,19 +177,28 @@ export default function App() {
   useEffect(() => { localStorage.setItem(CATEGORY_GROUPS_KEY, JSON.stringify(categoryGroups)) }, [categoryGroups])
   useEffect(() => {
     const syncRoute = () => {
-      setAuthRoute(window.location.pathname === '/login' ? 'login' : window.location.pathname === '/register' ? 'register' : null)
+      const path = window.location.pathname
+      const parts = path.split('/').filter(Boolean)
+      setAuthRoute(path === '/login' ? 'login' : path === '/register' ? 'register' : null)
       setProductRouteId(productIdFromPath())
-      setCheckout(window.location.pathname === '/checkout')
-      const parts = window.location.pathname.split('/').filter(Boolean)
+      setCheckout(path === '/checkout')
       if (parts[0] === 'account') setPage('account')
-      else if (['trending','offers','combos','wishlist','terms'].includes(parts[0] || '')) setPage(parts[0] as StorePage)
+      else if (['trending', 'offers', 'combos', 'wishlist', 'terms'].includes(parts[0] || '')) setPage(parts[0] as StorePage)
       else if (parts[0] === 'category') {
-        const groups = categoryGroups
-        const parent = groups.find((group) => slugify(group.name) === parts[1])
+        const parent = categoryGroups.find((group) => slugify(group.name) === parts[1])
         const child = parent?.children.find((item) => slugify(item.name) === parts[2])
-        setPage('category'); setSelectedParentCategoryId(parent?.id || ''); setSelectedCategorySourceId(child?.sourceId || ''); setCategory(child?.name || parent?.name || 'All')
-      } else if (window.location.pathname !== '/admin' && !productIdFromPath() && window.location.pathname !== '/checkout') setPage('shop')
+        setPage('category')
+        setSelectedParentCategoryId(parent?.id || '')
+        setSelectedCategorySourceId(child?.sourceId || '')
+        setCategory(child?.name || parent?.name || 'All')
+      } else if (path !== '/admin' && !productIdFromPath() && path !== '/checkout' && path !== '/login' && path !== '/register') {
+        setPage('shop')
+        setCategory('All')
+        setSelectedParentCategoryId('')
+        setSelectedCategorySourceId('')
+      }
     }
+    syncRoute()
     window.addEventListener('popstate', syncRoute)
     return () => window.removeEventListener('popstate', syncRoute)
   }, [categoryGroups])
