@@ -13,7 +13,7 @@ export type Product = {
   active: boolean
   trending?: boolean
   offer?: boolean
-  source?: 'demo' | 'shopbase'
+  source?: 'custom' | 'shopbase'
   images?: string[]
   sourceId?: string
   updatedAt: string
