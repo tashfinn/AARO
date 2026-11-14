@@ -82,8 +82,8 @@ function readState(): StoreState {
       content.deliveryInDhaka = 60
       content.deliveryOutsideDhaka = 120
     }
-    return { ...initialState, ...saved, content }
-  } catch { return initialState }
+    return { ...initialState, ...saved, products: Array.isArray(saved.products) ? saved.products : [], categories: Array.isArray(saved.categories) ? saved.categories : initialState.categories, coupons: Array.isArray(saved.coupons) ? saved.coupons : [], offers: Array.isArray(saved.offers) ? saved.offers : [], orders: Array.isArray(saved.orders) ? saved.orders : [], content }
+  } catch { return { ...initialState, content: { ...initialState.content }, products: [], categories: [...initialState.categories], coupons: [], offers: [], orders: [] } }
 }
 
 function money(amount: number) { return `৳${Math.max(0, Math.round(amount)).toLocaleString('en-BD')}` }
@@ -224,7 +224,7 @@ export default function App() {
     if (!adminRoute || !adminToken || !API_BASE) return
     const headers = { Authorization: `Bearer ${adminToken}` }
     Promise.all([fetch(`${API_BASE}/api/admin/coupons`, { headers }), fetch(`${API_BASE}/api/admin/orders`, { headers }), fetch(`${API_BASE}/api/admin/offers`, { headers })])
-      .then(async ([couponsResponse, ordersResponse, offersResponse]) => { if (!couponsResponse.ok || !ordersResponse.ok || !offersResponse.ok) throw new Error('Admin session expired.'); const [coupons, orders, offers] = await Promise.all([couponsResponse.json(), ordersResponse.json(), offersResponse.json()]) as [Coupon[], Order[], OfferDeal[]]; setState((current) => ({ ...current, coupons, orders, offers })); setAdmin(true) })
+      .then(async ([couponsResponse, ordersResponse, offersResponse]) => { if (!couponsResponse.ok || !ordersResponse.ok || !offersResponse.ok) throw new Error('Admin session expired.'); const [coupons, orders, offers] = await Promise.all([couponsResponse.json(), ordersResponse.json(), offersResponse.json()]) as [unknown, unknown, unknown]; setState((current) => ({ ...current, coupons: Array.isArray(coupons) ? coupons as Coupon[] : [], orders: Array.isArray(orders) ? orders as Order[] : [], offers: Array.isArray(offers) ? offers as OfferDeal[] : [] })); setAdmin(true) })
       .catch(() => { localStorage.removeItem(ADMIN_TOKEN_KEY); sessionStorage.removeItem(ADMIN_SESSION_TOKEN_KEY); setAdminToken('') })
   }, [adminRoute, adminToken])
   useEffect(() => {
@@ -267,7 +267,7 @@ export default function App() {
   }, [])
   useEffect(() => {
     if (!API_BASE) return
-    fetch(`${API_BASE}/api/offers`, { cache: 'no-store' }).then((response) => response.ok ? response.json() as Promise<OfferDeal[]> : []).then((offers) => setState((current) => ({ ...current, offers }))).catch(() => undefined)
+    fetch(`${API_BASE}/api/offers`, { cache: 'no-store' }).then((response) => response.ok ? response.json() as Promise<unknown> : []).then((offers) => setState((current) => ({ ...current, offers: Array.isArray(offers) ? offers as OfferDeal[] : [] }))).catch(() => setState((current) => ({ ...current, offers: [] })))
   }, [])
   useEffect(() => {
     if (!toast) return
