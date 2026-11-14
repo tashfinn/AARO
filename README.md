@@ -1,4 +1,4 @@
-# AARO storefront
+# AARO Storefront
 
 React + TypeScript + Vite storefront and moderator dashboard prototype, with a MongoDB catalog API and daily ShopBase reseller-catalog importer.
 
