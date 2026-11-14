@@ -350,6 +350,7 @@ img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .sidebar-bottom .admin-logout-button { width: 100%; justify-content: flex-start; border-color: transparent; color: #788880; background: transparent; }
 .sidebar-bottom .admin-logout-button:hover { color: #87382f; background: #fff1ee; }
 .admin-logout-top { min-height: 31px; font-size: 9px; }
+.admin-top-actions .admin-theme-toggle { width: 34px; height: 34px; flex: none; }
 .admin-main { width: calc(100% - 238px); min-height: 100vh; margin-left: 238px; }
 .admin-topbar { min-height: 81px; display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 13px 35px; border-bottom: 1px solid #e5ebe4; background: rgba(251,252,249,.8); }
 .admin-topbar .eyebrow { margin: 0 0 4px; color: #94a198; letter-spacing: .1em; font-size: 8px; font-weight: 700; }
