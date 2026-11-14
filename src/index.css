@@ -1577,6 +1577,112 @@ img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .theme-dark .checkout-form textarea,
 .theme-dark .checkout-form select,
 .theme-dark .search-wrap input { background: #111a17; color: #edf3ef; border-color: #34463f; }
+.theme-dark .site-header,
+.theme-dark .header-main { background: #111a17; }
+.theme-dark .wordmark { color: #f4a340; }
+.theme-dark .wordmark span { color: #ffd27b; }
+.theme-dark .dark-button { border-color: #f0a044; background: #f0a044; color: #17211d; box-shadow: 0 5px 14px rgb(240 160 68 / 20%); }
+.theme-dark .dark-button:hover { border-color: #ffc16f; background: #ffc16f; color: #17211d; }
+.theme-dark .icon-button { color: #e7c18d; }
+.theme-dark .icon-button:hover { color: #ffd18c; background: #27362f; }
+.theme-dark .hero-points span,
+.theme-dark .hero-actions > span { color: #c1cec7; }
+.theme-dark .hero-points svg,
+.theme-dark .service-icon svg { color: #8fc5b3; }
+.theme-dark .kicker,
+.theme-dark .section-kicker { color: #e7b16d; }
+.theme-dark .service-strip b { color: #edf3ef; }
+.theme-dark .service-strip small { color: #bdc9c2; }
+.theme-dark .service-icon { background: #293b33; color: #a9d7c5; }
+.theme-dark .text-link,
+.theme-dark .product-meta .price,
+.theme-dark .price { color: #f3bf77; }
+.theme-dark .price del { color: #b5c0ba; }
+.theme-dark .filter-button,
+.theme-dark .sort-control,
+.theme-dark .price-range label,
+.theme-dark .price-range-heading { color: #d6e1db; }
+.theme-dark .filter-button,
+.theme-dark .filter-chips button { background: #18231f; border-color: #43564d; }
+.theme-dark .filter-chips button.selected,
+.theme-dark .filter-chips button:hover { background: #d88a36; border-color: #d88a36; color: #17211d; }
+.theme-dark .search-wrap { background: #18231f; border-color: #43564d; color: #d6e1db; }
+.theme-dark .search-wrap input::placeholder { color: #aebbb4; }
+.theme-dark .desktop-nav button.nav-current { color: #ffc16f; border-color: #e99a43; }
+.theme-dark .category-menu-view-all { color: #f0b66c; }
+.theme-dark .site-header .action-count { background: #e79a42; color: #17211d; }
+.theme-dark .category-section .section-heading h2,
+.theme-dark .product-section .section-heading h2,
+.theme-dark .combo-section .section-heading h2 { color: #edf3ef; }
+.theme-dark .offer-copy,
+.theme-dark .newsletter,
+.theme-dark .product-modal,
+.theme-dark .drawer-summary { background: #18231f; color: #edf3ef; border-color: #34463f; }
+.theme-dark .offer-copy h2,
+.theme-dark .newsletter h2,
+.theme-dark .combo-card > div:last-child > strong,
+.theme-dark .drawer-head h2,
+.theme-dark .empty-cart h3,
+.theme-dark .detail-copy h2 { color: #edf3ef; }
+.theme-dark .offer-copy p,
+.theme-dark .offer-copy > small,
+.theme-dark .combo-card > div:last-child > span,
+.theme-dark .combo-card > div:last-child > small,
+.theme-dark .newsletter p,
+.theme-dark .bottom-promo p,
+.theme-dark .breadcrumb,
+.theme-dark .detail-rating,
+.theme-dark .detail-stock,
+.theme-dark .detail-policies span,
+.theme-dark .free-delivery,
+.theme-dark .cart-line-copy > span,
+.theme-dark .drawer-summary > div,
+.theme-dark .empty-cart p,
+.theme-dark .checkout-note small,
+.theme-dark .checkout-payment small,
+.theme-dark .checkout-terms,
+.theme-dark .summary-row { color: #bdc9c2; }
+.theme-dark .bottom-promo { border-color: #34463f; }
+.theme-dark .bottom-promo button,
+.theme-dark .breadcrumb button { color: #e5b16c; }
+.theme-dark .newsletter form,
+.theme-dark .newsletter form input,
+.theme-dark .coupon-row input,
+.theme-dark .quantity-control,
+.theme-dark .size-picker > div:last-child button,
+.theme-dark .checkout-payment { background: #111a17; color: #edf3ef; border-color: #43564d; }
+.theme-dark .newsletter form input::placeholder,
+.theme-dark .search-wrap input::placeholder { color: #aebbb4; }
+.theme-dark .newsletter form button { background: #f0a044; color: #17211d; }
+.theme-dark .detail-price,
+.theme-dark .drawer-summary .summary-total,
+.theme-dark .drawer-summary .summary-total b,
+.theme-dark .summary-row b,
+.theme-dark .cart-line-copy > b,
+.theme-dark .cart-line-copy > strong,
+.theme-dark .quantity-control span,
+.theme-dark .size-picker > div:first-child { color: #edf3ef; }
+.theme-dark .detail-price del,
+.theme-dark .size-picker > div:first-child button,
+.theme-dark .remove-line { color: #b5c0ba; }
+.theme-dark .checkout-form label,
+.theme-dark .settings-form > label,
+.theme-dark .settings-two label,
+.theme-dark .admin-content label,
+.theme-dark .form-help { color: #d1ddd6; }
+.theme-dark .checkout-form label > span { color: #b5c0ba; }
+.theme-dark .detail-price small,
+.theme-dark .checkout-note,
+.theme-dark .cod-icon { background: #263b32; color: #c5e6d2; }
+.theme-dark .size-picker > div:last-child button.selected { background: #e3903a; color: #17211d; border-color: #e3903a; }
+.theme-dark .empty-cart > div { background: #263b32; color: #b6dfce; }
+.theme-dark .quantity-control button,
+.theme-dark .coupon-row button { color: #d6e1db; }
+.theme-dark .catalog-message { background: #18231f; color: #edf3ef; border-color: #34463f; }
+.theme-dark .catalog-warning { color: #f4d29e; background: #3b2b18; border-color: #71532d; }
+.theme-dark .empty-row,
+.theme-dark .empty-search,
+.theme-dark .form-help { color: #b9c6bf; }
 .theme-dark .site-footer { background: #0b1411; }
 .theme-dark .footer-column button,
 .theme-dark .footer-contact p,
