@@ -27,6 +27,26 @@ type StorePage = 'shop' | 'trending' | 'offers' | 'combos' | 'category' | 'wishl
 type AdminTab = 'overview' | 'products' | 'categories' | 'offers' | 'orders' | 'content' | 'sync'
 type CartLine = { productId: string; quantity: number; size?: string }
 
+function mergeCategoryGroups(saved: CategoryGroup[], live: CategoryGroup[]): CategoryGroup[] {
+  if (!saved.length) return live.length ? live : manualCategoryGroups
+  const normalize = (value: string) => value.normalize('NFKC').replace(/[\u200c\u200d]/g, '').replace(/[\s\u00a0\-–—_.,:;|]+/g, '').toLocaleLowerCase()
+  return saved.map((group) => {
+    const current = live.find((item) => item.id === group.id)
+    if (!current) return group
+    const children = group.children.map((child) => {
+      const match = current.children.find((item) => child.sourceId && item.sourceId === child.sourceId)
+        || current.children.find((item) => normalize(item.name) === normalize(child.name))
+      return match ? { ...child, sourceId: child.sourceId || match.sourceId } : child
+    })
+    const known = new Set(children.map((child) => child.sourceId || normalize(child.name)))
+    for (const child of current.children) {
+      const key = child.sourceId || normalize(child.name)
+      if (!known.has(key)) children.push(child)
+    }
+    return { ...group, children }
+  })
+}
+
 function productPath(product: Product) {
   const slug = product.title.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
   return `/products/${slug}/${encodeURIComponent(product.id)}`
@@ -191,7 +211,8 @@ export default function App() {
       })
       .then((catalog) => {
         if (cancelled) return
-        setCategoryGroups(JSON.parse(localStorage.getItem(CATEGORY_GROUPS_KEY) || 'null') || (catalog.categoryGroups?.length ? catalog.categoryGroups : manualCategoryGroups))
+        const savedGroups = JSON.parse(localStorage.getItem(CATEGORY_GROUPS_KEY) || 'null') as CategoryGroup[] | null
+        setCategoryGroups(mergeCategoryGroups(savedGroups || [], catalog.categoryGroups || []))
         setState((current) => {
           const synced = catalog.products.map((product) => ({ ...product, source: 'shopbase' as const }))
           const manual = current.products.filter((product) => product.source === 'custom')
@@ -229,7 +250,19 @@ export default function App() {
       products = featured.length ? featured : products.filter((product) => product.compareAt && product.compareAt > product.price)
     }
     if (page === 'wishlist') products = products.filter((product) => wishlist.includes(product.id))
-    if (page === 'category' && category !== 'All') products = products.filter((product) => selectedCategorySourceId ? product.categorySourceId === selectedCategorySourceId : selectedParentCategoryId ? parentChildIds.includes(product.categorySourceId || '') || parentChildren.some((child) => child.name === product.category) : product.category === category)
+    if (page === 'category' && category !== 'All') {
+      const parent = categoryGroups.find((group) => group.id === selectedParentCategoryId)
+      const selectedChild = parentChildren.find((child) => (selectedCategorySourceId && child.sourceId === selectedCategorySourceId) || child.name === category)
+      if (selectedCategorySourceId) {
+        products = products.filter((product) => String(product.categorySourceId || '') === String(selectedCategorySourceId))
+      } else if (parent && selectedChild) {
+        products = products.filter((product) => (product.category === selectedChild.name && (!product.parentCategoryId || product.parentCategoryId === parent.id)) || Boolean(selectedChild.sourceId && String(product.categorySourceId || '') === String(selectedChild.sourceId)))
+      } else if (parent) {
+        products = products.filter((product) => parentChildIds.includes(String(product.categorySourceId || '')) || parentChildren.some((child) => child.name === product.category))
+      } else {
+        products = products.filter((product) => product.category === category)
+      }
+    }
     if (needle) products = products.filter((product) => `${product.title} ${product.category} ${product.description}`.toLowerCase().includes(needle))
     if (page === 'category') {
       products = products.filter((product) => product.price >= minPrice && product.price <= maxPrice)
@@ -512,8 +545,8 @@ export default function App() {
           <div className="breadcrumb"><button onClick={() => showStore('shop')}>Home</button><ChevronRight size={14} /><span>{submittedQuery ? 'Search results' : page === 'category' ? category : formatPageTitle}</span></div>
           <div className="listing-heading"><div><span className="section-kicker">THE AARO EDIT / {visibleProducts.length} FINDS</span><h1>{submittedQuery ? `Results for “${submittedQuery}”` : formatPageTitle}</h1><p>{page === 'offers' ? 'Little extras to make a good find feel even better.' : page === 'trending' ? 'The pieces customers keep coming back for.' : page === 'wishlist' ? 'All the things you have saved for later.' : 'Good things, picked with your everyday in mind.'}</p></div>{page === 'category' && <button className="filter-button" aria-expanded={filtersOpen} onClick={() => setFiltersOpen((open) => !open)}><SlidersHorizontal size={16} /> Filters <ChevronDown size={14} /></button>}</div>
           {page === 'category' && <>
-            <div className="filter-chips">{categoryGroups.map((group) => <button className={selectedParentCategoryId === group.id && !selectedCategorySourceId ? 'selected' : ''} key={group.id} onClick={() => showStore('category', group.name, '', group.id)}>{group.name}</button>)}</div>
-            {selectedParentCategoryId && !selectedCategorySourceId && <div className="filter-chips subcategory-chips">{(categoryGroups.find((group) => group.id === selectedParentCategoryId)?.children || []).map((child) => <button key={`${selectedParentCategoryId}-${child.sourceId || child.name}`} onClick={() => showStore('category', child.name, child.sourceId || '', selectedParentCategoryId)}>{child.name}</button>)}</div>}
+            <div className="filter-chips">{categoryGroups.map((group) => <button className={selectedParentCategoryId === group.id ? 'selected' : ''} key={group.id} onClick={() => showStore('category', group.name, '', group.id)}>{group.name}</button>)}</div>
+            {selectedParentCategoryId && <div className="filter-chips subcategory-chips">{(categoryGroups.find((group) => group.id === selectedParentCategoryId)?.children || []).map((child) => <button className={category === child.name ? 'selected' : ''} key={`${selectedParentCategoryId}-${child.sourceId || child.name}`} onClick={() => showStore('category', child.name, child.sourceId || '', selectedParentCategoryId)}>{child.name}</button>)}</div>}
           </>}
           {page === 'category' && filtersOpen && <div className="catalog-filters"><label className="sort-control">Sort by<select value={priceSort} onChange={(event) => setPriceSort(event.target.value as typeof priceSort)}><option value="recommended">Recommended</option><option value="low-high">Price: low to high</option><option value="high-low">Price: high to low</option></select></label><div className="price-range"><div className="price-range-heading"><b>Price range</b><span>{money(minPrice)} – {money(Math.min(maxPrice, catalogMaxPrice))}</span></div><label>Minimum price<input aria-label="Minimum price" type="range" min="0" max={catalogMaxPrice} step="100" value={Math.min(minPrice, catalogMaxPrice)} onChange={(event) => setMinPrice(Math.min(Number(event.target.value), maxPrice))} /></label><label>Maximum price<input aria-label="Maximum price" type="range" min="0" max={catalogMaxPrice} step="100" value={Math.min(maxPrice, catalogMaxPrice)} onChange={(event) => setMaxPrice(Math.max(Number(event.target.value), minPrice))} /></label></div><button className="reset-filters" onClick={() => { setMinPrice(0); setMaxPrice(catalogMaxPrice); setPriceSort('recommended') }}>Reset filters</button></div>}
           {visibleProducts.length ? <><div className="product-grid listing-grid">{visibleProducts.slice(0, productsToShow).map((product) => <ProductCard key={product.id} product={product} wished={wishlist.includes(product.id)} onWish={toggleWish} onOpen={openProduct} onAdd={addToCart} />)}</div>{visibleProducts.length > productsToShow && <button className="load-more-button" onClick={() => setProductsToShow((count) => Math.min(count + 48, visibleProducts.length))}>Load more products <span>{Math.min(48, visibleProducts.length - productsToShow)} more</span></button>}</> : <div className="empty-state"><Search size={27} /><h3>{page === 'wishlist' ? 'Nothing saved just yet' : 'No finds in this range'}</h3><p>{page === 'wishlist' ? 'Tap the heart on anything you love and it will show up here.' : 'Adjust the price range or browse another category.'}</p><button className="dark-button" onClick={() => { setQuery(''); showStore('shop') }}>Explore all products <ArrowRight size={16} /></button></div>}
