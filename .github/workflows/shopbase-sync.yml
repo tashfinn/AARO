@@ -1,0 +1,43 @@
+name: Daily ShopBase catalog sync
+
+on:
+  schedule:
+    - cron: '0 7 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: shopbase-catalog-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      MONGODB_URI: ${{ secrets.MONGODB_URI }}
+      MONGODB_DATABASE: aaro
+      SHOPBASE_SESSION_COOKIE: ${{ secrets.SHOPBASE_SESSION_COOKIE }}
+      AARO_MARKUP_PERCENT: '20'
+      SHOPBASE_REQUEST_DELAY_SECONDS: '0.35'
+      SHOPBASE_DETAIL_REFRESH_DAYS: '7'
+      CLOUDINARY_CLOUD_NAME: ${{ secrets.CLOUDINARY_CLOUD_NAME }}
+      CLOUDINARY_API_KEY: ${{ secrets.CLOUDINARY_API_KEY }}
+      CLOUDINARY_API_SECRET: ${{ secrets.CLOUDINARY_API_SECRET }}
+      CLOUDINARY_MIRROR_IMAGES: 'false'
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install importer dependencies
+        run: pip install -r requirements.txt
+      - name: Run catalog sync
+        run: python sync_shopbase.py
