@@ -4,6 +4,7 @@ export const initialState: StoreState = {
   categories: ['All'],
   products: [],
   coupons: [],
+  offers: [],
   orders: [],
   content: {
     heroTitle: '10,000+ products\nAcross 100+ categories',
