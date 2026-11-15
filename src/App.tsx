@@ -149,7 +149,7 @@ export default function App() {
   const [heroSlide, setHeroSlide] = useState(0)
   const heroImages = ['/images/premium-earth-tone-apparel-display.png', '/images/warm-boutique-clothing-display.png', '/images/warm-earth-tone-fashion-portrait.png']
   useEffect(() => {
-    const timer = window.setInterval(() => setHeroSlide((current) => (current + 1) % heroImages.length), 5000)
+    const timer = window.setInterval(() => setHeroSlide((current) => (current + 1) % heroImages.length), 1000)
     return () => window.clearInterval(timer)
   }, [])
   const [category, setCategory] = useState('All')
