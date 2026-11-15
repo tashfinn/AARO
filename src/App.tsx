@@ -152,7 +152,7 @@ export default function App() {
   const heroImages = ['/images/premium-earth-tone-apparel-display.png', '/images/warm-boutique-clothing-display.png', '/images/warm-earth-tone-fashion-portrait.png']
   useEffect(() => {
     if (page !== 'shop' || heroCarouselPaused) return
-    const timer = window.setInterval(() => setHeroSlide((current) => (current + 1) % heroImages.length), 3000)
+    const timer = window.setInterval(() => setHeroSlide((current) => (current + 1) % heroImages.length), 5000)
     return () => window.clearInterval(timer)
   }, [page, heroCarouselPaused])
   const moveHeroCarousel = (direction: -1 | 1) => setHeroSlide((current) => (current + direction + heroImages.length) % heroImages.length)
