@@ -153,7 +153,7 @@ export default function App() {
   const [accountToken, setAccountToken] = useState(() => localStorage.getItem(AUTH_TOKEN_KEY) || '')
   const [accountProfile, setAccountProfile] = useState<AccountProfile | null>(null)
   const [customerOrders, setCustomerOrders] = useState<Order[]>([])
-  const [authRoute, setAuthRoute] = useState<'login' | 'register' | null>(() => window.location.pathname === '/login' ? 'login' : window.location.pathname === '/register' ? 'register' : null)
+  const [authRoute, setAuthRoute] = useState<'login' | 'register' | null>(() => !localStorage.getItem(AUTH_TOKEN_KEY) ? window.location.pathname === '/login' ? 'login' : window.location.pathname === '/register' ? 'register' : null : null)
   const [adminRoute] = useState(() => window.location.pathname === '/admin')
   const [adminToken, setAdminToken] = useState(readAdminToken)
   const [darkTheme, setDarkTheme] = useState(() => localStorage.getItem(THEME_KEY) === 'dark')
@@ -234,6 +234,13 @@ export default function App() {
     const syncRoute = () => {
       const path = window.location.pathname
       const parts = path.split('/').filter(Boolean)
+      if (accountToken && (path === '/login' || path === '/register')) {
+        history.replaceState({ aaroRoute: true }, '', '/account')
+        setAuthRoute(null)
+        setPage('account')
+        setCheckout(false)
+        return
+      }
       setAuthRoute(path === '/login' ? 'login' : path === '/register' ? 'register' : null)
       setProductRouteId(productIdFromPath())
       setCheckout(path === '/checkout')
@@ -258,7 +265,7 @@ export default function App() {
     syncRoute()
     window.addEventListener('popstate', syncRoute)
     return () => window.removeEventListener('popstate', syncRoute)
-  }, [categoryGroups])
+  }, [accountToken, categoryGroups])
   useEffect(() => {
     if (!accountToken || !API_BASE) { setAccountProfile(null); setCustomerOrders([]); return }
     const headers = { Authorization: `Bearer ${accountToken}` }
