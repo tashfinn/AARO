@@ -3075,6 +3075,8 @@ a:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
 }
 .hero-art .hero-carousel-card.hero-carousel-image-1 { top: 8%; height: 84%; width: 80%; }
 .hero-art .hero-carousel-card.hero-carousel-image-2 { top: 8%; height: 84%; width: 80%; }
+.hero-art { background: transparent !important; border-radius: 0 !important; box-shadow: none !important; }
+.hero-art .hero-carousel-card { border-radius: 8px; }
 @media (max-width: 900px) {
   .hero-art .hero-carousel-card.hero-carousel-image-0 { width: 92%; }
   .hero-art .hero-carousel-card.hero-carousel-image-1,
