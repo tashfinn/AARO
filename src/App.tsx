@@ -20,7 +20,6 @@ const AUTH_TOKEN_KEY = 'aaro-auth-token-v1'
 const ADMIN_TOKEN_KEY = 'aaro-admin-token-v1'
 const ADMIN_SESSION_TOKEN_KEY = 'aaro-admin-session-token-v1'
 const CATEGORY_GROUPS_KEY = 'aaro-category-groups-v1'
-const PRODUCT_VIEWS_KEY = 'aaro-product-views-v1'
 const API_BASE = import.meta.env.VITE_API_URL?.replace(/\/$/, '') || ''
 type Address = { id: string; label?: string; recipient: string; phone: string; area: string; address: string; isDefault?: boolean }
 type AccountProfile = { id: string; name: string; email: string; phone: string; addresses: Address[]; defaultAddressId?: string }
@@ -104,14 +103,6 @@ function money(amount: number) { return `৳${Math.max(0, Math.round(amount)).to
 function dateLabel(value: string) { return new Intl.DateTimeFormat('en-BD', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(value)) }
 function shortDate(value: string) { return new Intl.DateTimeFormat('en-BD', { day: 'numeric', month: 'short' }).format(new Date(value)) }
 function readAdminToken() { return localStorage.getItem(ADMIN_TOKEN_KEY) || sessionStorage.getItem(ADMIN_SESSION_TOKEN_KEY) || '' }
-function readProductViews(): Record<string, number> {
-  try {
-    const value: unknown = JSON.parse(localStorage.getItem(PRODUCT_VIEWS_KEY) || '{}')
-    if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
-    return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, number] => typeof entry[1] === 'number' && Number.isFinite(entry[1]) && entry[1] >= 0))
-  } catch { return {} }
-}
-
 function ImageView({ src, alt, className = '', loading = 'lazy' }: { src: string; alt: string; className?: string; loading?: 'lazy' | 'eager' }) {
   return <img src={src} alt={alt} loading={loading} className={className} onError={(event) => { event.currentTarget.style.opacity = '0' }} />
 }
@@ -181,6 +172,7 @@ export default function App() {
   const [lastSync, setLastSync] = useState(localStorage.getItem('aaro-last-import') || '')
   const [catalogLoading, setCatalogLoading] = useState(Boolean(import.meta.env.PROD || import.meta.env.VITE_API_URL))
   const [catalogError, setCatalogError] = useState(false)
+  const [productViewCounts, setProductViewCounts] = useState<Record<string, number>>({})
   const [importNote, setImportNote] = useState('')
   const searchRef = useRef<HTMLInputElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -298,13 +290,16 @@ export default function App() {
     fetch(`${apiUrl}/api/catalog`)
       .then((response) => {
         if (!response.ok) throw new Error(`Catalog API returned ${response.status}`)
-        return response.json() as Promise<{ products?: unknown; categories?: unknown; categoryGroups?: unknown; lastSync?: string }>
+        return response.json() as Promise<{ products?: unknown; categories?: unknown; categoryGroups?: unknown; lastSync?: string; productViewCounts?: unknown }>
       })
       .then((catalog) => {
         if (cancelled) return
         const catalogProducts = Array.isArray(catalog.products) ? catalog.products.filter((item): item is Product => Boolean(item && typeof item.id === 'string' && typeof item.title === 'string' && typeof item.category === 'string' && typeof item.image === 'string' && typeof item.description === 'string' && Number.isFinite(item.price))) : []
         const catalogCategories = Array.isArray(catalog.categories) ? catalog.categories.filter((item): item is string => typeof item === 'string') : []
         const catalogGroups = Array.isArray(catalog.categoryGroups) ? catalog.categoryGroups.filter((group): group is CategoryGroup => Boolean(group && typeof group.id === 'string' && typeof group.name === 'string' && Array.isArray(group.children))).map((group) => ({ ...group, children: group.children.filter((child) => child && typeof child.name === 'string') })) : []
+        if (catalog.productViewCounts && typeof catalog.productViewCounts === 'object' && !Array.isArray(catalog.productViewCounts)) {
+          setProductViewCounts(Object.fromEntries(Object.entries(catalog.productViewCounts as Record<string, unknown>).filter((entry): entry is [string, number] => typeof entry[1] === 'number' && Number.isFinite(entry[1]) && entry[1] >= 0)))
+        }
         const rawSavedGroups: unknown = JSON.parse(localStorage.getItem(CATEGORY_GROUPS_KEY) || 'null')
         const savedGroups = Array.isArray(rawSavedGroups) ? rawSavedGroups.filter((group): group is CategoryGroup => Boolean(group && typeof group.id === 'string' && typeof group.name === 'string' && Array.isArray(group.children))) : []
         setCategoryGroups(mergeCategoryGroups(savedGroups, catalogGroups))
@@ -327,6 +322,26 @@ export default function App() {
     return () => { cancelled = true }
   }, [])
   useEffect(() => {
+    if (!productRouteId || !API_BASE) return
+    let current = true
+    fetch(`${API_BASE}/api/products/${encodeURIComponent(productRouteId)}/view`, { method: 'POST', keepalive: true })
+      .then((response) => response.ok ? response.json() as Promise<{ productId: string; views: number }> : null)
+      .then((result) => { if (current && result && Number.isFinite(result.views)) setProductViewCounts((counts) => ({ ...counts, [result.productId]: result.views })) })
+      .catch(() => { /* Product browsing remains available if view counting is temporarily offline. */ })
+    return () => { current = false }
+  }, [productRouteId])
+  useEffect(() => {
+    if (!API_BASE) return
+    let current = true
+    const refreshCounts = () => fetch(`${API_BASE}/api/product-views`, { cache: 'no-store' })
+      .then((response) => response.ok ? response.json() as Promise<Record<string, unknown>> : null)
+      .then((result) => { if (current && result) setProductViewCounts(Object.fromEntries(Object.entries(result).filter((entry): entry is [string, number] => typeof entry[1] === 'number' && Number.isFinite(entry[1]) && entry[1] >= 0))) })
+      .catch(() => { /* Keep the last shared counts during brief network issues. */ })
+    void refreshCounts()
+    const timer = window.setInterval(refreshCounts, 30000)
+    return () => { current = false; window.clearInterval(timer) }
+  }, [])
+  useEffect(() => {
     if (!API_BASE) return
     fetch(`${API_BASE}/api/offers`, { cache: 'no-store' }).then((response) => response.ok ? response.json() as Promise<unknown> : []).then((offers) => setState((current) => ({ ...current, offers: Array.isArray(offers) ? offers as OfferDeal[] : [] }))).catch(() => setState((current) => ({ ...current, offers: [] })))
   }, [])
@@ -343,7 +358,7 @@ export default function App() {
     const parentChildren = selectedParentCategoryId ? categoryGroups.find((group) => group.id === selectedParentCategoryId)?.children || [] : []
     const parentChildIds = parentChildren.flatMap((child) => child.sourceId ? [child.sourceId] : [])
     let products = activeProducts
-    if (page === 'trending') { const views = readProductViews(); products = [...products].sort((a, b) => (views[b.id] || 0) - (views[a.id] || 0)).slice(0, 20) }
+    if (page === 'trending') products = [...products].sort((a, b) => (productViewCounts[b.id] || 0) - (productViewCounts[a.id] || 0)).slice(0, 20)
     if (page === 'offers') {
       const dealProductIds = new Set(state.offers.filter((offer) => offer.active).map((offer) => offer.productId))
       const featured = products.filter((product) => state.content.offerIds.includes(product.id) || product.offer || dealProductIds.has(product.id))
@@ -369,10 +384,9 @@ export default function App() {
       if (priceSort === 'low-high') products = [...products].sort((a, b) => a.price - b.price)
       if (priceSort === 'high-low') products = [...products].sort((a, b) => b.price - a.price)
     }
-    const views = (() => { try { return JSON.parse(localStorage.getItem(PRODUCT_VIEWS_KEY) || '{}') as Record<string, number> } catch { return {} } })()
-    products = [...products].sort((a, b) => (views[b.id] || 0) - (views[a.id] || 0))
+    products = [...products].sort((a, b) => (productViewCounts[b.id] || 0) - (productViewCounts[a.id] || 0))
     return products
-  }, [activeProducts, category, categoryGroups, maxPrice, minPrice, page, priceSort, selectedCategorySourceId, selectedParentCategoryId, submittedQuery, state.content.offerIds, state.content.trendingIds, state.offers, wishlist])
+  }, [activeProducts, category, categoryGroups, maxPrice, minPrice, page, priceSort, productViewCounts, selectedCategorySourceId, selectedParentCategoryId, submittedQuery, state.content.offerIds, state.content.trendingIds, state.offers, wishlist])
   const searchSuggestions = useMemo(() => {
     const needle = query.trim().toLowerCase()
     return needle ? activeProducts.filter((product) => `${product.title} ${product.category} ${product.description}`.toLowerCase().includes(needle)).slice(0, 5) : []
@@ -433,7 +447,6 @@ export default function App() {
     setCartOpen(true)
   }
   function openProduct(product: Product) {
-    try { const views = JSON.parse(localStorage.getItem(PRODUCT_VIEWS_KEY) || '{}') as Record<string, number>; views[product.id] = (views[product.id] || 0) + 1; localStorage.setItem(PRODUCT_VIEWS_KEY, JSON.stringify(views)) } catch { /* viewing still works if storage is unavailable */ }
     setAdmin(false); setProductRouteId(product.id); setShowSearch(false); setQuery(''); setSubmittedQuery(''); setCategoryMenuOpen(false)
     history.pushState({ productId: product.id, aaroProduct: true }, '', productPath(product)); window.scrollTo({ top: 0, behavior: 'smooth' })
   }
@@ -617,8 +630,7 @@ export default function App() {
     { label: 'Orders', icon: ShoppingCart, tab: 'orders' }, { label: 'Storefront', icon: Sparkles, tab: 'content' }, { label: 'Product sync', icon: RotateCcw, tab: 'sync' }
   ]
   const formatPageTitle = page === 'trending' ? 'Trending now' : page === 'offers' ? 'Offers for you' : page === 'category' ? category === 'All' ? 'All products' : category : page === 'wishlist' ? 'Your wishlist' : page === 'terms' ? 'Terms & Conditions' : page === 'delivery' ? 'Delivery & Returns' : page === 'contact' ? 'Contact us' : 'The AARO edit'
-  const productViews = readProductViews()
-  const selectedTrendingProducts = [...activeProducts].sort((a, b) => (productViews[b.id] || 0) - (productViews[a.id] || 0)).slice(0, 20)
+  const selectedTrendingProducts = [...activeProducts].sort((a, b) => (productViewCounts[b.id] || 0) - (productViewCounts[a.id] || 0)).slice(0, 20)
   const homeTrendingProducts = selectedTrendingProducts.slice(0, 12)
   const dealProductIds = new Set(state.offers.filter((offer) => offer.active).map((offer) => offer.productId))
   const selectedOfferProducts = activeProducts.filter((product) => state.content.offerIds.includes(product.id) || product.offer || dealProductIds.has(product.id))

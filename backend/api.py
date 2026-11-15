@@ -564,6 +564,7 @@ def catalog():
         fields = {"_id": 0, "sourceId": 1, "title": 1, "category": 1, "categorySourceId": 1, "parentCategory": 1, "parentCategoryId": 1, "price": 1, "suggestedRetailPrice": 1, "compareAt": 1, "image": 1, "stock": 1, "active": 1, "source": 1, "updatedAt": 1, "trending": 1, "offer": 1, "badge": 1, "rating": 1, "reviews": 1}
         products = [public_product(item) for item in store.products.find({"active": True}, fields).limit(20000)]
         products.sort(key=lambda item: str(item.get("title", "")).casefold())
+        view_counts = {item["productId"]: int(item.get("views", 0)) for item in store.product_views.find({}, {"_id": 0, "productId": 1, "views": 1})}
         categories = list(store.categories.find({"source": "shopbase", "type": {"$ne": "parent"}}, {"_id": 0, "sourceId": 1, "name": 1, "parentId": 1, "parentName": 1, "sortOrder": 1, "sourceOrder": 1}))
         # The supplier's catalog order is the tie-breaker for same-named child
         # categories (e.g. Denim Jacket under two parent collections).
@@ -571,12 +572,29 @@ def catalog():
             categories.sort(key=lambda item: item["sourceOrder"])
         groups = category_group_payload(categories)
         latest = store.sync_runs.find_one({"status": "success"}, {"_id": 0}, sort=[("finishedAt", -1)])
-        return {"products": products, "categories": [item["name"] for item in categories], "categoryGroups": groups, "lastSync": (latest or {}).get("finishedAt")}
+        return {"products": products, "categories": [item["name"] for item in categories], "categoryGroups": groups, "lastSync": (latest or {}).get("finishedAt"), "productViewCounts": view_counts}
     except HTTPException:
         raise
     except Exception:
         logging.exception("Catalog load failed")
         raise HTTPException(status_code=503, detail="Could not load catalog.")
+
+@app.post("/api/products/{product_id}/view")
+def record_product_view(product_id: str):
+    if not product_id or len(product_id) > 180:
+        raise HTTPException(status_code=422, detail="Invalid product ID.")
+    result = db().product_views.find_one_and_update(
+        {"productId": product_id},
+        {"$inc": {"views": 1}, "$setOnInsert": {"productId": product_id}},
+        upsert=True,
+        return_document=True,
+    )
+    return {"productId": product_id, "views": int(result.get("views", 0))}
+
+@app.get("/api/product-views")
+def product_view_counts():
+    counts = db().product_views.find({}, {"_id": 0, "productId": 1, "views": 1})
+    return {item["productId"]: int(item.get("views", 0)) for item in counts}
 
 @app.get("/api/products/{source_id}")
 def product_details(source_id: str):
