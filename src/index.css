@@ -2939,15 +2939,27 @@ a:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
 .theme-dark .search-wrap input { background: transparent; }
 .hero-art { overflow: hidden; isolation: isolate; }
 .hero-art::after { z-index: 4; border-radius: inherit; }
-.hero-art .hero-carousel-image { position: absolute; top: 0; left: 50%; width: 80%; height: 100%; object-fit: cover; border-radius: 6px; transition: transform .72s cubic-bezier(.22,.75,.25,1), opacity .72s ease, filter .72s ease; will-change: transform; }
+.hero-art .hero-carousel-card { position: absolute; top: 0; left: 50%; width: 80%; height: 100%; overflow: hidden; border-radius: 6px; transition: transform .8s cubic-bezier(.22,.75,.25,1), opacity .8s ease, filter .8s ease; will-change: transform; }
+.hero-art .hero-carousel-photo { width: 100%; height: 100%; object-fit: cover; object-position: center 45%; }
 .hero-art .hero-carousel-image-0 { z-index: 3; transform: translateX(-50%); opacity: 1; filter: none; }
-.hero-art .hero-carousel-image-1 { z-index: 2; transform: translateX(50%); opacity: .72; filter: saturate(.8); }
-.hero-art .hero-carousel-image-2 { z-index: 2; transform: translateX(-150%); opacity: .72; filter: saturate(.8); }
-.hero-art .hero-label, .hero-art .hero-stamp { z-index: 5; }
+.hero-art .hero-carousel-image-1 { z-index: 2; transform: translateX(50%); opacity: .72; filter: saturate(.82); }
+.hero-art .hero-carousel-image-2 { z-index: 2; transform: translateX(-150%); opacity: .72; filter: saturate(.82); }
+.hero-art .hero-carousel-copy { position: absolute; inset: 0; z-index: 5; animation: hero-copy-enter .65s both cubic-bezier(.2,.75,.25,1); }
+.hero-art .hero-carousel-copy .hero-label { position: absolute; left: 22px; right: 18px; bottom: 20px; display: flex; flex-direction: column; align-items: flex-start; gap: 7px; color: #fff; text-shadow: 0 1px 10px rgba(0,0,0,.32); }
+.hero-art .hero-carousel-copy .hero-label span { color: rgba(255,255,255,.88); font-size: 11px; letter-spacing: .15em; }
+.hero-art .hero-carousel-copy .hero-label b { max-width: 90%; color: #fff; font-size: clamp(18px,2vw,27px); line-height: 1.18; }
+.hero-art .hero-carousel-copy .hero-label button { min-height: 40px; display: inline-flex; align-items: center; gap: 8px; margin-top: 5px; padding: 0 14px; border: 1px solid rgba(255,255,255,.65); border-radius: 4px; color: #fff; background: rgba(18,33,27,.62); font-size: 14px; font-weight: 700; backdrop-filter: blur(8px); }
+.hero-art .hero-carousel-copy .hero-stamp { top: 16px; right: 16px; left: auto; z-index: 1; }
+.hero-art .hero-carousel-copy .hero-stamp b { display: block; }
+@keyframes hero-copy-enter { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
 @media (max-width: 780px) {
+  .hero-art .hero-carousel-copy .hero-label { left: 14px; right: 12px; bottom: 14px; }
+  .hero-art .hero-carousel-copy .hero-label b { font-size: 17px; }
+  .hero-art .hero-carousel-copy .hero-label button { min-height: 36px; font-size: 13px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .hero-art .hero-carousel-image { transition-duration: .35s; }
+  .hero-art .hero-carousel-card { transition-duration: .35s; }
+  .hero-art .hero-carousel-copy { animation-duration: .35s; }
 }
 .theme-dark .suggestion-item > span { color: var(--text-primary); }
 .theme-dark .suggestion-item small { color: var(--text-secondary); }
