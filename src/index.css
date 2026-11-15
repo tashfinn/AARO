@@ -2937,18 +2937,14 @@ a:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
   .category-tiles .category-tile img { transition: none; }
 }
 .theme-dark .search-wrap input { background: transparent; }
-.hero-art { overflow: visible; isolation: isolate; }
+.hero-art { overflow: hidden; isolation: isolate; }
 .hero-art::after { z-index: 4; border-radius: inherit; }
-.hero-art .hero-carousel-image { position: absolute; top: 0; left: 50%; width: 84%; height: 100%; object-fit: cover; border-radius: inherit; transition: transform .72s cubic-bezier(.22,.75,.25,1), opacity .72s ease, filter .72s ease; will-change: transform; }
-.hero-art .hero-carousel-image-0 { z-index: 3; transform: translateX(-50%) scale(1); opacity: 1; filter: none; }
-.hero-art .hero-carousel-image-1 { z-index: 2; transform: translateX(22%) scale(.84); opacity: .76; filter: saturate(.82); }
-.hero-art .hero-carousel-image-2 { z-index: 2; transform: translateX(-122%) scale(.84); opacity: .76; filter: saturate(.82); }
+.hero-art .hero-carousel-image { position: absolute; top: 0; left: 50%; width: 80%; height: 100%; object-fit: cover; border-radius: 6px; transition: transform .72s cubic-bezier(.22,.75,.25,1), opacity .72s ease, filter .72s ease; will-change: transform; }
+.hero-art .hero-carousel-image-0 { z-index: 3; transform: translateX(-50%); opacity: 1; filter: none; }
+.hero-art .hero-carousel-image-1 { z-index: 2; transform: translateX(50%); opacity: .72; filter: saturate(.8); }
+.hero-art .hero-carousel-image-2 { z-index: 2; transform: translateX(-150%); opacity: .72; filter: saturate(.8); }
 .hero-art .hero-label, .hero-art .hero-stamp { z-index: 5; }
 @media (max-width: 780px) {
-  .hero-art { overflow: visible; }
-  .hero-art .hero-carousel-image { width: 86%; }
-  .hero-art .hero-carousel-image-1 { transform: translateX(24%) scale(.84); }
-  .hero-art .hero-carousel-image-2 { transform: translateX(-124%) scale(.84); }
 }
 @media (prefers-reduced-motion: reduce) {
   .hero-art .hero-carousel-image { transition-duration: .35s; }
