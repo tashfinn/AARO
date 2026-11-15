@@ -3087,6 +3087,25 @@ a:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
   .hero-art .hero-carousel-card.hero-carousel-image-1,
   .hero-art .hero-carousel-card.hero-carousel-image-2 { top: 12%; height: 76%; }
 }
+.hero-art, .hero-carousel-track { overflow: visible !important; }
+.hero-art .hero-carousel-card { border-radius: 14px; }
+.hero-art .hero-carousel-card.hero-carousel-image-0 { width: 84%; top: 0; height: 100%; transform: translateX(-50%) translateZ(0) rotateY(0deg) scale(1); }
+.hero-art .hero-carousel-card.hero-carousel-image-1 { width: 80%; top: 8%; height: 84%; transform: translateX(-37.5%) translateZ(-130px) rotateY(-9deg) scale(.96); }
+.hero-art .hero-carousel-card.hero-carousel-image-2 { width: 80%; top: 8%; height: 84%; transform: translateX(-62.5%) translateZ(-130px) rotateY(9deg) scale(.96); }
+.hero-art .hero-carousel-card:not(.hero-carousel-image-0) .hero-carousel-copy { visibility: hidden !important; opacity: 0 !important; pointer-events: none !important; }
+.hero-carousel-dots { right: calc(8% + 24px); bottom: 22px; padding: 8px 10px; border-radius: 18px; background: rgba(15,27,22,.55); backdrop-filter: blur(5px); }
+@media (max-width: 900px) {
+  .hero-art .hero-carousel-card.hero-carousel-image-0 { width: 90%; }
+  .hero-art .hero-carousel-card.hero-carousel-image-1 { transform: translateX(-37.5%) translateZ(-100px) rotateY(-7deg) scale(.95); }
+  .hero-art .hero-carousel-card.hero-carousel-image-2 { transform: translateX(-62.5%) translateZ(-100px) rotateY(7deg) scale(.95); }
+  .hero-carousel-dots { right: calc(5% + 18px); }
+}
+@media (max-width: 600px) {
+  .hero-art .hero-carousel-card.hero-carousel-image-0 { width: 92%; }
+  .hero-art .hero-carousel-card.hero-carousel-image-1 { width: 78%; transform: translateX(-37%) translateZ(-60px) rotateY(-5deg) scale(.96); }
+  .hero-art .hero-carousel-card.hero-carousel-image-2 { width: 78%; transform: translateX(-63%) translateZ(-60px) rotateY(5deg) scale(.96); }
+  .hero-carousel-dots { right: calc(4% + 12px); bottom: 15px; }
+}
 @media (prefers-reduced-motion: reduce) {
   .hero-art .hero-carousel-card { transition-duration: .4s !important; }
 }
