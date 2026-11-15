@@ -2,51 +2,52 @@
 
 ## Direction
 
-AARO is a Bangladesh-focused, multi-category lifestyle shop. Keep the interface calm, warm, clear, and product-first. Use restrained motion, readable text, consistent spacing, and strong contrast in both light and dark themes. Do not change the existing font families.
+AARO is a Bangladesh-focused, multi-category lifestyle shop. The visual system is warm, composed, product-first, and practical for shoppers and store staff. Keep the recognizable evergreen and orange brand cues while using one shared surface and contrast system across the storefront and admin. Preserve the existing font families: Manrope for display, DM Sans for interface copy, and Hind Siliguri for Bangla.
 
 ## Color tokens
 
-| Use | Light | Dark |
+| Role | Light | Dark |
 | --- | --- | --- |
-| Page | `#F5F7F3` | `#111A17` |
-| Main surface | `#FFFFFF` | `#18231F` |
-| Soft surface | `#EDF3EC` | `#202F29` |
-| Main text | `#183B35` | `#EDF3EF` |
-| Supporting text | `#63776E` | `#B4C2BA` |
-| Border | `#DCE6DC` | `#34473F` |
-| Primary action | `#1D6556` | `#F3AE58` |
-| Warm accent | `#ED9B3E` | `#F3AE58` |
-| Error | `#A33F36` | `#F08C80` |
+| Page canvas | `#F4F6F1` | `#111915` |
+| Main surface | `#FFFEFA` | `#1B2620` |
+| Raised surface | `#F7F8F3` | `#23322A` |
+| Inset / input | `#EDF2EC` | `#14201A` |
+| Primary text | `#183B35` | `#F0F4F0` |
+| Supporting text | `#526A5F` | `#C5D0C9` |
+| Muted text | `#65796E` | `#AEBBB3` |
+| Border | `#D9E3DA` | `#3D5146` |
+| Primary action | `#1D6556` | `#F0A54E` |
+| Accent text | `#A65316` | `#FFC477` |
+| Error | `#A33F36` | `#FFC0B7` |
 
-Use evergreen for primary actions in light mode and warm orange for emphasis in dark mode. Keep orange text off light surfaces where contrast is weak; use dark ink on orange buttons. Never place muted green text on a similarly dark green surface.
+Evergreen is the light-theme primary action; orange is used for warm highlights and dark-theme primary actions. Orange action buttons use dark ink. Supporting text must remain readable on its actual surface. Avoid pale text on cream panels, muted green on deep green, and green labels on green cards. Status colors use their own paired foreground and background rather than color alone.
 
 ## Typography
 
-- Preserve the current families: Manrope for display/headings, DM Sans for interface/body, and Hind Siliguri for Bangla where already applied.
-- Base body size: 16px, line-height 1.55.
-- Main page headings: 30–48px, responsive; section headings: 22–28px; card headings: 16–18px.
-- Body and form text: 14–16px. Product titles: 16px. Supporting text: 13–14px.
-- Metadata, labels, and badges: 12px minimum. Avoid 6–11px interface text.
-- Bangla text uses natural word spacing and line-height of at least 1.55; do not alter the typeface to solve spacing issues.
+- Preserve Manrope, DM Sans, and Hind Siliguri; do not replace the fonts.
+- Body copy uses 15px with 1.5–1.65 line-height. Controls and compact interface labels use 14px or larger.
+- Page headings use 30–48px; section headings 22–28px; card headings 16–20px.
+- Form labels, buttons, sync details, metadata, and badges stay at 14px or larger where space allows; compact decorative labels may use 13px.
+- Bangla uses Hind Siliguri, natural word spacing, and a line-height of at least 1.55.
 
 ## Layout and components
 
-- Content width: at most 1320px, with 24–36px desktop gutters and 16px mobile gutters.
+- Keep the existing page structure and behavior. Theme changes should not rearrange shopping or admin workflows.
+- Content width stays at or below 1320px, with 24–36px desktop gutters and 16px mobile gutters.
 - Use a 4px spacing base; favor 8, 12, 16, 24, 32, and 48px.
-- Use 8–12px corner radii for cards and controls; pills are fully rounded.
-- Keep product imagery prominent and product cards consistent in padding, text alignment, and footer spacing.
-- Use the same surface, border, and text tokens in the storefront, admin panels, forms, tables, menus, and dialogs.
-- Buttons have at least 44px touch height where practical, clear labels, and visible hover/focus states.
-- Tables remain scrollable on narrow screens. Menus and drawers must fit the viewport and keep all content reachable.
+- Cards and dialogs use 10–12px corners. Controls use 8px corners. Pills are reserved for compact statuses.
+- Use a single border and surface hierarchy; avoid unrelated white blocks inside dark pages.
+- Buttons target at least 44px height when practical, with clear text, hover, disabled, and keyboard-focus states.
+- Tables scroll on narrow screens; expanded menus and sidebars remain reachable and do not flash to a different theme while closing.
 
 ## Motion and accessibility
 
-- Use short, purposeful transitions (150–220ms) for color, opacity, and small position changes.
-- Do not animate layout in ways that hide content or cause color flashes while a drawer closes.
-- Respect `prefers-reduced-motion`.
-- Maintain visible keyboard focus and readable contrast. Do not communicate status by color alone.
+- Use 150–220ms transitions for color, opacity, and small movement. Respect reduced-motion preferences.
+- Maintain at least 4.5:1 contrast for body and placeholder copy, and 3:1 for large text and essential interface boundaries.
+- Use visible focus rings, themed selection and scrollbars, and clear error/success/warning text.
+- Keep content visible by default; no decorative animation should hide information or controls.
 
 ## Content integrity
 
-- Dashboard charts and counts must come from persisted application data. When there is no data, show an honest empty state; never use invented sales, ratings, views, or coupon examples.
+- Dashboard charts and counts use persisted application data. With no data, show an honest empty state; never invent sales, ratings, views, or coupon examples.
 - Do not ship fake catalog importers, nonfunctional shopping flows, or “demo” claims. Clearly distinguish browser-only admin edits from server-saved changes until they are stored in the backend.

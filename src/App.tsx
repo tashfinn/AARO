@@ -220,7 +220,11 @@ export default function App() {
   }, [state])
   useEffect(() => { localStorage.setItem(WISHLIST_KEY, JSON.stringify(wishlist)) }, [wishlist])
   useEffect(() => { localStorage.setItem(CART_KEY, JSON.stringify(cart)) }, [cart])
-  useEffect(() => { localStorage.setItem(THEME_KEY, darkTheme ? 'dark' : 'light') }, [darkTheme])
+  useEffect(() => {
+    localStorage.setItem(THEME_KEY, darkTheme ? 'dark' : 'light')
+    document.documentElement.classList.toggle('theme-dark', darkTheme)
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', darkTheme ? '#111915' : '#f4f6f1')
+  }, [darkTheme])
   useEffect(() => { localStorage.setItem(CATEGORY_GROUPS_KEY, JSON.stringify(categoryGroups)) }, [categoryGroups])
   useEffect(() => {
     const syncRoute = () => {
@@ -1051,7 +1055,7 @@ function SyncPanel({ lastSync, importNote, fileRef, onImport, products, apiBase,
       <div className="sync-symbol"><RotateCcw size={24} /></div>
       <span className="section-kicker">CATALOG / SHOPBASE BD</span>
       <h2>Your catalog, all in one place.</h2>
-      <p>Supplier updates belong in your catalog first. The hosted GitHub workflow checks for a scheduled refresh every six hours and runs when your saved interval is due.</p>
+      <p>Supplier updates belong in your catalog first. The hosted GitHub workflow checks on your saved schedule and runs without your PC being on.</p>
       <div className="sync-schedule-settings"><label htmlFor="catalog-sync-interval">Automatic sync interval<select id="catalog-sync-interval" value={intervalHours} onChange={(event) => { setIntervalHours(Number(event.target.value)); setScheduleMessage('') }}><option value={6}>Every 6 hours</option><option value={12}>Every 12 hours</option><option value={24}>Every 24 hours</option><option value={48}>Every 48 hours</option></select></label><button type="button" className="secondary-button" onClick={saveSchedule} disabled={scheduleSaving}>{scheduleSaving ? 'Saving…' : 'Save changes'}</button>{scheduleMessage && <p className="sync-schedule-message" role="status">{scheduleMessage}</p>}</div>
       <div className="sync-status-box">
         <div className="sync-status-icon"><Clock3 size={19} /></div>
@@ -1062,7 +1066,7 @@ function SyncPanel({ lastSync, importNote, fileRef, onImport, products, apiBase,
       {progressError && <div className="import-result sync-progress-error">{progressError}</div>}
       {progress && <div className="sync-progress-card" aria-live="polite">
         <div className="sync-progress-heading"><b>{phaseLabel}</b><span>{progress.status === 'running' ? progressPercent + '% · ' + (progress.workflowStatus || 'Live') : progress.status.replace(/_/g, ' ')}</span></div>
-        <div className="sync-progress-track"><i style={{ width: Math.min(100, progressPercent) + '%' }} /></div>
+        <div className="sync-progress-track"><i style={{ transform: `scaleX(${Math.max(0, Math.min(100, progressPercent)) / 100})` }} /></div>
         {progress.workflowUrl && <p><a href={progress.workflowUrl} target="_blank" rel="noreferrer">Open GitHub Actions run</a></p>}
         {progress.totalCategories ? <p>Categories: {(progress.categoriesProcessed || 0).toLocaleString()} / {progress.totalCategories.toLocaleString()}</p> : null}
         {progress.totalProducts ? <p>Products: {(progress.productsProcessed || 0).toLocaleString()} / {progress.totalProducts.toLocaleString()} processed{progress.productsDiscovered ? ' · ' + progress.productsDiscovered.toLocaleString() + ' found' : ''}</p> : null}
