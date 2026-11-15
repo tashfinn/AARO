@@ -1007,6 +1007,19 @@ function SyncPanel({ lastSync, importNote, fileRef, onImport, products, apiBase,
       setProgressError(error instanceof Error ? error.message : 'Could not start catalog sync.')
     } finally { setProgressLoading(false) }
   }
+  const saveShopBaseCookie = async () => {
+    if (!apiBase || !token) { setProgressError('Saving the cookie needs an active admin session and catalog API.'); return }
+    const cookie = window.prompt('Paste the cookie copied by the local ShopBase cookie tool. It will be encrypted and saved to GitHub Actions.')
+    if (!cookie) return
+    setProgressLoading(true); setProgressError('')
+    try {
+      const response = await fetch(apiBase + '/api/admin/sync/cookie', { method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify({ cookie }) })
+      const result = await response.json()
+      if (!response.ok) throw new Error(result.detail || 'Could not save the cookie.')
+      setProgressError(result.message || 'ShopBase cookie saved securely.')
+    } catch (error) { setProgressError(error instanceof Error ? error.message : 'Could not save the cookie.') }
+    finally { setProgressLoading(false) }
+  }
   useEffect(() => {
     if (syncProgress?.status !== 'running' || !apiBase || !token) return
     const poll = window.setInterval(async () => {
@@ -1045,7 +1058,7 @@ function SyncPanel({ lastSync, importNote, fileRef, onImport, products, apiBase,
         <span><b>{imported.length ? imported.length.toLocaleString() + ' imported products' : 'ShopBase catalog not synced'}</b><small>{lastSync ? 'Last catalog update ' + dateLabel(lastSync) : imported.length ? 'Products are available from your connected catalog API.' : 'Add the ShopBase session cookie to GitHub Actions secrets to enable the scheduled job.'}</small></span>
         <span className={'status-pill ' + (imported.length ? 'status-green' : 'status-amber')}><i />{imported.length ? 'Connected' : 'Needs sync'}</span>
       </div>
-      <div className="sync-actions"><button className="primary-button sync-now-button" onClick={startSyncNow} disabled={progressLoading || progress?.status === 'running'}><RotateCcw size={17} /> {progress?.status === 'running' ? 'Sync running…' : progressLoading ? 'Starting…' : 'Sync Now'}</button><button className="secondary-button" onClick={() => fileRef.current?.click()}><Upload size={17} /> Import supplier CSV</button><input ref={fileRef} type="file" accept=".csv,text/csv" hidden onChange={(event) => onImport(event.target.files?.[0])} /><button className="secondary-button" onClick={() => fileRef.current?.click()}><Download size={16} /> Select CSV file</button><button className="secondary-button" onClick={refreshProgress} disabled={progressLoading}><RotateCcw size={16} /> {progressLoading ? 'Checking progress…' : 'View sync progress'}</button></div>
+      <div className="sync-actions"><button className="secondary-button" onClick={saveShopBaseCookie} disabled={progressLoading}>Sync cookie</button><button className="primary-button sync-now-button" onClick={startSyncNow} disabled={progressLoading || progress?.status === 'running'}><RotateCcw size={17} /> {progress?.status === 'running' ? 'Sync running…' : progressLoading ? 'Starting…' : 'Sync Now'}</button><button className="secondary-button" onClick={() => fileRef.current?.click()}><Upload size={17} /> Import supplier CSV</button><input ref={fileRef} type="file" accept=".csv,text/csv" hidden onChange={(event) => onImport(event.target.files?.[0])} /><button className="secondary-button" onClick={() => fileRef.current?.click()}><Download size={16} /> Select CSV file</button><button className="secondary-button" onClick={refreshProgress} disabled={progressLoading}><RotateCcw size={16} /> {progressLoading ? 'Checking progress…' : 'View sync progress'}</button></div>
       {progressError && <div className="import-result sync-progress-error">{progressError}</div>}
       {progress && <div className="sync-progress-card" aria-live="polite">
         <div className="sync-progress-heading"><b>{phaseLabel}</b><span>{progress.status === 'running' ? progressPercent + '% · ' + (progress.workflowStatus || 'Live') : progress.status.replace(/_/g, ' ')}</span></div>

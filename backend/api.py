@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from pymongo import MongoClient
 import requests
+from nacl import encoding, public
 from category_groups import category_group_payload
 
 app = FastAPI(title="AARO catalog API", version="0.1.0")
@@ -32,6 +33,9 @@ class SyncRequest(BaseModel):
 
 class SyncScheduleInput(BaseModel):
     intervalHours: int
+
+class SyncCookieInput(BaseModel):
+    cookie: str = Field(min_length=20, max_length=20000)
 
 class AdminCredentials(BaseModel):
     identifier: str = Field(min_length=1, max_length=120)
@@ -356,6 +360,36 @@ def _github_headers(token: str):
         "Authorization": f"Bearer {token}",
         "X-GitHub-Api-Version": "2022-11-28",
     }
+
+@app.put("/api/admin/sync/cookie")
+def update_shopbase_cookie(input: SyncCookieInput, authorization: str | None = Header(default=None)):
+    _admin_from_auth(authorization)
+    token, repository, _ = _github_sync_settings()
+    cookie = input.cookie.strip()
+    if "\n" in cookie or "\r" in cookie or "cookie" not in cookie.lower() and "=" not in cookie:
+        raise HTTPException(status_code=422, detail="Paste the ShopBase Cookie request value.")
+    headers = _github_headers(token)
+    try:
+        key_response = requests.get(f"https://api.github.com/repos/{repository}/actions/secrets/public-key", headers=headers, timeout=15)
+        if key_response.status_code in (401, 403):
+            raise HTTPException(status_code=502, detail="GitHub token needs repository secrets read and write permission.")
+        key_response.raise_for_status()
+        key = key_response.json()
+        sealed = public.SealedBox(public.PublicKey(key["key"], encoding.Base64Encoder)).encrypt(cookie.encode())
+        response = requests.put(
+            f"https://api.github.com/repos/{repository}/actions/secrets/SHOPBASE_SESSION_COOKIE",
+            headers=headers,
+            json={"encrypted_value": base64.b64encode(sealed).decode(), "key_id": key["key_id"]},
+            timeout=15,
+        )
+        if response.status_code in (401, 403):
+            raise HTTPException(status_code=502, detail="GitHub token needs repository secrets write permission.")
+        if response.status_code not in (201, 204):
+            response.raise_for_status()
+            raise HTTPException(status_code=502, detail="GitHub did not accept the encrypted session cookie.")
+    except requests.RequestException as error:
+        raise HTTPException(status_code=502, detail="Could not update the GitHub Actions secret.") from error
+    return {"ok": True, "message": "ShopBase sync cookie saved securely to GitHub Actions."}
 
 def _github_sync_runs(token: str, repository: str, workflow: str):
     url = f"https://api.github.com/repos/{repository}/actions/workflows/{workflow}/runs"

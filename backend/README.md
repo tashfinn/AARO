@@ -26,3 +26,7 @@ The Product Sync screen can save the scheduled interval, dispatch the GitHub Act
 5. Check `/api/health`, run the GitHub Actions catalog workflow when needed, and review the run summary and catalog before accepting orders.
 
 Customer orders are saved for review, but staff still confirm with the customer and submit orders in ShopBase manually because supplier order submission is not connected. Product, category, and storefront-content edits in the current admin panel are browser-local; they are not durable MongoDB changes.
+
+## Refreshing the ShopBase cookie
+
+On the PC where ShopBase is signed in to Chrome, double-click 	ools/Copy-ShopBase-Cookie.bat. It copies the ShopBase session cookie to the clipboard without displaying it. In AARO Admin → Product sync, click **Sync cookie** and paste it. The API encrypts it with GitHub's repository public key and updates the SHOPBASE_SESSION_COOKIE Actions secret. It never stores the plaintext cookie in MongoDB or the repository. The Render GITHUB_ACTIONS_TOKEN must be a fine-grained token limited to 	ashfinn/AARO, with **Actions: Read and write** and **Secrets: Read and write**. Install the backend dependency with the existing Render build command (pip install -r requirements.txt). After the API redeploys and the token permission is updated, use the helper and button; then start Sync Now separately.
