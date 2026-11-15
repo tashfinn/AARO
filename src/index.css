@@ -3060,6 +3060,35 @@ a:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
   }
 }
 
+/* Hero cards lift forward by growing vertically; side cards stay visibly shorter. */
+.hero-art .hero-carousel-card {
+  top: 8%;
+  height: 84%;
+  transition-property: top, height, width, transform, opacity, filter;
+  transition-duration: 1.05s;
+}
+.hero-art .hero-carousel-card.hero-carousel-image-0 {
+  top: 0;
+  height: 100%;
+  width: 90%;
+  transform: translateX(-50%) translateZ(0) rotateY(0deg) scale(1);
+}
+.hero-art .hero-carousel-card.hero-carousel-image-1 { top: 8%; height: 84%; width: 80%; }
+.hero-art .hero-carousel-card.hero-carousel-image-2 { top: 8%; height: 84%; width: 80%; }
+@media (max-width: 900px) {
+  .hero-art .hero-carousel-card.hero-carousel-image-0 { width: 92%; }
+  .hero-art .hero-carousel-card.hero-carousel-image-1,
+  .hero-art .hero-carousel-card.hero-carousel-image-2 { top: 10%; height: 80%; }
+}
+@media (max-width: 600px) {
+  .hero-art .hero-carousel-card.hero-carousel-image-0 { width: 94%; }
+  .hero-art .hero-carousel-card.hero-carousel-image-1,
+  .hero-art .hero-carousel-card.hero-carousel-image-2 { top: 12%; height: 76%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hero-art .hero-carousel-card { transition-duration: .4s !important; }
+}
+
 /* Shared AARO finishing layer: consistent type, surfaces, and contrast. */
 :is(.admin-shell .admin-content, .admin-shell .admin-sidebar,
   .admin-shell .admin-topbar, .storefront, .account-access-page,
