@@ -2925,6 +2925,8 @@ a:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
 .category-dismiss:hover { background: rgba(12,22,18,.9); }
 @media (max-width: 780px) {
   .category-carousel-controls { gap: 7px; }
+  .category-carousel-controls > button[aria-label="Previous categories"],
+  .category-carousel-controls > button[aria-label="Next categories"] { display: none; }
   .category-carousel-controls > button:not(.text-link) { width: 34px; height: 34px; }
   .category-tiles .category-tile { flex-basis: min(78vw, 330px); height: 220px; }
   .category-dismiss { opacity: 1; }

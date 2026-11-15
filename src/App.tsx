@@ -40,7 +40,7 @@ function slideCategoryCarousel(carousel: HTMLDivElement, direction: -1 | 1) {
     return
   }
   const start = performance.now()
-  const duration = 700
+  const duration = 500
   const animate = (now: number) => {
     const progress = Math.min(1, (now - start) / duration)
     const eased = 1 - Math.pow(1 - progress, 4)
