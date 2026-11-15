@@ -2902,6 +2902,19 @@ a:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
 .theme-dark .site-footer a, .theme-dark .site-footer button,
 .theme-dark .footer-column button, .theme-dark .footer-contact p,
 .theme-dark .footer-bottom { color: #d0dcd4; }
+.theme-dark .tile-copy small {
+  color: #fff;
+  font-weight: 700;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, .8);
+}
+.theme-dark .footer-brand > p,
+.theme-dark .footer-contact p,
+.theme-dark .footer-column button,
+.theme-dark .footer-bottom,
+.theme-dark .footer-bottom button {
+  color: #e0e8e2;
+}
+.theme-dark .footer-contact .section-kicker { color: #ffc477; }
 .theme-dark .search-wrap input { background: transparent; }
 .theme-dark .suggestion-item > span { color: var(--text-primary); }
 .theme-dark .suggestion-item small { color: var(--text-secondary); }
