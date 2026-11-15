@@ -3373,6 +3373,8 @@ input:focus, select:focus, textarea:focus { outline: none !important; box-shadow
 }
 .hero-art .hero-carousel-card.hero-carousel-image-1 { left: auto; right: 0; z-index: 4; transform: translateY(-50%) scale(.9); cursor: pointer; }
 .hero-art .hero-carousel-card.hero-carousel-image-2 { left: -4%; z-index: 4; transform: translateY(-50%) scale(.9); }
+.hero-art .hero-carousel-card.hero-carousel-image-2 { left: 0; }
+.hero-art .hero-carousel-active .hero-carousel-photo { object-fit: contain; }
 .hero-art .hero-carousel-card.hero-carousel-image-1 .hero-carousel-photo { object-position: right center; }
 .hero-art .hero-carousel-card.hero-carousel-image-2 .hero-carousel-photo { object-position: left center; }
 .hero-art .hero-carousel-card.hero-carousel-image-2 { cursor: pointer; }
@@ -3401,7 +3403,7 @@ input:focus, select:focus, textarea:focus { outline: none !important; box-shadow
   .hero-art .hero-carousel-card { width: 92%; height: 94%; aspect-ratio: auto; border-radius: 16px; transition-duration: .46s; }
   .hero-art .hero-carousel-card.hero-carousel-image-0 { transform: translate(-50%, -50%); }
   .hero-art .hero-carousel-card.hero-carousel-image-1 { left: auto; right: 0; transform: translateY(-50%) scale(.9); }
-  .hero-art .hero-carousel-card.hero-carousel-image-2 { left: -3.6%; transform: translateY(-50%) scale(.9); }
+  .hero-art .hero-carousel-card.hero-carousel-image-2 { left: 0; transform: translateY(-50%) scale(.9); }
   .hero-carousel-dots { left: auto; right: calc(4% + 10px); bottom: calc(3% + 12px); transform: none; }
 }
 @media (prefers-reduced-motion: reduce) { .product-grid > .product-card { animation: none; } }
