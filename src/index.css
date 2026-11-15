@@ -3404,6 +3404,6 @@ input:focus, select:focus, textarea:focus { outline: none !important; box-shadow
   .hero-art .hero-carousel-card.hero-carousel-image-0 { transform: translate(-50%, -50%); }
   .hero-art .hero-carousel-card.hero-carousel-image-1 { left: auto; right: 0; transform: translateY(-50%) scale(.9); }
   .hero-art .hero-carousel-card.hero-carousel-image-2 { left: 0; transform: translateY(-50%) scale(.9); }
-  .hero-carousel-dots { left: auto; right: calc(4% + 10px); bottom: calc(3% + 12px); transform: none; }
+  .hero-carousel-dots { left: auto; right: calc(10% + 12px); bottom: calc(3% + 12px); transform: none; }
 }
 @media (prefers-reduced-motion: reduce) { .product-grid > .product-card { animation: none; } }
