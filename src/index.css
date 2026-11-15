@@ -3329,3 +3329,31 @@ a:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
 }
 
 .delivery-contact-button { display: flex; width: max-content; margin: 8px 0 0 auto; }
+
+/* Final carousel fit, accessible utility labels, and calm input focus. */
+.hero-art { height: clamp(470px, 42vw, 590px); }
+.hero-art .hero-carousel-card.hero-carousel-image-0 { transform: translate(-50%, -50%) translateZ(0) rotateY(0deg) scale(.9); }
+.hero-carousel-dots { left: calc(95% - 18px); right: auto; bottom: calc(5% + 16px); transform: translateX(-100%); }
+@media (max-width: 900px) {
+  .hero-art { height: clamp(410px, 52vw, 520px); }
+  .hero-carousel-dots { left: calc(95% - 14px); bottom: calc(7% + 14px); }
+}
+@media (max-width: 600px) {
+  .hero-art { height: clamp(360px, 96vw, 450px); }
+  .hero-art .hero-carousel-card.hero-carousel-image-0 { transform: translate(-50%, -50%) translateZ(0) scale(.94); }
+  .hero-carousel-dots { left: calc(97% - 10px); bottom: calc(3% + 12px); }
+  .header-actions > .icon-button:not(.theme-toggle) { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; width: 46px; height: 48px; overflow: visible; }
+  .header-actions > .icon-button:not(.theme-toggle)::after { display: block; color: var(--text-secondary); font-size: 10px; line-height: 1; font-weight: 600; }
+  .header-actions > .icon-button:nth-child(3)::after { content: 'Account'; }
+  .header-actions > .icon-button:nth-child(4)::after { content: 'Wishlist'; }
+  .header-actions > .icon-button:nth-child(5)::after { content: 'Bag'; }
+  .header-actions > .icon-button .action-count { top: 0; right: 4px; }
+}
+.quick-add-icon { right: 10px; bottom: 10px; left: auto; width: 44px; min-height: 44px; border-radius: 50%; }
+.quick-add-icon svg { width: 19px; height: 19px; }
+.cart-size-select { display: flex; align-items: center; gap: 8px; margin: 6px 0; color: var(--text-secondary); font-size: 13px; }
+.cart-size-select select { min-height: 36px; padding: 5px 26px 5px 9px; border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary); background: var(--surface); font: inherit; }
+.checkout-submit:disabled { opacity: .5; cursor: not-allowed; }
+:root { --focus: #d48a35; }
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible,
+a:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
