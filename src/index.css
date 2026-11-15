@@ -3082,3 +3082,5 @@ a:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
   .storefront .announcement > button { gap: 4px; font-size: 12px; }
   .storefront .announcement > button svg { display: none; }
 }
+
+.delivery-contact-button { display: flex; width: max-content; margin: 8px 0 0 auto; }
