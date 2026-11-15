@@ -2932,8 +2932,8 @@ a:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
   .category-dismiss { opacity: 1; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .category-tiles { scroll-behavior: auto; }
-  .category-tiles .category-tile { animation: none; transition: none; }
+  /* Keep the requested carousel slide; suppress only decorative card motion. */
+  .category-tiles .category-tile { animation: none; }
   .category-tiles .category-tile img { transition: none; }
 }
 .theme-dark .search-wrap input { background: transparent; }
