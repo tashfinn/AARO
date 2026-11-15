@@ -3124,6 +3124,135 @@ a:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
   .hero-art .hero-carousel-card.hero-carousel-image-1 { transform: translateX(-37%) translateZ(-130px) rotateY(-14deg) scale(.92); }
   .hero-art .hero-carousel-card.hero-carousel-image-2 { transform: translateX(-63%) translateZ(-130px) rotateY(14deg) scale(.92); }
 }
+/* Keep the hero carousel contained, with clear side-card previews and no overlap below. */
+.hero.page-width {
+  position: relative;
+  z-index: 0;
+  padding: 24px 0 30px;
+}
+.hero-art {
+  height: clamp(370px, 34vw, 470px);
+  overflow: hidden !important;
+  isolation: isolate;
+  perspective: 1200px;
+  border-radius: 14px;
+  background: #18231f;
+}
+.hero-carousel-track {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+  perspective: 1200px;
+  transform-style: preserve-3d;
+}
+.hero-art .hero-carousel-card {
+  left: 50%;
+  top: 8%;
+  width: 96%;
+  height: 84%;
+  border-radius: 14px;
+  transform-origin: center center;
+  transition-property: left, top, width, height, transform, opacity, filter;
+  transition-duration: 1s;
+  transition-timing-function: cubic-bezier(.22,.72,.16,1);
+}
+.hero-art .hero-carousel-card.hero-carousel-image-0 {
+  z-index: 3;
+  left: 50%;
+  top: 0;
+  width: 84%;
+  height: 100%;
+  opacity: 1;
+  filter: none;
+  transform: translateX(-50%) translateZ(0) rotateY(0deg) scale(1);
+  box-shadow: 0 14px 30px rgba(13,24,19,.18);
+}
+.hero-art .hero-carousel-card.hero-carousel-image-1 {
+  z-index: 2;
+  left: 9%;
+  top: 8%;
+  width: 96%;
+  height: 84%;
+  opacity: 1;
+  filter: saturate(.9) brightness(.9);
+  transform: translateZ(-90px) rotateY(-7deg) scale(.93);
+}
+.hero-art .hero-carousel-card.hero-carousel-image-2 {
+  z-index: 2;
+  left: -5%;
+  top: 8%;
+  width: 96%;
+  height: 84%;
+  opacity: 1;
+  filter: saturate(.9) brightness(.9);
+  transform: translateZ(-90px) rotateY(7deg) scale(.93);
+}
+.hero-art .hero-carousel-card:not(.hero-carousel-image-0) .hero-carousel-copy {
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+.hero-art .hero-carousel-card:not(.hero-carousel-image-0) .hero-carousel-shade {
+  opacity: .4;
+}
+.hero-carousel-copy p {
+  color: #f5f4ed !important;
+  opacity: 1;
+  text-shadow: 0 1px 7px rgba(8,18,14,.92);
+}
+.hero-slide-eyebrow {
+  color: #ffd28f !important;
+  text-shadow: 0 1px 5px rgba(8,18,14,.72);
+}
+.hero-carousel-dots {
+  right: calc(8% + 18px);
+  bottom: 18px;
+  padding: 8px 10px;
+  border-radius: 18px;
+  background: rgba(15,27,22,.58);
+  backdrop-filter: blur(5px);
+}
+@media (max-width: 900px) {
+  .hero.page-width { padding-block: 20px 26px; }
+  .hero-art { height: clamp(340px, 44vw, 430px); perspective: 1100px; }
+  .hero-carousel-track { perspective: 1100px; }
+  .hero-art .hero-carousel-card.hero-carousel-image-0 { width: 88%; }
+  .hero-art .hero-carousel-card.hero-carousel-image-1 {
+    left: 13%;
+    width: 96%;
+    transform: translateZ(-75px) rotateY(-5deg) scale(.94);
+  }
+  .hero-art .hero-carousel-card.hero-carousel-image-2 {
+    left: -7%;
+    width: 96%;
+    transform: translateZ(-75px) rotateY(5deg) scale(.94);
+  }
+  .hero-carousel-dots { right: calc(6% + 14px); }
+}
+@media (max-width: 600px) {
+  .hero.page-width { padding: 16px 0 24px; }
+  .hero-art { height: clamp(320px, 98vw, 410px); perspective: 950px; border-radius: 12px; }
+  .hero-carousel-track { perspective: 950px; }
+  .hero-art .hero-carousel-card { border-radius: 12px; }
+  .hero-art .hero-carousel-card.hero-carousel-image-0 { width: 88%; }
+  .hero-art .hero-carousel-card.hero-carousel-image-1 {
+    left: 9%;
+    width: 100%;
+    transform: translateZ(-48px) rotateY(-4deg) scale(.97);
+  }
+  .hero-art .hero-carousel-card.hero-carousel-image-2 {
+    left: -9%;
+    width: 100%;
+    transform: translateZ(-48px) rotateY(4deg) scale(.97);
+  }
+  .hero-carousel-copy { padding: 20px; }
+  .hero-carousel-copy h1 { font-size: clamp(29px, 8vw, 42px); }
+  .hero-carousel-copy p { max-width: 92%; font-size: 14px; }
+  .hero-slide-stamp { top: 14px; right: 14px; width: 76px; height: 76px; }
+  .hero-slide-stamp span { font-size: 8px; }
+  .hero-slide-stamp b { font-size: 11px; }
+  .hero-carousel-dots { right: calc(6% + 10px); bottom: 12px; }
+}
 @media (prefers-reduced-motion: reduce) {
   .hero-art .hero-carousel-card { transition-duration: .4s !important; }
 }
