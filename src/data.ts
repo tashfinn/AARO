@@ -7,6 +7,11 @@ export const initialState: StoreState = {
   offers: [],
   orders: [],
   content: {
+    heroSlides: [
+      { image: '/images/premium-earth-tone-apparel-display.jpg', title: '10,000+ products across 100+ categories', description: 'Thoughtful finds for bright everyday living.', cta: 'Explore', link: '/trending' },
+      { image: '/images/warm-boutique-clothing-display.jpg', title: 'Warm layers for everyday living.', description: 'Earth-tone pieces and easy layers, thoughtfully picked for your day.', cta: 'Explore', link: '/offers' },
+      { image: '/images/warm-earth-tone-fashion-portrait.jpg', title: 'Find your kind of good.', description: 'Explore clothing and everyday finds selected for comfort and personal style.', cta: 'Explore', link: '/offers' },
+    ],
     heroTitle: '10,000+ products\nAcross 100+ categories',
     heroSubtitle: 'Thoughtful finds for bright everyday living.',
     heroImage: '/images/warm-boutique-clothing-display-v2.png',

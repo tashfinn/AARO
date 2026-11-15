@@ -46,6 +46,7 @@ export type Order = {
 }
 
 export type StoreContent = {
+  heroSlides: { image: string; title: string; description: string; cta: string; link: string }[]
   heroTitle: string
   heroSubtitle: string
   heroImage: string
