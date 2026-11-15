@@ -2965,7 +2965,14 @@ a:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
 .hero-art .hero-carousel-card.hero-carousel-image-0 { z-index: 3; transform: translateX(-50%) translateZ(0) rotateY(0deg) scale(1.05); }
 @media (max-width: 900px) { .hero-art { height: clamp(390px, 62vw, 510px); } .hero-art .hero-carousel-card { width: 84%; } .hero-art .hero-carousel-card.hero-carousel-image-1 { transform: translateX(45%) translateZ(-150px) rotateY(-12deg) scale(.88); } .hero-art .hero-carousel-card.hero-carousel-image-2 { transform: translateX(-145%) translateZ(-150px) rotateY(12deg) scale(.88); } }
 @media (max-width: 600px) { .hero.page-width { padding: 18px 0 24px; } .hero-art { height: min(122vw, 500px); min-height: 360px; border-radius: 9px; } .hero-art .hero-carousel-card { width: 90%; border-radius: 8px; } .hero-art .hero-carousel-card.hero-carousel-image-0 { transform: translateX(-50%) translateZ(0) rotateY(0deg) scale(1.02); } .hero-art .hero-carousel-card.hero-carousel-image-1 { transform: translateX(42%) translateZ(-100px) rotateY(-9deg) scale(.9); } .hero-art .hero-carousel-card.hero-carousel-image-2 { transform: translateX(-142%) translateZ(-100px) rotateY(9deg) scale(.9); } .hero-carousel-copy { padding: 22px; } .hero-carousel-copy h1 { font-size: clamp(30px,8.5vw,43px); } .hero-carousel-copy p { max-width: 92%; font-size: 14px; } .hero-slide-cta { min-height: 46px; margin-top: 18px; font-size: 15px; } .hero-slide-stamp { top: 14px; right: 14px; width: 76px; height: 76px; } .hero-slide-stamp span { font-size: 8px; } .hero-slide-stamp b { font-size: 11px; } .hero-carousel-dots { right: 18px; bottom: 17px; } }
-.hero-art.hero-carousel-paused::before { content: 'PAUSED · MOVE POINTER AWAY TO RESUME'; position: absolute; z-index: 10; top: 16px; left: 16px; padding: 7px 10px; border: 1px solid rgba(255,255,255,.38); border-radius: 20px; color: #fff; background: rgba(13,25,20,.66); font-size: 10px; font-weight: 700; letter-spacing: .06em; backdrop-filter: blur(8px); }
+.hero-art .hero-carousel-card { transition-property: width, transform, opacity, filter; }
+.hero-art .hero-carousel-card.hero-carousel-image-0 { width: 90%; transform: translateX(-50%) translateZ(0) rotateY(0deg) scale(1); }
+@media (max-width: 900px) {
+  .hero-art .hero-carousel-card.hero-carousel-image-0 { width: 92%; }
+}
+@media (max-width: 600px) {
+  .hero-art .hero-carousel-card.hero-carousel-image-0 { width: 94%; }
+}
 @media (prefers-reduced-motion: reduce) { .hero-art .hero-carousel-card, .hero-carousel-copy, .hero-slide-cta { transition-duration: .01ms !important; animation-duration: .01ms !important; } }
 .hero-art::after { z-index: 4; border-radius: inherit; }
 .hero-art .hero-carousel-card { position: absolute; top: 0; left: 50%; width: 80%; height: 100%; overflow: hidden; border-radius: 6px; transition: transform .8s cubic-bezier(.22,.75,.25,1), opacity .8s ease, filter .8s ease; will-change: transform; }
