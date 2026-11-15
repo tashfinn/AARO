@@ -27,6 +27,29 @@ type StorePage = 'shop' | 'trending' | 'offers' | 'combos' | 'category' | 'wishl
 type AdminTab = 'overview' | 'products' | 'categories' | 'offers' | 'orders' | 'content' | 'sync'
 type CartLine = { productId: string; quantity: number; size?: string }
 
+function slideCategoryCarousel(carousel: HTMLDivElement, direction: -1 | 1) {
+  const card = carousel.querySelector<HTMLElement>('.category-tile')
+  if (!card) return
+  const max = Math.max(0, carousel.scrollWidth - carousel.clientWidth)
+  const from = carousel.scrollLeft
+  const step = card.getBoundingClientRect().width + 15
+  const to = Math.max(0, Math.min(max, from + direction * step))
+  if (Math.abs(to - from) < 2) {
+    if (direction > 0) carousel.scrollTo({ left: 0 })
+    else carousel.scrollTo({ left: max })
+    return
+  }
+  const start = performance.now()
+  const duration = 700
+  const animate = (now: number) => {
+    const progress = Math.min(1, (now - start) / duration)
+    const eased = 1 - Math.pow(1 - progress, 4)
+    carousel.scrollLeft = from + (to - from) * eased
+    if (progress < 1) requestAnimationFrame(animate)
+  }
+  requestAnimationFrame(animate)
+}
+
 function mergeCategoryGroups(saved: CategoryGroup[], live: CategoryGroup[]): CategoryGroup[] {
   if (!saved.length) return live.length ? live : manualCategoryGroups
   const normalize = (value: string) => value.normalize('NFKC').replace(/[\u200c\u200d]/g, '').replace(/[\s\u00a0\-–—_.,:;|]+/g, '').toLocaleLowerCase()
@@ -648,11 +671,7 @@ export default function App() {
     const carousel = categoryCarouselRef.current
     if (!carousel || visibleHomeCategories.length < 2) return
     const timer = window.setInterval(() => {
-      const card = carousel.querySelector<HTMLElement>('.category-tile')
-      if (!card) return
-      const step = card.offsetWidth + 16
-      if (carousel.scrollLeft + carousel.clientWidth >= carousel.scrollWidth - 4) carousel.scrollTo({ left: 0, behavior: 'smooth' })
-      else carousel.scrollBy({ left: step, behavior: 'smooth' })
+      slideCategoryCarousel(carousel, 1)
     }, 4500)
     return () => window.clearInterval(timer)
   }, [visibleHomeCategories.length])
@@ -707,7 +726,7 @@ export default function App() {
         {checkout ? <CheckoutPage cartItems={cartItems} subtotal={subtotal} delivery={state.content.deliveryInDhaka} outsideDelivery={state.content.deliveryOutsideDhaka} outsideDhaka={outsideDhaka} setOutsideDhaka={setOutsideDhaka} discount={discount} total={subtotal + deliveryFee - discount} coupon={coupon} onPlaceOrder={placeOrder} onBack={returnToBag} /> : selectedProduct ? <ProductPage product={selectedProduct} offer={state.offers.find((item) => item.active && item.productId === selectedProduct.id)} relatedProducts={activeProducts.filter((item) => item.categorySourceId === selectedProduct.categorySourceId && item.id !== selectedProduct.id).slice(0, 4)} wishlist={wishlist} wished={wishlist.includes(selectedProduct.id)} onClose={closeProduct} onWish={toggleWish} onOpen={openProduct} onSeeRelated={() => showStore('category', selectedProduct.category, selectedProduct.categorySourceId || '', selectedProduct.parentCategoryId || '')} onAdd={(product, quantity, size) => { addToCart(product, quantity, size); closeProduct() }} /> : <>
         {page === 'shop' && !submittedQuery && <><section className="hero page-width"><div className="hero-copy"><span className="kicker"><i /> SHOP AARO <span>·</span> EVERYDAY FINDS</span><h1>{state.content.heroTitle.split('\n').map((line, index) => <span key={index}>{line}{index === 0 && <br />}</span>)}</h1><p>{state.content.heroSubtitle}</p><div className="hero-actions"><button className="dark-button" onClick={() => showStore('trending')}>{state.content.heroCta} <ArrowRight size={17} /></button><span><ShieldCheck size={15} /> Guest checkout available</span></div><div className="hero-points"><span><ShieldCheck size={16} /> Curated finds</span><span><Truck size={16} /> Nationwide delivery</span></div></div><div className="hero-art"><ImageView src={state.content.heroImage} alt="A curated neutral-toned fashion edit" loading="eager" /><div className="hero-label"><span>THE NEW EVERYDAY</span><b>Made for your kind of day.</b><button onClick={() => showStore('category', homeCategories[0]?.category || 'All')}>Explore <ArrowUpRight size={14} /></button></div><div className="hero-stamp"><span>MADE TO</span><b>feel like<br />you.</b><i>✳</i></div></div><div className="hero-count"><span>01</span><i /> 03</div></section>
           <section className="service-strip page-width"><div><span className="service-icon"><Truck size={19} /></span><span><b>Delivery across Bangladesh</b><small>Dhaka & beyond</small></span></div><div><span className="service-icon"><ShieldCheck size={19} /></span><span><b>Thoughtful, trusted picks</b><small>Picked with care</small></span></div><div><span className="service-icon"><RotateCcw size={19} /></span><span><b>Easy order support</b><small>We’re here to help</small></span></div><div><span className="service-icon"><Package size={19} /></span><span><b>10,000+ products</b><small>Across 100+ categories</small></span></div></section>
-          <section className="category-section page-width"><div className="section-heading"><div><span className="section-kicker">A LITTLE BIT OF EVERYTHING</span><h2>Find your kind of good.</h2></div><div className="category-carousel-controls"><button aria-label="Previous categories" onClick={() => { const el = categoryCarouselRef.current; const card = el?.querySelector<HTMLElement>('.category-tile'); el?.scrollBy({ left: -(card?.offsetWidth || 260) - 16, behavior: 'smooth' }) }}><ChevronLeft size={18} /></button><button aria-label="Next categories" onClick={() => { const el = categoryCarouselRef.current; const card = el?.querySelector<HTMLElement>('.category-tile'); el?.scrollBy({ left: (card?.offsetWidth || 260) + 16, behavior: 'smooth' }) }}><ChevronRight size={18} /></button><button className="text-link" onClick={() => showStore('category', 'All')}>Browse all categories <ArrowRight size={16} /></button></div></div><div className="category-tiles" ref={categoryCarouselRef}>{visibleHomeCategories.map(({ category: categoryName, products }, index) => <button className="category-tile" style={{ animationDelay: `${Math.min(index, 8) * 55}ms` }} key={categoryName} onClick={() => showStore('category', categoryName)}><ImageView src={products[0].image} alt={categoryName} /><span className="tile-overlay" /><span className="tile-copy"><b>{categoryName}</b><i>Explore <ArrowRight size={15} /></i></span><span className="category-dismiss" role="button" aria-label={`Hide ${categoryName} for this session`} onClick={(event) => { event.stopPropagation(); dismissHomeCategory(categoryName) }} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); event.stopPropagation(); dismissHomeCategory(categoryName) } }}>×</span></button>)}</div></section>
+          <section className="category-section page-width"><div className="section-heading"><div><span className="section-kicker">A LITTLE BIT OF EVERYTHING</span><h2>Find your kind of good.</h2></div><div className="category-carousel-controls"><button aria-label="Previous categories" onClick={() => categoryCarouselRef.current && slideCategoryCarousel(categoryCarouselRef.current, -1)}><ChevronLeft size={18} /></button><button aria-label="Next categories" onClick={() => categoryCarouselRef.current && slideCategoryCarousel(categoryCarouselRef.current, 1)}><ChevronRight size={18} /></button><button className="text-link" onClick={() => showStore('category', 'All')}>Browse all categories <ArrowRight size={16} /></button></div></div><div className="category-tiles" ref={categoryCarouselRef}>{visibleHomeCategories.map(({ category: categoryName, products }, index) => <button className="category-tile" style={{ animationDelay: `${Math.min(index, 8) * 55}ms` }} key={categoryName} onClick={() => showStore('category', categoryName)}><ImageView src={products[0].image} alt={categoryName} /><span className="tile-overlay" /><span className="tile-copy"><b>{categoryName}</b><i>Explore <ArrowRight size={15} /></i></span><span className="category-dismiss" role="button" aria-label={`Hide ${categoryName} for this session`} onClick={(event) => { event.stopPropagation(); dismissHomeCategory(categoryName) }} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); event.stopPropagation(); dismissHomeCategory(categoryName) } }}>×</span></button>)}</div></section>
           {homeTrendingProducts.length > 0 && <ProductSection title="Trending now" kicker="POPULAR RIGHT NOW" products={homeTrendingProducts} wishlist={wishlist} onWish={toggleWish} onOpen={openProduct} onAdd={addToCart} onSeeAll={() => showStore('trending')} />}
           {homeOfferProducts.length > 0 && <><OfferBanner state={state} onShop={() => showStore('offers')} /><ProductSection title="A good deal, indeed." kicker="CURRENT OFFERS" products={homeOfferProducts} wishlist={wishlist} onWish={toggleWish} onOpen={openProduct} onAdd={addToCart} onSeeAll={() => showStore('offers')} compact /></>}
           </>}
