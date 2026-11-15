@@ -152,9 +152,9 @@ export default function App() {
   const heroImages = state.content.heroSlides.map((slide) => slide.image)
   useEffect(() => {
     if (page !== 'shop' || heroCarouselPaused) return
-    const timer = window.setInterval(() => setHeroSlide((current) => (current + 1) % heroImages.length), 5000)
-    return () => window.clearInterval(timer)
-  }, [page, heroCarouselPaused])
+    const timer = window.setTimeout(() => setHeroSlide((current) => (current + 1) % heroImages.length), 5000)
+    return () => window.clearTimeout(timer)
+  }, [page, heroCarouselPaused, heroSlide, heroImages.length])
   const moveHeroCarousel = (direction: -1 | 1) => setHeroSlide((current) => (current + direction + heroImages.length) % heroImages.length)
   const heroSlides = state.content.heroSlides
   const [category, setCategory] = useState('All')
