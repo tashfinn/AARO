@@ -246,31 +246,51 @@ def run():
   report_progress(phase="updating_products",categoriesProcessed=len(cats),totalCategories=len(cats),productsDiscovered=products_discovered,totalProducts=products_discovered,productsProcessed=0,created=0,changed=0,unchanged=0,skippedDetails=0)
   previous_count=p.count_documents({"source":"shopbase"})
   if previous_count and len(listing)<int(previous_count*.7): raise SyncError("Catalog count dropped sharply; refusing a partial scan.")
-  old={x["sourceId"]:x for x in p.find({"source":"shopbase"},{"sourceId":1,"listFingerprint":1,"imageOverride":1,"detailsFetchedAt":1,"detailsVersion":1})}; batch=[]
+  old={x["sourceId"]:x for x in p.find({"source":"shopbase"},{"sourceId":1,"listFingerprint":1,"imageOverride":1,"sourceStatus":1,"sourceStockBeforeMissing":1,"stock":1,"active":1})}; batch=[]
   for sid,row in listing.items():
    prev=old.get(sid)
-   if prev and prev.get("listFingerprint")==row["listFingerprint"] and not details_are_stale(prev):
-    p.update_one({"sourceId":sid,"source":"shopbase"},{"$set":{"lastSeenRun":runid,"missingRuns":0,"parentCategory":row["parentCategory"]["parentName"],"parentCategoryId":row["parentCategory"]["parentId"]}}); unchanged+=1
+   if prev:
+    was_missing=prev.get("sourceStatus")=="missing"
+    restored_stock=prev.get("sourceStockBeforeMissing",prev.get("stock",0)) if was_missing else prev.get("stock",0)
+    restored_active=bool(restored_stock)
+    values={"title":row["title"],"category":row["category"],"categorySourceId":row["categorySourceId"],"parentCategory":row["parentCategory"]["parentName"],"parentCategoryId":row["parentCategory"]["parentId"],"wholesalePrice":row["wholesalePrice"],"sourceImage":row["sourceImage"],"listFingerprint":row["listFingerprint"],"image":prev.get("imageOverride") or row["sourceImage"],"lastSeenRun":runid,"missingRuns":0}
+    if prev.get("listFingerprint")!=row["listFingerprint"]: values["updatedAt"]=now()
+    if was_missing: values.update({"stock":restored_stock,"active":restored_active,"sourceStatus":"available" if restored_stock else "out_of_stock"})
+    unset={"sourceStockBeforeMissing":"","sourceActiveBeforeMissing":""} if was_missing else {}
+    p.update_one({"sourceId":sid,"source":"shopbase"},{"$set":values,**({"$unset":unset} if unset else {})})
+    if was_missing:
+     override=db.admin_products.find_one({"id":f"shopbase-{sid}","syncMissing":True},{"_id":0})
+     if override:
+      restore={"active":override.get("syncMissingActiveBefore",restored_active),"stock":override.get("syncMissingStockBefore",restored_stock)}
+      db.admin_products.update_one({"id":f"shopbase-{sid}","syncMissing":True},{"$set":restore,"$unset":{"syncMissing":"","syncMissingActiveBefore":"","syncMissingStockBefore":"","syncMissingHadStock":""}})
+    if prev.get("listFingerprint")==row["listFingerprint"]: unchanged+=1
+    else: changed+=1
+    # Existing products refresh listing fields only; keep saved detail data unchanged.
    else:
     try: doc=detail(get(s,row["detailPath"]),row)
     except Exception as error:
      failed_details.append({"sourceId":sid,"error":str(error)[:240]})
      print(f"Detail skipped after retries for product {sid}: {error}",file=sys.stderr)
-     if prev: p.update_one({"sourceId":sid,"source":"shopbase"},{"$set":{"lastSeenRun":runid,"missingRuns":0,"parentCategory":row["parentCategory"]["parentName"],"parentCategoryId":row["parentCategory"]["parentId"]}})
      seen+=1
      if seen%25==0 or seen==len(listing): report_progress(phase="updating_products",productsProcessed=seen,totalProducts=len(listing),productsDiscovered=len(listing),created=created,changed=changed,unchanged=unchanged,skippedDetails=len(failed_details))
      continue
     hosted=mirror(doc["sourceImage"],sid)
-    doc.update({"images":[hosted],"image":(prev.get("imageOverride") or hosted) if prev else hosted,"imageOverride":prev.get("imageOverride") if prev else None,"active":bool(doc["stock"]),"detailsFetchedAt":now(),"detailsVersion":DETAILS_VERSION,"lastSeenRun":runid,"missingRuns":0})
+    doc.update({"images":[hosted],"image":hosted,"imageOverride":None,"active":bool(doc["stock"]),"detailsFetchedAt":now(),"detailsVersion":DETAILS_VERSION,"lastSeenRun":runid,"missingRuns":0})
     batch.append(UpdateOne({"sourceId":sid,"source":"shopbase"},{"$set":doc},upsert=True))
-    if prev: changed+=1
-    else: created+=1
+    created+=1
     if len(batch)>=250: p.bulk_write(batch,ordered=False); batch.clear()
    seen+=1
    if seen%25==0 or seen==len(listing): report_progress(phase="updating_products",productsProcessed=seen,totalProducts=len(listing),productsDiscovered=len(listing),created=created,changed=changed,unchanged=unchanged,skippedDetails=len(failed_details))
   if batch: p.bulk_write(batch,ordered=False)
-  for missing in p.find({"source":"shopbase","lastSeenRun":{"$ne":runid}},{"sourceId":1,"missingRuns":1}):
-   n=int(missing.get("missingRuns",0))+1; p.update_one({"sourceId":missing["sourceId"],"source":"shopbase"},{"$set":{"missingRuns":n,"active":n<2,"stock":0 if n>=2 else None,"sourceStatus":"missing" if n>=2 else "not_seen"}})
+  for missing in p.find({"source":"shopbase","lastSeenRun":{"$ne":runid}},{"sourceId":1,"missingRuns":1,"stock":1,"active":1,"sourceStatus":1,"sourceStockBeforeMissing":1}):
+   n=int(missing.get("missingRuns",0))+1; sid=missing["sourceId"]
+   values={"missingRuns":n,"active":False,"stock":0,"sourceStatus":"missing"}
+   if missing.get("sourceStatus")!="missing": values.update({"sourceStockBeforeMissing":missing.get("stock",0),"sourceActiveBeforeMissing":missing.get("active",False)})
+   p.update_one({"sourceId":sid,"source":"shopbase"},{"$set":values})
+   override=db.admin_products.find_one({"id":f"shopbase-{sid}","source":"shopbase"},{"_id":0,"active":1,"stock":1,"syncMissing":1})
+   if override and not override.get("syncMissing"):
+    snapshot={"syncMissing":True,"syncMissingActiveBefore":override.get("active",bool(missing.get("active",False))),"syncMissingStockBefore":override.get("stock",missing.get("stock",0)),"syncMissingHadStock":"stock" in override}
+    db.admin_products.update_one({"id":f"shopbase-{sid}","source":"shopbase"},{"$set":{**snapshot,"active":False,"stock":0}})
   summary={"runId":runid,"status":"success_with_skipped_details" if failed_details else "success","phase":"complete","categories":len(cats),"categoryGroups":len(CATEGORY_GROUPS),"unmatchedCategories":unmatched,"failedDetails":failed_details,"seen":seen,"productsDiscovered":len(listing),"productsProcessed":seen,"totalProducts":len(listing),"categoriesProcessed":len(cats),"totalCategories":len(cats),"created":created,"changed":changed,"unchanged":unchanged,"skippedDetails":len(failed_details),"startedAt":started,"finishedAt":now(),"updatedAt":now()}
   runs.update_one({"runId":runid},{"$set":summary},upsert=True); print({k:v for k,v in summary.items() if k!="runId"})
  except Exception as e:

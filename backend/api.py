@@ -128,7 +128,8 @@ class CouponValidationInput(BaseModel):
 class OfferInput(BaseModel):
     title: str = Field(default="", max_length=120)
     id: str = Field(min_length=1, max_length=80)
-    productId: str = Field(min_length=1, max_length=120)
+    productId: str = Field(default="", max_length=120)
+    productIds: list[str] = Field(default_factory=list, max_length=20)
     kind: str
     value: float = Field(default=0, ge=0)
     discountKind: str = "percent"
@@ -460,21 +461,28 @@ def create_order(input: OrderInput, authorization: str | None = Header(default=N
             raise HTTPException(status_code=409, detail=f"Only {int(stock)} of {product.get('title', 'this product')} are currently available.")
         size = requested.get("size")
         sizes = product.get("sizes") if isinstance(product.get("sizes"), list) else []
+        defined_options = product.get("options") if isinstance(product.get("options"), list) else []
+        size_option = next((option for option in defined_options if isinstance(option, dict) and isinstance(option.get("name"), str) and option["name"].casefold() == "size"), None)
+        option_sizes = size_option.get("values") if isinstance(size_option, dict) and isinstance(size_option.get("values"), list) else []
         if size is not None and not isinstance(size, str):
             raise HTTPException(status_code=422, detail="A selected product size is invalid.")
-        if sizes and (not isinstance(size, str) or size not in sizes):
+        required_sizes = sizes or option_sizes
+        if required_sizes and (not isinstance(size, str) or size not in required_sizes):
             raise HTTPException(status_code=422, detail=f"Choose a valid size for {product.get('title', 'the selected product')}.")
-        if size and not sizes:
+        if size and not required_sizes:
             raise HTTPException(status_code=422, detail=f"The selected size for {product.get('title', 'this product')} is no longer available.")
         requested_options = requested.get("options") or {}
         if not isinstance(requested_options, dict) or any(not isinstance(key, str) or not isinstance(value, str) for key, value in requested_options.items()):
             raise HTTPException(status_code=422, detail="A product option is invalid.")
-        defined_options = product.get("options") if isinstance(product.get("options"), list) else []
         normalized_options: dict[str, str] = {}
         for option in defined_options:
             name = option.get("name") if isinstance(option, dict) else None
             values = option.get("values") if isinstance(option, dict) else None
             if not isinstance(name, str) or not isinstance(values, list) or not values:
+                continue
+            if name.casefold() == "size":
+                if values and (not isinstance(size, str) or size not in values):
+                    raise HTTPException(status_code=422, detail=f"Choose a valid size for {product.get('title', 'the selected product')}.")
                 continue
             value = requested_options.get(name)
             if value not in values:
@@ -500,6 +508,15 @@ def create_order(input: OrderInput, authorization: str | None = Header(default=N
                 free_quantity = max(1, int(offer.get("freeQuantity") or 1))
                 offer_discount += (quantity // (offer_quantity + free_quantity)) * free_quantity * unit_price
 
+    for offer in store.offers.find({"kind": "bundle", "active": True}, {"_id": 0}):
+        product_ids = list(dict.fromkeys(item for item in offer.get("productIds", []) if isinstance(item, str)))
+        if len(product_ids) < 2 or any(product_id not in products_by_id for product_id in product_ids):
+            continue
+        group_quantity = max(1, int(offer.get("quantity") or 1))
+        bundle_count = min(quantities_by_id.get(product_id, 0) // group_quantity for product_id in product_ids)
+        retail_total = sum(float(products_by_id[product_id].get("price") or 0) for product_id in product_ids)
+        offer_discount += max(0.0, retail_total - float(offer.get("value") or 0)) * bundle_count
+
     content = (store.store_settings.find_one({"_id": "storefront"}, {"_id": 0, "content": 1}) or {}).get("content") or {}
     # Migrate the original two-tier default the first time this newer three-tier flow runs.
     legacy_default = "deliverySubDhaka" not in content and content.get("deliveryInDhaka") == 60 and content.get("deliveryOutsideDhaka", 120) == 120
@@ -514,6 +531,8 @@ def create_order(input: OrderInput, authorization: str | None = Header(default=N
             raise HTTPException(status_code=503, detail="Delivery charges are not configured correctly. Contact the store before retrying.")
     if not 0 <= delivery <= 10000:
         raise HTTPException(status_code=503, detail="Delivery charges are outside the allowed range. Contact the store before retrying.")
+    if any(float(offer.get("value") or 0) <= subtotal for offer in store.offers.find({"kind": "free_delivery", "active": True}, {"_id": 0, "value": 1})):
+        delivery = 0.0
     discount = offer_discount
     coupon_code = input.coupon.strip().upper() if isinstance(input.coupon, str) and input.coupon.strip() else None
     if coupon_code:
@@ -545,15 +564,17 @@ def list_offers(authorization: str | None = Header(default=None)):
 @app.post("/api/admin/offers")
 def save_offer(input: OfferInput, authorization: str | None = Header(default=None)):
     _admin_from_auth(authorization)
-    if input.kind not in ("special_price", "quantity_discount", "buy_x_get_y_free"):
+    if input.kind not in ("special_price", "quantity_discount", "buy_x_get_y_free", "bundle", "free_delivery"):
         raise HTTPException(status_code=422, detail="Unknown offer type.")
     if input.kind == "quantity_discount" and input.discountKind not in ("percent", "amount"):
         raise HTTPException(status_code=422, detail="Discount must be a percentage or fixed amount.")
-    if input.kind != "buy_x_get_y_free" and input.value <= 0:
+    if input.kind in ("special_price", "quantity_discount") and input.value <= 0:
         raise HTTPException(status_code=422, detail="Enter a positive offer value.")
     if input.kind == "quantity_discount" and input.discountKind == "percent" and input.value > 100:
         raise HTTPException(status_code=422, detail="A percentage offer cannot exceed 100%.")
-    if input.kind == "special_price":
+    if input.kind in ("special_price", "quantity_discount", "buy_x_get_y_free"):
+        if not input.productId:
+            raise HTTPException(status_code=422, detail="Choose an active product for the offer.")
         if input.productId.startswith("shopbase-"):
             source_id = input.productId.removeprefix("shopbase-")
             product = db().products.find_one({"sourceId": source_id, "source": "shopbase"}, {"_id": 0, "price": 1, "suggestedRetailPrice": 1, "active": 1})
@@ -566,8 +587,33 @@ def save_offer(input: OfferInput, authorization: str | None = Header(default=Non
             active = bool(product and product.get("active", True))
         if not active:
             raise HTTPException(status_code=422, detail="Choose an active product for the offer.")
-        if input.value >= float(price):
+        if input.kind == "special_price" and input.value >= float(price):
             raise HTTPException(status_code=422, detail="The offer price must be lower than the product’s current price.")
+    if input.kind == "bundle":
+        product_ids = list(dict.fromkeys(input.productIds))
+        if len(product_ids) < 2:
+            raise HTTPException(status_code=422, detail="Choose at least two different products for the bundle.")
+        retail_total = 0.0
+        for product_id in product_ids:
+            if product_id.startswith("shopbase-"):
+                source_id = product_id.removeprefix("shopbase-")
+                product = db().products.find_one({"sourceId": source_id, "source": "shopbase"}, {"_id": 0, "price": 1, "suggestedRetailPrice": 1, "active": 1})
+                override = db().admin_products.find_one({"id": product_id, "source": "shopbase"}, {"_id": 0, "price": 1, "active": 1}) or {}
+                active = bool(product and product.get("active", True) and override.get("active", True))
+                price = override["price"] if "price" in override else (product or {}).get("suggestedRetailPrice") or (product or {}).get("price") or 0
+            else:
+                product = db().admin_products.find_one({"id": product_id, "source": "custom"}, {"_id": 0, "price": 1, "active": 1})
+                active = bool(product and product.get("active", True))
+                price = (product or {}).get("price") or 0
+            if not active:
+                raise HTTPException(status_code=422, detail="Choose active products for the bundle.")
+            retail_total += float(price)
+        if input.value >= retail_total:
+            raise HTTPException(status_code=422, detail="The bundle price must be lower than the products’ combined price.")
+        input.productIds = product_ids
+    if input.kind == "free_delivery":
+        input.productId = ""
+        input.productIds = []
     offer = input.model_dump()
     db().offers.replace_one({"id": offer["id"]}, offer, upsert=True)
     return offer
@@ -862,7 +908,7 @@ def update_admin_storefront(input: StorefrontSettingsInput, authorization: str |
     _admin_from_auth(authorization)
     values: dict[str, Any] = {}
     if input.content is not None:
-        if len(json.dumps(input.content, ensure_ascii=False)) > 500_000:
+        if len(json.dumps(input.content, ensure_ascii=False)) > 8_000_000:
             raise HTTPException(status_code=422, detail="Storefront settings are too large to save.")
         values["content"] = input.content
     if input.categoryGroups is not None:
