@@ -396,7 +396,7 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem(THEME_KEY, darkTheme ? 'dark' : 'light')
     document.documentElement.classList.toggle('theme-dark', darkTheme)
-    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', darkTheme ? '#111915' : '#f4f6f1')
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', darkTheme ? '#0A0B0D' : '#f4f6f1')
   }, [darkTheme])
   useEffect(() => { localStorage.setItem(CATEGORY_GROUPS_KEY, JSON.stringify(categoryGroups)) }, [categoryGroups])
   useEffect(() => {

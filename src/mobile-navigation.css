@@ -157,11 +157,11 @@
   .desktop-nav-open .category-menu-subcategories { display: none; }
 
   .theme-dark .desktop-nav-open,
-  .theme-dark .desktop-nav-open .mobile-nav-heading { background: #111a17; }
+  .theme-dark .desktop-nav-open .mobile-nav-heading { background: var(--canvas); }
   .theme-dark .desktop-nav-open > button,
   .theme-dark .desktop-nav-open .category-nav > button,
-  .theme-dark .desktop-nav-open .category-menu-group > .category-menu-parent { color: #edf3ef; border-color: #34463f; }
+  .theme-dark .desktop-nav-open .category-menu-group > .category-menu-parent { color: var(--text-primary); border-color: var(--border); }
   .theme-dark .desktop-nav-open .category-menu-group-active > .category-menu-parent,
-  .theme-dark .desktop-nav-open .category-menu-inline-children { background: #25342e; }
-  .theme-dark .desktop-nav-open .category-menu-inline-children .category-menu-child { color: #c7d5ce; }
+  .theme-dark .desktop-nav-open .category-menu-inline-children { background: var(--surface-raised); }
+  .theme-dark .desktop-nav-open .category-menu-inline-children .category-menu-child { color: var(--text-secondary); }
 }
