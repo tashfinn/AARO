@@ -247,13 +247,11 @@ img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .empty-row { padding: 18px 2px; color: #8b9992; font-size: 11px; }
 .modal-backdrop { position: fixed; z-index: 50; inset: 0; display: flex; align-items: center; justify-content: center; padding: 20px; background: rgba(17,33,30,.45); backdrop-filter: blur(3px); animation: fadeIn .16s ease-out; }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-.drawer-backdrop { justify-content: flex-end; padding: 0; }
-.cart-drawer { width: min(470px,100%); height: 100%; display: flex; flex-direction: column; transform: translate3d(0,0,0); background: #fbfcf9; box-shadow: -12px 0 35px rgba(16,34,31,.18); animation: bagSlideInFromRight .56s cubic-bezier(.22,.78,.22,1) both; will-change: transform; }
-@keyframes bagSlideInFromRight { from { transform: translate3d(100%,0,0); } to { transform: translate3d(0,0,0); } }
-@keyframes bagSlideOutToRight { from { transform: translate3d(0,0,0); } to { transform: translate3d(100%,0,0); } }
-@keyframes drawerFadeOut { from { opacity: 1; } to { opacity: 0; } }
-.drawer-backdrop.is-closing { animation: drawerFadeOut .56s ease-in both; pointer-events: none; }
-.cart-drawer.is-closing { animation: bagSlideOutToRight .56s cubic-bezier(.55,0,.8,.3) both; }
+.drawer-backdrop { justify-content: flex-end; padding: 0; opacity: 1; transition: opacity .72s ease; }
+.cart-drawer { width: min(470px,100%); height: 100%; display: flex; flex-direction: column; transform: translate3d(100%,0,0); background: #fbfcf9; box-shadow: -12px 0 35px rgba(16,34,31,.18); transition: transform .72s cubic-bezier(.22,.78,.22,1); will-change: transform; }
+.cart-drawer.is-open { transform: translate3d(0,0,0); }
+.cart-drawer.is-closing { transform: translate3d(100%,0,0); transition-timing-function: cubic-bezier(.55,0,.8,.3); }
+.drawer-backdrop.is-closing { opacity: 0; transition-timing-function: ease-in; pointer-events: none; animation: none; }
 .drawer-head { display: flex; align-items: center; justify-content: space-between; padding: 24px 25px 18px; border-bottom: 1px solid #e6ebe4; }
 .drawer-head h2 { margin: 5px 0 0; color: #1b3e38; font: 700 23px var(--font-display); letter-spacing: -.04em; }
 .drawer-head .icon-button { background: #edf2ee; }
@@ -3576,7 +3574,7 @@ input:focus, select:focus, textarea:focus { outline: none !important; box-shadow
   .orders-panel .table-toolbar .admin-search { width: 100%; flex-basis: 100%; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .cart-drawer, .cart-drawer.is-closing, .drawer-backdrop.is-closing { animation-duration: .01ms !important; }
+  .cart-drawer, .cart-drawer.is-closing, .drawer-backdrop, .drawer-backdrop.is-closing { transition-duration: .22s !important; }
 }
 @media (max-width: 780px) { .account-settings-grid { grid-template-columns: 1fr; } }
 @media (prefers-reduced-motion: reduce) { .search-suggestions, .search-suggestions .suggestion-item { animation: none !important; } }

@@ -1179,15 +1179,21 @@ function OfferBanner({ state, onShop }: { state: StoreState; onShop: () => void 
 
 function CartDrawer({ cartItems, subtotal, delivery, subDhakaDelivery, outsideDelivery, discount, coupon, couponInput, setCouponInput, applyCoupon, clearCoupon, onQuantity, onSize, onOption, onClose, onCheckout, onShop }: { cartItems: (CartLine & { product: Product })[]; subtotal: number; delivery: number; subDhakaDelivery: number; outsideDelivery: number; discount: number; coupon: Coupon | null; couponInput: string; setCouponInput: (value: string) => void; applyCoupon: () => void; clearCoupon: () => void; onQuantity: (line: CartLine, qty: number) => void; onSize: (line: CartLine, size: string) => void; onOption: (line: CartLine, name: string, value: string) => void; onClose: () => void; onCheckout: () => void; onShop: () => void }) {
   const [closing, setClosing] = useState(false)
+  const [opened, setOpened] = useState(false)
   const closeTimer = useRef<number | null>(null)
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => setOpened(true))
+    return () => window.cancelAnimationFrame(frame)
+  }, [])
   const requestClose = (afterClose = onClose) => {
     if (closing) return
     setClosing(true)
-    closeTimer.current = window.setTimeout(afterClose, window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 1 : 560)
+    setOpened(false)
+    closeTimer.current = window.setTimeout(afterClose, window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 220 : 720)
   }
   useEffect(() => () => { if (closeTimer.current !== null) window.clearTimeout(closeTimer.current) }, [])
   return <div className={`modal-backdrop drawer-backdrop ${closing ? 'is-closing' : ''}`} onMouseDown={(event) => event.target === event.currentTarget && requestClose()}>
-    <aside className={`cart-drawer ${closing ? 'is-closing' : ''}`}>
+    <aside className={`cart-drawer ${opened ? 'is-open' : ''} ${closing ? 'is-closing' : ''}`}>
       <div className="drawer-head"><div><span className="section-kicker">AARO / YOUR BAG</span><h2>Your bag ({cartItems.reduce((sum, line) => sum + line.quantity, 0)})</h2></div><IconButton label="Close bag" onClick={() => requestClose()}><X size={20} /></IconButton></div>
       {cartItems.length ? <>
         <div className="free-delivery"><span><Truck size={16} /><span className="delivery-zones">Dhaka {money(delivery)} · Sub-Dhaka {money(subDhakaDelivery)} · Outside Dhaka {money(outsideDelivery)}</span></span><small>Choose the correct delivery zone at checkout.</small></div>
