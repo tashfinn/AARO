@@ -847,6 +847,8 @@ def admin_sync_progress(authorization: str | None = Header(default=None)):
                     "workflowStatus": latest_scheduled.get("status"),
                     "workflowRunId": latest_scheduled.get("id"),
                     "workflowUrl": latest_scheduled.get("html_url"),
+                    "workflowStartedAt": latest_scheduled.get("run_started_at") or latest_scheduled.get("created_at"),
+                    "workflowFinishedAt": latest_scheduled.get("updated_at") if latest_scheduled.get("status") == "completed" else None,
                 })
                 if not importer_is_current and latest_scheduled.get("status") in ("queued", "in_progress"):
                     response.update({"status": "running", "phase": "schedule_check" if latest_scheduled.get("status") == "in_progress" else "queued", "startedAt": latest_scheduled.get("created_at"), "progressPercent": 0})
@@ -883,6 +885,8 @@ def admin_sync_progress(authorization: str | None = Header(default=None)):
             response["workflowConclusion"] = run.get("conclusion")
             response["workflowRunId"] = run.get("id")
             response["workflowUrl"] = run.get("html_url")
+            response["workflowStartedAt"] = run.get("run_started_at") or run.get("created_at")
+            response["workflowFinishedAt"] = run.get("updated_at") if run.get("status") == "completed" else None
             db().sync_control.update_one({"_id": "manual"}, {"$set": {
                 "runId": run.get("id"),
                 "status": run.get("status"),

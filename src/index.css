@@ -3566,6 +3566,15 @@ input:focus, select:focus, textarea:focus { outline: none !important; box-shadow
   .offer-feature-art > b { font-size: 16px; }
 }
 @media (max-width: 600px) { .search-placeholder { left: 31px; right: 24px; font-size: 13px; } }
+
+/* Keep the bag's delivery prices readable on narrow screens and give order search room. */
+.free-delivery .delivery-zones { font-size: clamp(9px, .68vw, 12px); }
+.orders-panel .table-toolbar .admin-search { width: min(360px, 100%); flex: 0 1 360px; height: 38px; }
+.orders-panel .table-toolbar .admin-search input { min-width: 0; font-size: 12px; }
+@media (max-width: 400px) {
+  .free-delivery .delivery-zones { font-size: 8.5px; letter-spacing: -.035em; }
+  .orders-panel .table-toolbar .admin-search { width: 100%; flex-basis: 100%; }
+}
 @media (prefers-reduced-motion: reduce) {
   .cart-drawer, .cart-drawer.is-closing, .drawer-backdrop.is-closing { animation-duration: .01ms !important; }
 }

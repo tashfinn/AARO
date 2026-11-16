@@ -161,6 +161,15 @@ function readState(): StoreState {
 function money(amount: number) { return `৳${Math.max(0, Math.round(amount)).toLocaleString('en-BD')}` }
 function dateLabel(value: string) { return new Intl.DateTimeFormat('en-BD', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(value)) }
 function dateTimeLabel(value: string) { const date = new Date(value); return Number.isNaN(date.getTime()) ? 'Unknown time' : new Intl.DateTimeFormat('en-BD', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Dhaka' }).format(date) }
+function durationLabel(milliseconds: number) {
+  const totalSeconds = Math.max(0, Math.floor(milliseconds / 1000))
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+  if (hours) return `${hours}h ${minutes}m`
+  if (minutes) return `${minutes}m ${seconds}s`
+  return `${seconds}s`
+}
 function csvCell(value: unknown) { return `"${String(value ?? '').replace(/"/g, '""')}"` }
 function syncErrorLabel(error: string) {
   if (/OTP|CAPTCHA|additional verification/i.test(error)) return 'ShopBase requires an interactive verification step. Hosted automatic sign-in cannot pass this by itself; save a fresh session cookie after signing in.'
@@ -242,6 +251,30 @@ export default function App() {
   const [mobileMenu, setMobileMenu] = useState(false)
   const [cart, setCart] = useState<CartLine[]>(() => { try { const value: unknown = JSON.parse(localStorage.getItem(CART_KEY) || '[]'); return Array.isArray(value) ? value.filter((line): line is CartLine => Boolean(line && typeof line.productId === 'string' && Number.isFinite(line.quantity) && line.quantity > 0 && (line.size === undefined || typeof line.size === 'string') && (line.options === undefined || (typeof line.options === 'object' && line.options !== null && !Array.isArray(line.options) && Object.values(line.options).every((item) => typeof item === 'string'))))) : [] } catch { return [] } })
   const [cartOpen, setCartOpen] = useState(false)
+  useEffect(() => {
+    if (!cartOpen) return
+    const body = document.body
+    const root = document.documentElement
+    const scrollY = window.scrollY
+    const old = { bodyPosition: body.style.position, bodyTop: body.style.top, bodyLeft: body.style.left, bodyRight: body.style.right, bodyWidth: body.style.width, bodyOverflow: body.style.overflow, rootOverflow: root.style.overflow }
+    root.style.overflow = 'hidden'
+    body.style.position = 'fixed'
+    body.style.top = `-${scrollY}px`
+    body.style.left = '0'
+    body.style.right = '0'
+    body.style.width = '100%'
+    body.style.overflow = 'hidden'
+    return () => {
+      body.style.position = old.bodyPosition
+      body.style.top = old.bodyTop
+      body.style.left = old.bodyLeft
+      body.style.right = old.bodyRight
+      body.style.width = old.bodyWidth
+      body.style.overflow = old.bodyOverflow
+      root.style.overflow = old.rootOverflow
+      window.scrollTo(0, scrollY)
+    }
+  }, [cartOpen])
   const [checkout, setCheckout] = useState(() => window.location.pathname === '/checkout')
   const [selectedDistrict, setSelectedDistrict] = useState('')
   const [selectedThana, setSelectedThana] = useState('')
@@ -1157,7 +1190,7 @@ function CartDrawer({ cartItems, subtotal, delivery, subDhakaDelivery, outsideDe
     <aside className={`cart-drawer ${closing ? 'is-closing' : ''}`}>
       <div className="drawer-head"><div><span className="section-kicker">AARO / YOUR BAG</span><h2>Your bag ({cartItems.reduce((sum, line) => sum + line.quantity, 0)})</h2></div><IconButton label="Close bag" onClick={() => requestClose()}><X size={20} /></IconButton></div>
       {cartItems.length ? <>
-        <div className="free-delivery"><span><Truck size={16} /><span className="delivery-zones">Delivery: {money(delivery)} Dhaka city · {money(subDhakaDelivery)} Sub-Dhaka · {money(outsideDelivery)} Outside Dhaka</span></span><small>Choose the correct delivery zone at checkout.</small></div>
+        <div className="free-delivery"><span><Truck size={16} /><span className="delivery-zones">Dhaka {money(delivery)} · Sub-Dhaka {money(subDhakaDelivery)} · Outside Dhaka {money(outsideDelivery)}</span></span><small>Choose the correct delivery zone at checkout.</small></div>
         <div className="cart-lines">{cartItems.map((line) => { const { product, quantity, size, options } = line; const sizeOption=product.options?.find((option)=>/^size$/i.test(option.name)); const availableSizes=product.sizes?.length?product.sizes:sizeOption?.values||[]; return <div className="cart-line" key={cartLineKey(line)}><ImageView src={product.image} alt={product.title} /><div className="cart-line-copy"><span>{product.category}</span><b>{product.title}</b>{availableSizes.length ? <label className="cart-size-select">Size<select value={size || ''} onChange={(event) => onSize(line, event.target.value)}><option value="">Choose size</option>{availableSizes.map((option) => <option key={option} value={option}>{option}</option>)}</select></label> : null}{(product.options || []).filter((option) => !/^size$/i.test(option.name)).map((option) => <label className="cart-size-select" key={option.name}>{option.name}<select value={options?.[option.name] || ''} onChange={(event) => onOption(line, option.name, event.target.value)}><option value="">Choose {option.name.toLowerCase()}</option>{option.values.map((value) => <option key={value} value={value}>{value}</option>)}</select></label>)}<strong>{money(product.price)}</strong><div className="quantity-control"><button aria-label="Decrease quantity" onClick={() => onQuantity(line, quantity - 1)}><Minus size={13} /></button><span>{quantity}</span><button aria-label="Increase quantity" onClick={() => onQuantity(line, quantity + 1)}><Plus size={13} /></button></div></div><button className="remove-line" onClick={() => onQuantity(line, 0)} aria-label={`Remove ${product.title}`}><X size={16} /></button></div> })}</div>
         <div className="coupon-row"><TicketPercent size={17} /><input value={couponInput} onChange={(event) => setCouponInput(event.target.value.toUpperCase())} placeholder="Coupon code" /><button onClick={applyCoupon}>{coupon ? 'Applied' : 'Apply'}</button></div>
         {coupon && <div className="coupon-applied"><CheckCircle2 size={14} /> {coupon.code} is on this order <button onClick={() => { setCouponInput(''); clearCoupon() }}>Remove</button></div>}
@@ -1417,9 +1450,10 @@ function SyncPanel({ lastSync, onLastSync, onSyncComplete, importNote, fileRef, 
   const onSyncCompleteRef = useRef(onSyncComplete)
   onSyncCompleteRef.current = onSyncComplete
   const imported = products.filter((product) => product.source === 'shopbase')
-  type SyncProgress = { status: string; phase?: string; error?: string; startedAt?: string; updatedAt?: string; finishedAt?: string; requestedAt?: string; categoriesProcessed?: number; totalCategories?: number; productsDiscovered?: number; productsProcessed?: number; totalProducts?: number; created?: number; changed?: number; unchanged?: number; skippedDetails?: number; progressPercent?: number; workflowStatus?: string; workflowRunId?: number; workflowUrl?: string }
+  type SyncProgress = { status: string; phase?: string; error?: string; startedAt?: string; updatedAt?: string; finishedAt?: string; requestedAt?: string; workflowStartedAt?: string; workflowFinishedAt?: string; categoriesProcessed?: number; totalCategories?: number; productsDiscovered?: number; productsProcessed?: number; totalProducts?: number; created?: number; changed?: number; unchanged?: number; skippedDetails?: number; progressPercent?: number; workflowStatus?: string; workflowRunId?: number; workflowUrl?: string }
   const appliedSyncAtRef = useRef('')
   const [syncProgress, setSyncProgress] = useState<SyncProgress | null>(null)
+  const [clockNow, setClockNow] = useState(() => Date.now())
   const [progressLoading, setProgressLoading] = useState(false)
   const [progressError, setProgressError] = useState('')
   const [syncNotice, setSyncNotice] = useState('')
@@ -1574,11 +1608,24 @@ function SyncPanel({ lastSync, onLastSync, onSyncComplete, importNote, fileRef, 
     }, 5000)
     return () => window.clearInterval(poll)
   }, [syncProgress?.status, apiBase, token])
+  useEffect(() => {
+    if (syncProgress?.status !== 'running') return
+    setClockNow(Date.now())
+    const timer = window.setInterval(() => setClockNow(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [syncProgress?.status])
   const progress = syncProgress
   const totalProducts = progress?.totalProducts || 0
   const progressPercent = progress?.progressPercent ?? (progress?.status === 'success' || progress?.status === 'success_with_skipped_details' ? 100
     : progress?.phase === 'updating_products' && totalProducts > 0 ? 15 + Math.round(((progress.productsProcessed || 0) / totalProducts) * 85)
     : progress?.totalCategories ? Math.round(((progress.categoriesProcessed || 0) / progress.totalCategories) * 15) : 0)
+  const startedAt = progress?.workflowStartedAt || progress?.startedAt || progress?.requestedAt
+  const startedMs = startedAt ? new Date(startedAt).getTime() : NaN
+  const finishedAt = progress?.workflowFinishedAt || progress?.finishedAt
+  const finishedMs = finishedAt ? new Date(finishedAt).getTime() : NaN
+  const elapsedMs = Number.isFinite(startedMs) ? Math.max(0, (progress?.status === 'running' ? clockNow : finishedMs) - startedMs) : NaN
+  const remainingMs = progress?.status === 'running' && progress?.phase === 'updating_products' && progressPercent >= 5 && Number.isFinite(elapsedMs)
+    ? elapsedMs * (100 - progressPercent) / progressPercent : NaN
   const phaseLabel = progress?.status === 'running' ? ({
     queued: 'Waiting for GitHub Actions to start',
     schedule_check: 'Checking the saved automatic sync schedule',
@@ -1621,6 +1668,7 @@ function SyncPanel({ lastSync, onLastSync, onSyncComplete, importNote, fileRef, 
       {progress && <div className="sync-progress-card" aria-live="polite">
         <div className="sync-progress-heading"><b>{phaseLabel}</b><span>{progress.status === 'running' ? progressPercent + '% · ' + (progress.workflowStatus || 'Live') : progress.status.replace(/_/g, ' ')}</span></div>
         <div className="sync-progress-track"><i style={{ transform: `scaleX(${Math.max(0, Math.min(100, progressPercent)) / 100})` }} /></div>
+        {Number.isFinite(elapsedMs) && <p className="sync-duration">{progress.status === 'running' ? <>Elapsed: <b>{durationLabel(elapsedMs)}</b>{Number.isFinite(remainingMs) && <> · Estimated remaining: <b>{durationLabel(remainingMs)}</b></>}</> : <>Last sync duration: <b>{durationLabel(elapsedMs)}</b></>}</p>}
         {progress.workflowUrl && <p><a href={progress.workflowUrl} target="_blank" rel="noreferrer">Open GitHub Actions run</a></p>}
         {progress.totalCategories ? <p>Categories: {(progress.categoriesProcessed || 0).toLocaleString()} / {progress.totalCategories.toLocaleString()}</p> : null}
         {progress.totalProducts ? <p>Products: {(progress.productsProcessed || 0).toLocaleString()} / {progress.totalProducts.toLocaleString()} processed{progress.productsDiscovered ? ' · ' + progress.productsDiscovered.toLocaleString() + ' found' : ''}</p> : null}
