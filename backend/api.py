@@ -1076,14 +1076,15 @@ def list_admin_products(authorization: str | None = Header(default=None)):
     for item in store.products.find({"source": "shopbase"}, fields).limit(20000):
         product_id = _catalog_product_id(item)
         added_at = item.get("addedAt") or (item.get("_id").generation_time.isoformat() if getattr(item.get("_id"), "generation_time", None) else None)
+        retailer_price = item.get("wholesalePrice")
         product = public_product(item)
         product.pop("_id", None)
         product["addedAt"] = added_at
         override = overrides.get(product_id)
         if override:
-            product = _apply_shopbase_override(product, override, retailer_price=item.get("wholesalePrice"))
-        elif item.get("wholesalePrice") is not None:
-            product["retailerPrice"] = item["wholesalePrice"]
+            product = _apply_shopbase_override(product, override, retailer_price=retailer_price)
+        elif retailer_price is not None:
+            product["retailerPrice"] = retailer_price
         products.append(product)
     for item in store.admin_products.find({"source": "custom"}).limit(20000):
         item["addedAt"] = item.get("addedAt") or (item.get("_id").generation_time.isoformat() if getattr(item.get("_id"), "generation_time", None) else None)
@@ -1135,11 +1136,12 @@ def get_admin_product(product_id: str, authorization: str | None = Header(defaul
     product = store.products.find_one({"sourceId": source_id, "source": "shopbase"}, {"_id": 0})
     if not product:
         raise HTTPException(status_code=404, detail="Product not found.")
+    retailer_price = product.get("wholesalePrice")
     result = public_product(product, include_details=True)
     if saved:
-        result = _apply_shopbase_override(result, saved, retailer_price=product.get("wholesalePrice"))
-    elif product.get("wholesalePrice") is not None:
-        result["retailerPrice"] = product["wholesalePrice"]
+        result = _apply_shopbase_override(result, saved, retailer_price=retailer_price)
+    elif retailer_price is not None:
+        result["retailerPrice"] = retailer_price
     return result
 
 def public_product(product, include_details=False):
