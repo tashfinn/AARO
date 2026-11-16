@@ -56,6 +56,8 @@ jobs:
       MONGODB_URI: ${{ secrets.MONGODB_URI }}
       MONGODB_DATABASE: aaro
       SHOPBASE_SESSION_COOKIE: ${{ secrets.SHOPBASE_SESSION_COOKIE }}
+      SHOPBASE_USERNAME: ${{ secrets.SHOPBASE_USERNAME }}
+      SHOPBASE_PASSWORD: ${{ secrets.SHOPBASE_PASSWORD }}
       AARO_MARKUP_PERCENT: '20'
       SHOPBASE_REQUEST_DELAY_SECONDS: '0.35'
       SHOPBASE_DETAIL_REFRESH_DAYS: '7'
@@ -73,6 +75,18 @@ jobs:
           python-version: '3.12'
       - name: Install importer dependencies
         run: pip install -r requirements.txt
+      - name: Identify hosted browser version
+        id: playwright-version
+        run: echo "version=$(python -c 'import importlib.metadata; print(importlib.metadata.version("playwright"))')" >> "$GITHUB_OUTPUT"
+      - name: Cache hosted sign-in browser
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ steps.playwright-version.outputs.version }}
+      - name: Install hosted sign-in browser
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: python -m playwright install --with-deps chromium
       - name: Run catalog sync
         run: python sync_shopbase.py
 

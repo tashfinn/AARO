@@ -35,9 +35,10 @@ def details_are_stale(product):
   return item_bucket==today_bucket
  except Exception:
   return True
-def session():
- if not COOKIE: raise SyncError("SHOPBASE_SESSION_COOKIE is missing.")
- s=requests.Session(); s.headers.update({"User-Agent":"AARO catalog sync/1.0","Accept":"text/html,application/xhtml+xml","Cookie":COOKIE}); return s
+def session(cookie=None):
+ cookie=(COOKIE if cookie is None else cookie).strip()
+ if not cookie: raise SyncError("SHOPBASE_SESSION_COOKIE is missing.")
+ s=requests.Session(); s.headers.update({"User-Agent":"AARO catalog sync/1.0","Accept":"text/html,application/xhtml+xml","Cookie":cookie}); return s
 def get(s,path):
  url=urljoin(BASE,path)
  for attempt in range(5):
@@ -65,6 +66,47 @@ def categories(soup):
   product_links=len(soup.select('a[href*="/store/products/details/"]'))
   raise SyncError(f"ShopBase page loaded, but no category links matched the importer (page: {title}; product links: {product_links}). The cookie was not explicitly rejected; catalog markup or account access may have changed. Existing products are untouched.")
  return list(found.values())
+def is_auth_error(error):
+ text=str(error).lower()
+ return any(term in text for term in ("http 401", "http 403", "redirected to login", "sign-in page", "session cookie is expired", "session cookie is missing"))
+def renew_hosted_cookie():
+ username=os.getenv("SHOPBASE_USERNAME","").strip(); password=os.getenv("SHOPBASE_PASSWORD","")
+ if not username or not password:
+  raise SyncError("The saved ShopBase session expired and hosted sign-in is not configured. In Admin → Product sync, save the ShopBase phone number and password once.")
+ try:
+  from playwright.sync_api import sync_playwright
+ except ImportError as error:
+  raise SyncError("The hosted sign-in browser is unavailable in GitHub Actions. Retry the workflow after its browser setup completes.") from error
+ try:
+  with sync_playwright() as playwright:
+   browser=playwright.chromium.launch(headless=True)
+   context=browser.new_context()
+   page=context.new_page()
+   page.goto(f"{BASE}/store/login",wait_until="domcontentloaded",timeout=60000)
+   page.wait_for_timeout(1500)
+   if page.locator('input[type="password"]').count():
+    user_field=page.locator('input[type="tel"],input[type="email"],input[name*="user" i],input[name*="phone" i],input[name*="email" i],input[type="text"]').first
+    password_field=page.locator('input[type="password"]').first
+    if not user_field.count(): raise SyncError("ShopBase sign-in form changed; the hosted runner could not identify the account field.")
+    user_field.fill(username); password_field.fill(password)
+    submit=page.locator('button[type="submit"],input[type="submit"]').first
+    if submit.count(): submit.click()
+    else: password_field.press("Enter")
+    page.wait_for_timeout(3500)
+   page.goto(f"{BASE}/store/products/all",wait_until="domcontentloaded",timeout=60000)
+   page.wait_for_timeout(1000)
+   if page.locator('input[type="password"]').count() or "login" in page.url.lower():
+    body=page.locator("body").inner_text(timeout=10000).lower()
+    if any(term in body for term in ("otp", "verification code", "captcha", "two-factor", "দুই ধাপ", "যাচাইকরণ কোড")):
+     raise SyncError("ShopBase requires an OTP, CAPTCHA, or additional verification. The hosted runner cannot complete that interactive check; sign in manually and save a fresh session cookie from Admin → Product sync.")
+    raise SyncError("ShopBase rejected the saved hosted login. Check the phone number and password in Admin → Product sync.")
+   cookie_header="; ".join(f"{item['name']}={item['value']}" for item in context.cookies() if item.get("domain","").lstrip(".").endswith("shopbasebd.com"))
+   if not cookie_header: raise SyncError("ShopBase sign-in completed without returning a session cookie. Check whether the account requires additional verification.")
+   browser.close()
+   return cookie_header
+ except SyncError: raise
+ except Exception as error:
+  raise SyncError(f"Hosted ShopBase sign-in could not complete ({type(error).__name__}). Check the GitHub Actions run for browser availability or ShopBase changes.") from error
 def pages(soup,cid):
  m=re.search(r"Page\s+\d+\s+of\s+(\d+)",soup.get_text(" ",strip=True),re.I)
  if m: return max(1,int(m.group(1)))
@@ -222,7 +264,14 @@ def run():
   runs.update_one({"runId":runid},{"$set":values})
  try:
   report_progress(phase="reading_categories")
-  s=session(); cats=categories(get(s,"/store/products/all"))
+  try:
+   s=session(); cats=categories(get(s,"/store/products/all"))
+  except Exception as error:
+   if not is_auth_error(error): raise
+   report_progress(phase="refreshing_session",error="Saved ShopBase session expired; signing in securely in GitHub Actions.")
+   s=session(renew_hosted_cookie())
+   cats=categories(get(s,"/store/products/all"))
+   report_progress(phase="reading_categories",error=None)
   if len(cats)<30: raise SyncError(f"Only {len(cats)} categories parsed; refusing a partial catalog scan.")
   report_progress(phase="scanning_categories",totalCategories=len(cats),categoriesProcessed=0)
   category_map,_=assignments(cats)

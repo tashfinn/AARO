@@ -84,10 +84,9 @@ class AdminProductImport(BaseModel):
 class SyncCookieInput(BaseModel):
     cookie: str = Field(min_length=20, max_length=20000)
 
-class SyncAgentRepairInput(BaseModel):
-    runId: str = Field(min_length=1, max_length=100)
-    cookie: str | None = Field(default=None, min_length=20, max_length=20000)
-    error: str | None = Field(default=None, max_length=500)
+class ShopBaseLoginInput(BaseModel):
+    username: str = Field(min_length=3, max_length=180)
+    password: str = Field(min_length=1, max_length=256)
 
 class AdminCredentials(BaseModel):
     identifier: str = Field(min_length=1, max_length=120)
@@ -666,7 +665,9 @@ def _github_headers(token: str):
         "X-GitHub-Api-Version": "2022-11-28",
     }
 
-def _save_github_shopbase_cookie(cookie: str):
+def _save_github_secret(name: str, value: str):
+    if name not in ("SHOPBASE_SESSION_COOKIE", "SHOPBASE_USERNAME", "SHOPBASE_PASSWORD"):
+        raise HTTPException(status_code=400, detail="Unsupported GitHub secret name.")
     token, repository, _ = _github_sync_settings()
     headers = _github_headers(token)
     try:
@@ -675,15 +676,18 @@ def _save_github_shopbase_cookie(cookie: str):
             raise HTTPException(status_code=502, detail="GitHub token needs repository secrets read and write permission.")
         key_response.raise_for_status()
         key = key_response.json()
-        sealed = public.SealedBox(public.PublicKey(key["key"], encoding.Base64Encoder)).encrypt(cookie.encode())
-        response = requests.put(f"https://api.github.com/repos/{repository}/actions/secrets/SHOPBASE_SESSION_COOKIE", headers=headers, json={"encrypted_value": base64.b64encode(sealed).decode(), "key_id": key["key_id"]}, timeout=15)
+        sealed = public.SealedBox(public.PublicKey(key["key"], encoding.Base64Encoder)).encrypt(value.encode())
+        response = requests.put(f"https://api.github.com/repos/{repository}/actions/secrets/{name}", headers=headers, json={"encrypted_value": base64.b64encode(sealed).decode(), "key_id": key["key_id"]}, timeout=15)
         if response.status_code in (401, 403):
             raise HTTPException(status_code=502, detail="GitHub token needs repository secrets write permission.")
         if response.status_code not in (201, 204):
             response.raise_for_status()
-            raise HTTPException(status_code=502, detail="GitHub did not accept the encrypted session cookie.")
+            raise HTTPException(status_code=502, detail=f"GitHub did not accept the encrypted {name} secret.")
     except requests.RequestException as error:
         raise HTTPException(status_code=502, detail="Could not update the GitHub Actions secret.") from error
+
+def _save_github_shopbase_cookie(cookie: str):
+    _save_github_secret("SHOPBASE_SESSION_COOKIE", cookie)
 
 def _valid_shopbase_cookie(cookie: str):
     return "\n" not in cookie and "\r" not in cookie and ("cookie" in cookie.lower() or "=" in cookie)
@@ -697,94 +701,40 @@ def update_shopbase_cookie(input: SyncCookieInput, authorization: str | None = H
     _save_github_shopbase_cookie(cookie)
     return {"ok": True, "message": "ShopBase sync cookie saved securely to GitHub Actions."}
 
-def _sync_agent_from_auth(authorization: str | None):
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Pair this computer with the admin panel first.")
-    token_hash = hashlib.sha256(authorization[7:].strip().encode()).hexdigest()
-    agent = db().sync_agents.find_one({"_id": token_hash, "active": True})
-    if not agent:
-        raise HTTPException(status_code=401, detail="This computer's pairing has expired. Pair it again from Product sync.")
-    db().sync_agents.update_one({"_id": token_hash, "active": True}, {"$set": {"lastSeenAt": datetime.now(timezone.utc).isoformat()}})
-    agent["_id"] = token_hash
-    return agent
-
-@app.post("/api/admin/sync/agent/pair")
-def pair_sync_agent(authorization: str | None = Header(default=None)):
+@app.get("/api/admin/sync/login")
+def shopbase_login_status(authorization: str | None = Header(default=None)):
     _admin_from_auth(authorization)
-    store = db().sync_agents
-    store.update_many({"active": True}, {"$set": {"active": False, "revokedAt": datetime.now(timezone.utc).isoformat()}})
-    token = secrets.token_urlsafe(36)
-    token_hash = hashlib.sha256(token.encode()).hexdigest()
-    store.insert_one({"_id": token_hash, "active": True, "createdAt": datetime.now(timezone.utc).isoformat(), "lastRepairRunId": None, "lastRepairState": "idle", "lastMessage": "Paired. Waiting for a failed catalog sync."})
-    return {"token": token, "message": "One-time pairing code created. It will only be shown once."}
+    settings = db().sync_settings.find_one({"_id": "shopbase-hosted-login"}, {"_id": 0, "configuredAt": 1}) or {}
+    return {"configured": bool(settings.get("configuredAt")), "configuredAt": settings.get("configuredAt")}
 
-@app.get("/api/admin/sync/agent")
-def sync_agent_status(authorization: str | None = Header(default=None)):
+@app.put("/api/admin/sync/login")
+def save_shopbase_login(input: ShopBaseLoginInput, authorization: str | None = Header(default=None)):
     _admin_from_auth(authorization)
-    agent = db().sync_agents.find_one({"active": True}, {"_id": 0, "createdAt": 1, "lastSeenAt": 1, "lastMessage": 1, "lastRepairAt": 1, "lastRepairState": 1})
-    return {"paired": bool(agent), **(agent or {})}
+    username = input.username.strip()
+    if not username or "\n" in username or "\r" in username or "\n" in input.password or "\r" in input.password:
+        raise HTTPException(status_code=422, detail="Enter a valid ShopBase phone number and password.")
+    _save_github_secret("SHOPBASE_USERNAME", username)
+    _save_github_secret("SHOPBASE_PASSWORD", input.password)
+    configured_at = datetime.now(timezone.utc).isoformat()
+    db().sync_settings.update_one({"_id": "shopbase-hosted-login"}, {"$set": {"configuredAt": configured_at}}, upsert=True)
+    return {"ok": True, "configured": True, "configuredAt": configured_at, "message": "ShopBase login saved as encrypted GitHub Actions secrets. The credentials are not stored in the catalog database."}
 
-@app.delete("/api/admin/sync/agent")
-def revoke_sync_agent(authorization: str | None = Header(default=None)):
+@app.delete("/api/admin/sync/login")
+def remove_shopbase_login(authorization: str | None = Header(default=None)):
     _admin_from_auth(authorization)
-    db().sync_agents.update_many({"active": True}, {"$set": {"active": False, "revokedAt": datetime.now(timezone.utc).isoformat()}})
-    return {"ok": True, "message": "Automatic cookie renewal has been disconnected from this PC."}
-
-@app.get("/api/sync-agent/poll")
-def poll_sync_agent(authorization: str | None = Header(default=None)):
-    agent = _sync_agent_from_auth(authorization)
-    latest = db().sync_runs.find_one({}, {"_id": 0, "runId": 1, "status": 1, "error": 1, "finishedAt": 1, "updatedAt": 1}, sort=[("startedAt", -1)])
-    run_id = str((latest or {}).get("runId") or "")
-    # The local agent must prove its saved browser session still works before replacing GitHub's secret.
-    is_new_failure = latest and latest.get("status") == "failed" and run_id and run_id != agent.get("lastRepairRunId")
-    retry_pending = latest and latest.get("status") == "failed" and run_id and run_id == agent.get("lastRepairRunId") and agent.get("lastRepairState") in ("needs_signin", "checking")
-    if is_new_failure and agent.get("lastRepairState") in ("queued", "stopped") and agent.get("lastRepairAt"):
-        recovered = db().sync_runs.find_one({"status": {"$in": ["success", "success_with_skipped_details"]}, "finishedAt": {"$gt": agent["lastRepairAt"]}}, {"runId": 1})
-        if not recovered:
-            db().sync_agents.update_one({"_id": agent["_id"], "active": True}, {"$set": {"lastRepairRunId": run_id, "lastRepairState": "stopped", "lastMessage": "The cookie was refreshed and one retry ran, but the latest sync still failed. Automatic retries stopped to prevent a loop; open the GitHub run to see the importer error."}})
-            return {"action": "wait", "pollAfterSeconds": 60}
-    if is_new_failure or retry_pending:
-        changes = {"lastRepairRunId": run_id, "lastRepairState": "checking", "lastMessage": "Checking whether the saved ShopBase browser session can repair the failed sync."}
-        db().sync_agents.update_one({"_id": agent["_id"], "active": True}, {"$set": changes})
-        return {"action": "check_session", "runId": run_id}
-    return {"action": "wait", "pollAfterSeconds": 60}
-
-@app.post("/api/sync-agent/repair")
-def repair_sync_agent(input: SyncAgentRepairInput, authorization: str | None = Header(default=None)):
-    agent = _sync_agent_from_auth(authorization)
-    store = db().sync_agents
-    if input.runId != agent.get("lastRepairRunId"):
-        raise HTTPException(status_code=409, detail="This sync failure is no longer the pending repair request.")
-    if not input.cookie:
-        message = input.error or "No usable ShopBase session was found on this PC. Sign in to ShopBase in the sync browser and leave it open."
-        store.update_one({"_id": agent["_id"], "active": True}, {"$set": {"lastMessage": message, "lastRepairState": "needs_signin", "lastRepairAt": datetime.now(timezone.utc).isoformat()}})
-        return {"ok": False, "message": message}
-    cookie = input.cookie.strip()
-    if not _valid_shopbase_cookie(cookie):
-        raise HTTPException(status_code=422, detail="The local browser did not provide a valid ShopBase cookie value.")
-    latest = db().sync_runs.find_one({}, {"runId": 1, "status": 1}, sort=[("startedAt", -1)])
-    if (latest or {}).get("status") != "failed" or str((latest or {}).get("runId") or "") != input.runId:
-        raise HTTPException(status_code=409, detail="The latest catalog sync has changed. No cookie was saved.")
-    token, repository, workflow = _github_sync_settings()
-    active = next((run for run in _github_sync_runs(token, repository, workflow) if run.get("status") in ("queued", "in_progress")), None)
-    if active:
-        _save_github_shopbase_cookie(cookie)
-        store.update_one({"_id": agent["_id"], "active": True}, {"$set": {"lastRepairState": "queued", "lastRepairAt": datetime.now(timezone.utc).isoformat(), "lastMessage": "Fresh ShopBase session saved securely. A sync is already running; the agent will watch its result and repair again only if it fails."}})
-        return {"ok": True, "message": "Fresh ShopBase session saved. Waiting for the active sync to finish."}
-    _save_github_shopbase_cookie(cookie)
-    requested_at = datetime.now(timezone.utc).isoformat()
+    token, repository, _ = _github_sync_settings()
+    headers = _github_headers(token)
     try:
-        response = requests.post(f"https://api.github.com/repos/{repository}/actions/workflows/{workflow}/dispatches", headers=_github_headers(token), json={"ref": "main", "inputs": {"refresh_details": "false"}}, timeout=20)
-        if response.status_code in (401, 403):
-            raise HTTPException(status_code=502, detail="GitHub rejected the automatic retry request. Check Actions write access for GITHUB_ACTIONS_TOKEN.")
-        if response.status_code != 204:
-            response.raise_for_status()
-            raise HTTPException(status_code=502, detail="GitHub did not accept the automatic retry request.")
+        for name in ("SHOPBASE_USERNAME", "SHOPBASE_PASSWORD"):
+            response = requests.delete(f"https://api.github.com/repos/{repository}/actions/secrets/{name}", headers=headers, timeout=15)
+            if response.status_code in (401, 403):
+                raise HTTPException(status_code=502, detail="GitHub token needs repository secrets write permission.")
+            if response.status_code not in (204, 404):
+                response.raise_for_status()
     except requests.RequestException as error:
-        raise HTTPException(status_code=502, detail="The fresh cookie was saved, but GitHub could not queue the retry.") from error
-    db().sync_control.update_one({"_id": "manual"}, {"$set": {"requestedAt": requested_at, "runId": None, "status": "queued", "htmlUrl": None, "repository": repository, "workflow": workflow, "error": None}}, upsert=True)
-    store.update_one({"_id": agent["_id"], "active": True}, {"$set": {"lastMessage": "Fresh ShopBase session saved securely; the failed catalog sync was queued for an automatic retry.", "lastRepairAt": requested_at, "lastRepairState": "queued"}})
-    return {"ok": True, "message": "Fresh ShopBase session saved securely. Catalog sync retry queued."}
+        raise HTTPException(status_code=502, detail="Could not remove the hosted ShopBase login secrets.") from error
+    db().sync_settings.delete_one({"_id": "shopbase-hosted-login"})
+    return {"ok": True, "configured": False, "message": "Hosted ShopBase login secrets removed from GitHub Actions."}
 
 def _github_sync_runs(token: str, repository: str, workflow: str):
     url = f"https://api.github.com/repos/{repository}/actions/workflows/{workflow}/runs"

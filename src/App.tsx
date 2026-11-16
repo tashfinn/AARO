@@ -163,6 +163,9 @@ function dateLabel(value: string) { return new Intl.DateTimeFormat('en-BD', { da
 function dateTimeLabel(value: string) { const date = new Date(value); return Number.isNaN(date.getTime()) ? 'Unknown time' : new Intl.DateTimeFormat('en-BD', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Dhaka' }).format(date) }
 function csvCell(value: unknown) { return `"${String(value ?? '').replace(/"/g, '""')}"` }
 function syncErrorLabel(error: string) {
+  if (/OTP|CAPTCHA|additional verification/i.test(error)) return 'ShopBase requires an interactive verification step. Hosted automatic sign-in cannot pass this by itself; save a fresh session cookie after signing in.'
+  if (/hosted login is not configured|save the ShopBase phone number and password/i.test(error)) return 'The saved ShopBase cookie expired. Add your ShopBase login once in Hosted automatic sign-in, then retry.'
+  if (/rejected the saved hosted login/i.test(error)) return 'ShopBase rejected the hosted login. Update the phone number or password in Product sync, then retry.'
   if (/ShopBase denied.*HTTP (401|403)|redirected to login|session secret was rejected/i.test(error)) return 'ShopBase rejected the saved session cookie. It has likely expired or been logged out; sign in to ShopBase again, copy a fresh cookie, save it, then retry.'
   if (/SHOPBASE_SESSION_COOKIE is missing/i.test(error)) return 'The ShopBase session cookie is not configured in GitHub Actions secrets. Save a fresh cookie from this page, then retry.'
   if (/GITHUB_ACTIONS_TOKEN|GitHub rejected/i.test(error)) return 'GitHub rejected the Actions token. Check that the Render API token has Actions read and write access for the sync repository.'
@@ -1418,10 +1421,11 @@ function SyncPanel({ lastSync, onLastSync, onSyncComplete, importNote, fileRef, 
   const [scheduleMessage, setScheduleMessage] = useState('')
   const [cookieEditorOpen, setCookieEditorOpen] = useState(false)
   const [cookieDraft, setCookieDraft] = useState('')
-  const [agentStatus, setAgentStatus] = useState<{ paired: boolean; lastSeenAt?: string; lastMessage?: string; lastRepairAt?: string } | null>(null)
-  const [agentPairingCode, setAgentPairingCode] = useState('')
-  const [agentBusy, setAgentBusy] = useState(false)
-  const [agentMessage, setAgentMessage] = useState('')
+  const [hostedLoginConfigured, setHostedLoginConfigured] = useState(false)
+  const [hostedUsername, setHostedUsername] = useState('')
+  const [hostedPassword, setHostedPassword] = useState('')
+  const [hostedLoginBusy, setHostedLoginBusy] = useState(false)
+  const [hostedLoginMessage, setHostedLoginMessage] = useState('')
   const acceptProgress = (result: SyncProgress) => {
     setSyncProgress(result)
     if ((result.status === 'success' || result.status === 'success_with_skipped_details') && typeof result.finishedAt === 'string') {
@@ -1475,46 +1479,39 @@ function SyncPanel({ lastSync, onLastSync, onSyncComplete, importNote, fileRef, 
   useEffect(() => {
     void refreshProgress()
   }, [apiBase, token])
-  const refreshAgentStatus = async () => {
+  const loadHostedLogin = async () => {
     if (!apiBase || !token) return
     try {
-      const response = await fetch(apiBase + '/api/admin/sync/agent', { cache: 'no-store', headers: { Authorization: 'Bearer ' + token } })
+      const response = await fetch(apiBase + '/api/admin/sync/login', { cache: 'no-store', headers: { Authorization: 'Bearer ' + token } })
       const result = await response.json()
-      if (response.ok) setAgentStatus(result)
-    } catch { /* Keep the last reported local-agent status visible during short network interruptions. */ }
+      if (response.ok) setHostedLoginConfigured(Boolean(result.configured))
+      else setHostedLoginMessage(result.detail || 'Could not check hosted sign-in settings.')
+    } catch { setHostedLoginMessage('Could not check hosted sign-in settings.') }
   }
-  useEffect(() => { void refreshAgentStatus() }, [apiBase, token])
-  useEffect(() => {
-    const timer = window.setInterval(() => { void refreshAgentStatus() }, 30000)
-    return () => window.clearInterval(timer)
-  }, [apiBase, token])
-  const pairAgent = async () => {
+  useEffect(() => { void loadHostedLogin() }, [apiBase, token])
+  const saveHostedLogin = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
     if (!apiBase || !token) return
-    setAgentBusy(true); setAgentMessage(''); setAgentPairingCode('')
+    setHostedLoginBusy(true); setHostedLoginMessage('')
     try {
-      const response = await fetch(apiBase + '/api/admin/sync/agent/pair', { method: 'POST', headers: { Authorization: 'Bearer ' + token } })
+      const response = await fetch(apiBase + '/api/admin/sync/login', { method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify({ username: hostedUsername, password: hostedPassword }) })
       const result = await response.json()
-      if (!response.ok) throw new Error(result.detail || 'Could not create a secure pairing code.')
-      setAgentPairingCode(result.token)
-      setAgentMessage('Pair this PC with the one-time code below. The code is only shown once.')
-      await refreshAgentStatus()
-    } catch (error) { setAgentMessage(error instanceof Error ? error.message : 'Could not create a secure pairing code.') }
-    finally { setAgentBusy(false) }
+      if (!response.ok) throw new Error(result.detail || 'Could not save hosted sign-in.')
+      setHostedLoginConfigured(true); setHostedUsername(''); setHostedPassword('')
+      setHostedLoginMessage('Saved securely. GitHub Actions can now renew the ShopBase session without your PC.')
+    } catch (error) { setHostedLoginMessage(error instanceof Error ? error.message : 'Could not save hosted sign-in.') }
+    finally { setHostedLoginBusy(false) }
   }
-  const revokeAgent = async () => {
+  const removeHostedLogin = async () => {
     if (!apiBase || !token) return
-    setAgentBusy(true); setAgentMessage('')
+    setHostedLoginBusy(true); setHostedLoginMessage('')
     try {
-      const response = await fetch(apiBase + '/api/admin/sync/agent', { method: 'DELETE', headers: { Authorization: 'Bearer ' + token } })
+      const response = await fetch(apiBase + '/api/admin/sync/login', { method: 'DELETE', headers: { Authorization: 'Bearer ' + token } })
       const result = await response.json()
-      if (!response.ok) throw new Error(result.detail || 'Could not disconnect the local companion.')
-      setAgentPairingCode(''); setAgentMessage(result.message || 'Automatic cookie renewal disconnected.'); await refreshAgentStatus()
-    } catch (error) { setAgentMessage(error instanceof Error ? error.message : 'Could not disconnect the local companion.') }
-    finally { setAgentBusy(false) }
-  }
-  const copyAgentPairingCode = async () => {
-    try { await navigator.clipboard.writeText(agentPairingCode); setAgentMessage('Pairing code copied. Paste it into Pair-ShopBase-Auto-Sync.bat on this PC.') }
-    catch { setAgentMessage('Select and copy the pairing code, then paste it into Pair-ShopBase-Auto-Sync.bat on this PC.') }
+      if (!response.ok) throw new Error(result.detail || 'Could not remove hosted sign-in.')
+      setHostedLoginConfigured(false); setHostedLoginMessage('Hosted sign-in credentials removed.')
+    } catch (error) { setHostedLoginMessage(error instanceof Error ? error.message : 'Could not remove hosted sign-in.') }
+    finally { setHostedLoginBusy(false) }
   }
   const startSyncNow = async () => {
     if (!apiBase || !token) { setProgressError('Sync Now needs an active admin session and catalog API.'); return }
@@ -1570,6 +1567,7 @@ function SyncPanel({ lastSync, onLastSync, onSyncComplete, importNote, fileRef, 
     starting: 'Starting the catalog importer',
     connecting: 'Connecting to the catalog',
     reading_categories: 'Reading categories',
+    refreshing_session: 'Renewing ShopBase session in GitHub Actions',
     scanning_categories: 'Finding products in categories',
     updating_products: 'Updating product details',
   } as Record<string, string>)[progress.phase || ''] || 'Preparing the sync'
@@ -1585,17 +1583,20 @@ function SyncPanel({ lastSync, onLastSync, onSyncComplete, importNote, fileRef, 
       <div className="sync-schedule-settings"><label htmlFor="catalog-sync-interval">Automatic sync interval<select id="catalog-sync-interval" value={intervalHours} onChange={(event) => { setIntervalHours(Number(event.target.value)); setScheduleMessage('') }}><option value={6}>Every 6 hours</option><option value={12}>Every 12 hours</option><option value={24}>Every 24 hours</option><option value={48}>Every 48 hours</option></select></label><label htmlFor="catalog-sync-start">Daily start time (Bangladesh)<input id="catalog-sync-start" type="time" step={3600} value={startTime} onChange={(event) => { setStartTime(event.target.value); setScheduleMessage('') }} /></label><button type="button" className="secondary-button" onClick={saveSchedule} disabled={scheduleSaving}>{scheduleSaving ? 'Saving…' : 'Save changes'}</button>{scheduleMessage && <p className="sync-schedule-message" role="status">{scheduleMessage}</p>}</div>
       <div className="sync-status-box">
         <div className="sync-status-icon"><Clock3 size={19} /></div>
-        <span><b>{imported.length ? imported.length.toLocaleString() + ' imported products' : 'ShopBase catalog not synced'}</b><small>{lastSync ? 'Last catalog update ' + dateTimeLabel(lastSync) + ' (Bangladesh time)' : imported.length ? 'Products are available from your connected catalog API.' : 'Add the ShopBase session cookie to GitHub Actions secrets to enable the scheduled job.'}</small></span>
+        <span><b>{imported.length ? imported.length.toLocaleString() + ' imported products' : 'ShopBase catalog not synced'}</b><small>{lastSync ? 'Last catalog update ' + dateTimeLabel(lastSync) + ' (Bangladesh time)' : imported.length ? 'Products are available from your connected catalog API.' : 'Save your ShopBase login below to allow the hosted runner to refresh expired sessions.'}</small></span>
         <span className={'status-pill ' + (imported.length ? 'status-green' : 'status-amber')}><i />{imported.length ? 'Connected' : 'Needs sync'}</span>
       </div>
       <div className="sync-actions"><button className="secondary-button" onClick={saveShopBaseCookie} disabled={progressLoading}>Sync cookie</button><button className="primary-button sync-now-button" onClick={startSyncNow} disabled={progressLoading || progress?.status === 'running'}><RotateCcw size={17} /> {progress?.status === 'running' ? 'Sync running…' : progressLoading ? 'Starting…' : 'Sync Now'}</button><button className="secondary-button" onClick={() => fileRef.current?.click()}><Upload size={17} /> Import supplier CSV</button><input ref={fileRef} type="file" accept=".csv,text/csv" hidden onChange={(event) => onImport(event.target.files?.[0])} /><button className="secondary-button" onClick={refreshProgress} disabled={progressLoading}><RotateCcw size={16} /> {progressLoading ? 'Checking progress…' : 'View sync progress'}</button></div>
       <section className="sync-agent-card">
-        <div className="sync-agent-heading"><b>Automatic cookie renewal on this PC</b><span className={'status-pill ' + (agentStatus?.paired ? 'status-green' : 'status-amber')}><i />{agentStatus?.paired ? 'PC paired' : 'Not paired'}</span></div>
-        <p>A small background helper checks for failed syncs, signs in with the credentials already stored in your D: tool, verifies the catalog session, updates the encrypted GitHub secret, and retries once. This PC must be on and signed in to Windows; if ShopBase requests OTP/CAPTCHA, complete it in the browser window.</p>
-        {agentStatus?.lastMessage && <small>{agentStatus.lastMessage}{agentStatus.lastSeenAt ? ' · Last check ' + dateTimeLabel(agentStatus.lastSeenAt) : ''}</small>}
-        {agentPairingCode && <div className="sync-agent-pairing"><b>One-time pairing code</b><code>{agentPairingCode}</code><button className="secondary-button" type="button" onClick={copyAgentPairingCode}><Copy size={15} /> Copy code</button><small>On the PC that will stay on, open tools/Pair-ShopBase-Auto-Sync.bat, paste the API address and code when asked, then allow it to add the checker to Windows startup. The code is hidden after leaving this page.</small></div>}
-        {agentMessage && <small role="status">{agentMessage}</small>}
-        <div className="sync-actions">{agentStatus?.paired ? <button className="secondary-button" type="button" onClick={revokeAgent} disabled={agentBusy}>Disconnect this PC</button> : <button className="primary-button" type="button" onClick={pairAgent} disabled={agentBusy}>{agentBusy ? 'Preparing…' : 'Set up automatic renewal'}</button>}</div>
+        <div className="sync-agent-heading"><b>Hosted automatic sign-in</b><span className={'status-pill ' + (hostedLoginConfigured ? 'status-green' : 'status-amber')}><i />{hostedLoginConfigured ? 'Configured' : 'Setup needed'}</span></div>
+        <p>When the saved cookie expires, GitHub Actions signs in to ShopBase, gets a fresh session, and continues the sync. This runs in the cloud; your PC does not need to be on.</p>
+        <form className="hosted-login-form" onSubmit={saveHostedLogin}>
+          <label>ShopBase phone number or username<input type="text" autoComplete="username" value={hostedUsername} onChange={(event) => setHostedUsername(event.target.value)} placeholder={hostedLoginConfigured ? 'Enter to replace saved login' : 'ShopBase login phone number'} required /></label>
+          <label>ShopBase password<input type="password" autoComplete="new-password" value={hostedPassword} onChange={(event) => setHostedPassword(event.target.value)} placeholder={hostedLoginConfigured ? 'Enter to replace saved password' : 'ShopBase password'} required /></label>
+          <div className="sync-actions"><button className="primary-button" disabled={hostedLoginBusy || !hostedUsername || !hostedPassword}>{hostedLoginBusy ? 'Saving securely…' : hostedLoginConfigured ? 'Update hosted login' : 'Enable hosted renewal'}</button>{hostedLoginConfigured && <button type="button" className="secondary-button" onClick={removeHostedLogin} disabled={hostedLoginBusy}>Remove</button>}</div>
+        </form>
+        {hostedLoginMessage && <small role="status">{hostedLoginMessage}</small>}
+        <small>Credentials are sent directly to GitHub Actions Secrets using encryption and are not stored in the catalog database. If ShopBase asks for an interactive OTP or CAPTCHA, the run will report that clearly and a fresh cookie will be needed.</small>
       </section>
       {progressError && <div className="import-result sync-progress-error">{progressError}</div>}
       {syncNotice && <div className="import-result sync-progress-message" role="status">{syncNotice}</div>}
