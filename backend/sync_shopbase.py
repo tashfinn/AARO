@@ -55,9 +55,15 @@ def get(s,path):
 def categories(soup):
  found={}
  for a in soup.select("a[href]"):
-  path=urlparse(a.get("href","")).path; m=re.fullmatch(r"/store/products/(\d+)/1",path); name=a.get_text(" ",strip=True)
+  path=urlparse(a.get("href","")).path.rstrip("/"); m=re.fullmatch(r"/store/products/(\d+)(?:/1)?",path); name=a.get_text(" ",strip=True)
   if m and name: found[m.group(1)]={"sourceId":m.group(1),"name":name,"url":path}
- if not found: raise SyncError("No categories found; existing products are untouched.")
+ if not found:
+  text=soup.get_text(" ",strip=True).lower()
+  if soup.select_one('input[type="password"]') or any(word in text for word in ("sign in", "log in", "login", "লগইন")):
+   raise SyncError("ShopBase returned a sign-in page instead of the catalog. The saved session cookie is expired, invalid, or lacks catalog access; existing products are untouched.")
+  title=soup.title.get_text(" ",strip=True)[:120] if soup.title else "(no page title)"
+  product_links=len(soup.select('a[href*="/store/products/details/"]'))
+  raise SyncError(f"ShopBase page loaded, but no category links matched the importer (page: {title}; product links: {product_links}). The cookie was not explicitly rejected; catalog markup or account access may have changed. Existing products are untouched.")
  return list(found.values())
 def pages(soup,cid):
  m=re.search(r"Page\s+\d+\s+of\s+(\d+)",soup.get_text(" ",strip=True),re.I)
