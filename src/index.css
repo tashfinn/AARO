@@ -2729,6 +2729,11 @@ a:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
 .sync-agent-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .sync-agent-heading b { color: var(--text-primary); font-size: 14px; }
 .sync-agent-card p, .sync-agent-card small { margin: 0; color: var(--text-secondary); font-size: 13px; line-height: 1.5; }
+.hosted-login-form { display: grid; gap: 12px; }
+.hosted-login-form > label { display: grid; gap: 6px; color: var(--text-primary); font-size: 14px; font-weight: 650; }
+.hosted-login-form input { width: 100%; min-height: 44px; padding: 9px 12px; border: 1px solid var(--border-strong); border-radius: 8px; color: var(--text-primary); background: var(--surface); font: inherit; }
+.hosted-login-form input::placeholder { color: var(--text-muted); opacity: 1; }
+.hosted-login-form .sync-actions { margin-top: 0; }
 .sync-agent-pairing { display: grid; gap: 8px; padding: 12px; border-radius: 8px; background: var(--surface); }
 .sync-agent-pairing code { display: block; padding: 9px; overflow-wrap: anywhere; border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary); background: var(--surface-raised); font-size: 12px; user-select: all; }
 .sync-agent-pairing button { justify-self: start; }
