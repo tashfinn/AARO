@@ -4,15 +4,16 @@ import base64
 import hashlib
 import hmac
 import json
+import re
 import secrets
 import time
 import uuid
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Literal
 from fastapi import FastAPI, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-from pymongo import MongoClient
+from pymongo import MongoClient, UpdateOne
 import requests
 from nacl import encoding, public
 from category_groups import category_group_payload
@@ -33,6 +34,42 @@ class SyncRequest(BaseModel):
 
 class SyncScheduleInput(BaseModel):
     intervalHours: int
+    startTime: str = "00:00"
+
+class StorefrontSettingsInput(BaseModel):
+    content: dict[str, Any] | None = None
+    categoryGroups: list[dict[str, Any]] | None = None
+    manualCategories: list[str] | None = None
+
+class AdminProductInput(BaseModel):
+    id: str = Field(min_length=1, max_length=180)
+    source: Literal["custom", "shopbase"] = "custom"
+    sourceId: str | None = Field(default=None, max_length=180)
+    title: str = Field(min_length=1, max_length=300)
+    category: str = Field(min_length=1, max_length=180)
+    price: float = Field(ge=0)
+    compareAt: float | None = Field(default=None, ge=0)
+    image: str = Field(min_length=1, max_length=2048)
+    description: str = Field(default="", max_length=20000)
+    rating: float = Field(default=0, ge=0, le=5)
+    reviews: int = Field(default=0, ge=0)
+    badge: str | None = Field(default=None, max_length=80)
+    stock: int = Field(default=0, ge=0)
+    active: bool = True
+    trending: bool = False
+    offer: bool = False
+    updatedAt: str | None = None
+    sizes: list[str] = Field(default_factory=list, max_length=100)
+    sizeChart: str | None = Field(default=None, max_length=10000)
+    details: str | None = Field(default=None, max_length=20000)
+    attributes: list[str] = Field(default_factory=list, max_length=100)
+    options: list[dict[str, Any]] = Field(default_factory=list, max_length=30)
+    categorySourceId: str | None = None
+    parentCategory: str | None = None
+    parentCategoryId: str | None = None
+
+class AdminProductImport(BaseModel):
+    products: list[AdminProductInput] = Field(min_length=1, max_length=2000)
 
 class SyncCookieInput(BaseModel):
     cookie: str = Field(min_length=20, max_length=20000)
@@ -57,18 +94,25 @@ class AddressUpdate(BaseModel):
 class OrderInput(BaseModel):
     customer: dict[str, Any]
     items: list[dict[str, Any]] = Field(min_length=1, max_length=100)
-    subtotal: float = Field(ge=0)
-    delivery: float = Field(ge=0)
-    discount: float = Field(ge=0)
-    total: float = Field(ge=0)
+    # Price fields remain optional for compatibility with older storefronts,
+    # but create_order always calculates them from the saved catalog.
+    subtotal: float | None = Field(default=None, ge=0)
+    delivery: float | None = Field(default=None, ge=0)
+    discount: float | None = Field(default=None, ge=0)
+    total: float | None = Field(default=None, ge=0)
+    deliveryZone: Literal["inside", "outside"] = "inside"
     coupon: str | None = None
 
 class CouponInput(BaseModel):
-    code: str = Field(min_length=3, max_length=32)
+    code: str = Field(min_length=3, max_length=32, pattern=r"^[A-Za-z0-9_-]+$")
     kind: str
     value: float = Field(gt=0)
     minimum: float | None = Field(default=None, ge=0)
     active: bool = True
+
+class CouponValidationInput(BaseModel):
+    code: str = Field(min_length=3, max_length=32, pattern=r"^[A-Za-z0-9_-]+$")
+    subtotal: float = Field(ge=0)
 
 
 class OfferInput(BaseModel):
@@ -271,16 +315,38 @@ def login_admin(input: AdminCredentials):
         raise HTTPException(status_code=401, detail="ID or password is incorrect.")
     return {"accessToken": _make_token(expected_id, "admin", input.remember_me), "adminId": expected_id}
 
+@app.get("/api/admin/session")
+def check_admin_session(authorization: str | None = Header(default=None)):
+    admin = _admin_from_auth(authorization)
+    return {"ok": True, "adminId": admin.get("sub", "")}
+
 @app.get("/api/admin/coupons")
 def list_coupons(authorization: str | None = Header(default=None)):
     _admin_from_auth(authorization)
     return list(db().coupons.find({}, {"_id": 0}))
+
+@app.post("/api/coupons/validate")
+def validate_coupon(input: CouponValidationInput):
+    code = input.code.strip().upper()
+    coupon = db().coupons.find_one({"code": code, "active": True}, {"_id": 0, "code": 1, "kind": 1, "value": 1, "minimum": 1, "active": 1})
+    if not coupon:
+        raise HTTPException(status_code=422, detail="That coupon code is not active.")
+    if coupon.get("kind") not in ("percent", "amount"):
+        raise HTTPException(status_code=503, detail="This coupon is configured incorrectly. Contact the store.")
+    if input.subtotal < float(coupon.get("minimum") or 0):
+        raise HTTPException(status_code=422, detail=f"This code requires an order subtotal of at least ৳{float(coupon.get('minimum') or 0):g}.")
+    value = float(coupon.get("value") or 0)
+    if value <= 0 or coupon.get("kind") == "percent" and value > 100:
+        raise HTTPException(status_code=503, detail="This coupon is configured incorrectly. Contact the store.")
+    return {"coupon": coupon, "discount": min(input.subtotal, input.subtotal * value / 100 if coupon["kind"] == "percent" else value)}
 
 @app.post("/api/admin/coupons")
 def save_coupon(input: CouponInput, authorization: str | None = Header(default=None)):
     _admin_from_auth(authorization)
     if input.kind not in ("percent", "amount"):
         raise HTTPException(status_code=422, detail="Coupon type must be percent or amount.")
+    if input.kind == "percent" and input.value > 100:
+        raise HTTPException(status_code=422, detail="A percentage coupon cannot exceed 100%.")
     coupon = input.model_dump()
     coupon["code"] = input.code.strip().upper()
     db().coupons.replace_one({"code": coupon["code"]}, coupon, upsert=True)
@@ -301,10 +367,121 @@ def customer_orders(authorization: str | None = Header(default=None)):
 
 @app.post("/api/orders")
 def create_order(input: OrderInput, authorization: str | None = Header(default=None)):
+    store = db()
+    status = store.store_settings.find_one({"_id": "store-status"}, {"_id": 0, "isLive": 1})
+    if status and status.get("isLive") is False:
+        raise HTTPException(status_code=503, detail="The store is temporarily closed and is not accepting orders.")
     user = _customer_from_auth(authorization) if authorization else None
+
+    customer = {key: input.customer.get(key) for key in ("name", "phone", "area", "address", "email") if key in input.customer}
+    for field, label, limit in (("name", "Full name", 120), ("phone", "Phone number", 32), ("area", "Delivery area", 180), ("address", "Delivery address", 1000)):
+        value = customer.get(field)
+        if not isinstance(value, str) or not value.strip() or len(value.strip()) > limit:
+            raise HTTPException(status_code=422, detail=f"Enter a valid {label.lower()}.")
+        customer[field] = value.strip()
+    digits = "".join(character for character in customer["phone"] if character.isdigit())
+    if not 8 <= len(digits) <= 15:
+        raise HTTPException(status_code=422, detail="Enter a valid phone number for order confirmation.")
+    if customer.get("email") is not None and (not isinstance(customer["email"], str) or len(customer["email"]) > 254):
+        raise HTTPException(status_code=422, detail="Enter a valid email address.")
+
+    products_by_id: dict[str, dict[str, Any]] = {}
+    quantities_by_id: dict[str, int] = {}
+    priced_items: list[dict[str, Any]] = []
+    subtotal = 0.0
+    offer_discount = 0.0
+    for requested in input.items:
+        product_id = requested.get("productId")
+        quantity = requested.get("quantity")
+        if not isinstance(product_id, str) or not product_id or len(product_id) > 180 or isinstance(quantity, bool) or not isinstance(quantity, int) or not 1 <= quantity <= 100:
+            raise HTTPException(status_code=422, detail="An order item or quantity is invalid.")
+        if product_id not in products_by_id:
+            if product_id.startswith("shopbase-"):
+                source_id = product_id.removeprefix("shopbase-")
+                product = store.products.find_one({"sourceId": source_id, "source": "shopbase"}, {"_id": 0})
+                override = store.admin_products.find_one({"id": product_id, "source": "shopbase"}, {"_id": 0}) or {}
+                if not product:
+                    raise HTTPException(status_code=409, detail="One of the products is no longer available. Refresh the catalog and try again.")
+                product = public_product(product, include_details=True)
+                product.update({key: override[key] for key in ("title", "category", "price", "compareAt", "image", "description", "stock", "active", "sizes", "options") if key in override})
+            else:
+                product = store.admin_products.find_one({"id": product_id, "source": "custom"}, {"_id": 0})
+                if not product:
+                    raise HTTPException(status_code=409, detail="One of the products is no longer available. Refresh the catalog and try again.")
+            if product.get("active", True) is False or product.get("stock") is not None and int(product.get("stock") or 0) <= 0:
+                raise HTTPException(status_code=409, detail=f"{product.get('title', 'A selected product')} is no longer available.")
+            products_by_id[product_id] = product
+
+        product = products_by_id[product_id]
+        stock = product.get("stock")
+        requested_total = quantities_by_id.get(product_id, 0) + quantity
+        quantities_by_id[product_id] = requested_total
+        if stock is not None and requested_total > int(stock):
+            raise HTTPException(status_code=409, detail=f"Only {int(stock)} of {product.get('title', 'this product')} are currently available.")
+        size = requested.get("size")
+        sizes = product.get("sizes") if isinstance(product.get("sizes"), list) else []
+        if size is not None and not isinstance(size, str):
+            raise HTTPException(status_code=422, detail="A selected product size is invalid.")
+        if sizes and (not isinstance(size, str) or size not in sizes):
+            raise HTTPException(status_code=422, detail=f"Choose a valid size for {product.get('title', 'the selected product')}.")
+        if size and not sizes:
+            raise HTTPException(status_code=422, detail=f"The selected size for {product.get('title', 'this product')} is no longer available.")
+        requested_options = requested.get("options") or {}
+        if not isinstance(requested_options, dict) or any(not isinstance(key, str) or not isinstance(value, str) for key, value in requested_options.items()):
+            raise HTTPException(status_code=422, detail="A product option is invalid.")
+        defined_options = product.get("options") if isinstance(product.get("options"), list) else []
+        normalized_options: dict[str, str] = {}
+        for option in defined_options:
+            name = option.get("name") if isinstance(option, dict) else None
+            values = option.get("values") if isinstance(option, dict) else None
+            if not isinstance(name, str) or not isinstance(values, list) or not values:
+                continue
+            value = requested_options.get(name)
+            if value not in values:
+                raise HTTPException(status_code=422, detail=f"Choose a valid {name.lower()} for {product.get('title', 'the selected product')}.")
+            normalized_options[name] = value
+        if set(requested_options) - set(normalized_options):
+            raise HTTPException(status_code=422, detail="A selected product option is no longer available.")
+
+        unit_price = max(0.0, float(product.get("price") or 0))
+        subtotal += unit_price * quantity
+        priced_items.append({"productId": product_id, "title": str(product.get("title") or "Product"), "image": str(product.get("image") or ""), "price": unit_price, "quantity": quantity, **({"size": size} if size else {}), **({"options": normalized_options} if normalized_options else {})})
+        offer = store.offers.find_one({"productId": product_id, "active": True}, {"_id": 0})
+        if offer:
+            offer_quantity = max(1, int(offer.get("quantity") or 1))
+            if offer.get("kind") == "special_price":
+                offer_discount += max(0.0, unit_price - min(unit_price, float(offer.get("value") or 0))) * quantity
+            elif offer.get("kind") == "quantity_discount":
+                groups = quantity // offer_quantity
+                eligible_quantity = groups * offer_quantity
+                saving = eligible_quantity * unit_price * float(offer.get("value") or 0) / 100 if offer.get("discountKind") == "percent" else groups * float(offer.get("value") or 0)
+                offer_discount += min(eligible_quantity * unit_price, saving)
+            elif offer.get("kind") == "buy_x_get_y_free":
+                free_quantity = max(1, int(offer.get("freeQuantity") or 1))
+                offer_discount += (quantity // (offer_quantity + free_quantity)) * free_quantity * unit_price
+
+    content = (store.store_settings.find_one({"_id": "storefront"}, {"_id": 0, "content": 1}) or {}).get("content") or {}
+    try:
+        delivery = float(content.get("deliveryOutsideDhaka" if input.deliveryZone == "outside" else "deliveryInDhaka", 120 if input.deliveryZone == "outside" else 60))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=503, detail="Delivery charges are not configured correctly. Contact the store before retrying.")
+    if not 0 <= delivery <= 10000:
+        raise HTTPException(status_code=503, detail="Delivery charges are outside the allowed range. Contact the store before retrying.")
+    discount = offer_discount
+    coupon_code = input.coupon.strip().upper() if isinstance(input.coupon, str) and input.coupon.strip() else None
+    if coupon_code:
+        coupon = store.coupons.find_one({"code": coupon_code, "active": True}, {"_id": 0})
+        if not coupon:
+            raise HTTPException(status_code=422, detail="That coupon is no longer active. Remove it and place your order again.")
+        if subtotal < float(coupon.get("minimum") or 0):
+            raise HTTPException(status_code=422, detail="Your order no longer meets this coupon’s minimum amount.")
+        coupon_saving = subtotal * float(coupon.get("value") or 0) / 100 if coupon.get("kind") == "percent" else float(coupon.get("value") or 0)
+        discount += min(subtotal, coupon_saving)
+    discount = min(subtotal, discount)
+    total = max(0.0, subtotal + delivery - discount)
     order_id = f"AR-{uuid.uuid4().hex[:8].upper()}"
-    order = {**input.model_dump(), "id": order_id, "customerId": user["_id"] if user else None, "createdAt": datetime.now(timezone.utc).isoformat(), "status": "Pending confirmation"}
-    db().orders.insert_one(order)
+    order = {"id": order_id, "customer": customer, "items": priced_items, "subtotal": subtotal, "delivery": delivery, "deliveryZone": input.deliveryZone, "discount": discount, "total": total, "coupon": coupon_code, "customerId": user["_id"] if user else None, "createdAt": datetime.now(timezone.utc).isoformat(), "status": "Pending confirmation"}
+    store.orders.insert_one(order)
     order.pop("_id", None)
     return order
 
@@ -327,6 +504,23 @@ def save_offer(input: OfferInput, authorization: str | None = Header(default=Non
         raise HTTPException(status_code=422, detail="Discount must be a percentage or fixed amount.")
     if input.kind != "buy_x_get_y_free" and input.value <= 0:
         raise HTTPException(status_code=422, detail="Enter a positive offer value.")
+    if input.kind == "quantity_discount" and input.discountKind == "percent" and input.value > 100:
+        raise HTTPException(status_code=422, detail="A percentage offer cannot exceed 100%.")
+    if input.kind == "special_price":
+        if input.productId.startswith("shopbase-"):
+            source_id = input.productId.removeprefix("shopbase-")
+            product = db().products.find_one({"sourceId": source_id, "source": "shopbase"}, {"_id": 0, "price": 1, "suggestedRetailPrice": 1, "active": 1})
+            override = db().admin_products.find_one({"id": input.productId, "source": "shopbase"}, {"_id": 0, "price": 1, "active": 1}) or {}
+            price = override["price"] if "price" in override else (product or {}).get("suggestedRetailPrice") or (product or {}).get("price") or 0
+            active = bool(product and product.get("active", True) and override.get("active", True))
+        else:
+            product = db().admin_products.find_one({"id": input.productId, "source": "custom"}, {"_id": 0, "price": 1, "active": 1})
+            price = (product or {}).get("price") or 0
+            active = bool(product and product.get("active", True))
+        if not active:
+            raise HTTPException(status_code=422, detail="Choose an active product for the offer.")
+        if input.value >= float(price):
+            raise HTTPException(status_code=422, detail="The offer price must be lower than the product’s current price.")
     offer = input.model_dump()
     db().offers.replace_one({"id": offer["id"]}, offer, upsert=True)
     return offer
@@ -411,21 +605,26 @@ def _stamp(value: str | None):
 @app.get("/api/admin/sync/schedule")
 def admin_sync_schedule(authorization: str | None = Header(default=None)):
     _admin_from_auth(authorization)
-    settings = db().sync_settings.find_one({"_id": "catalog-schedule"}, {"_id": 0, "intervalHours": 1}) or {}
+    settings = db().sync_settings.find_one({"_id": "catalog-schedule"}, {"_id": 0, "intervalHours": 1, "startTime": 1}) or {}
     interval = settings.get("intervalHours", 24)
-    return {"intervalHours": interval if interval in (6, 12, 24, 48) else 24}
+    start_time = settings.get("startTime", "00:00")
+    if not isinstance(start_time, str) or not re.fullmatch(r"(?:[01]\d|2[0-3]):00", start_time):
+        start_time = "00:00"
+    return {"intervalHours": interval if interval in (6, 12, 24, 48) else 24, "startTime": start_time}
 
 @app.patch("/api/admin/sync/schedule")
 def update_admin_sync_schedule(input: SyncScheduleInput, authorization: str | None = Header(default=None)):
     _admin_from_auth(authorization)
     if input.intervalHours not in (6, 12, 24, 48):
         raise HTTPException(status_code=422, detail="Choose a 6, 12, 24, or 48 hour sync interval.")
+    if not re.fullmatch(r"(?:[01]\d|2[0-3]):00", input.startTime):
+        raise HTTPException(status_code=422, detail="Choose an hourly start time in Bangladesh time.")
     db().sync_settings.update_one(
         {"_id": "catalog-schedule"},
-        {"$set": {"intervalHours": input.intervalHours, "updatedAt": datetime.now(timezone.utc).isoformat()}},
+        {"$set": {"intervalHours": input.intervalHours, "startTime": input.startTime, "updatedAt": datetime.now(timezone.utc).isoformat()}},
         upsert=True,
     )
-    return {"intervalHours": input.intervalHours}
+    return {"intervalHours": input.intervalHours, "startTime": input.startTime}
 
 @app.post("/api/admin/sync/run")
 def start_admin_sync(input: SyncRequest, authorization: str | None = Header(default=None)):
@@ -484,7 +683,27 @@ def admin_sync_progress(authorization: str | None = Header(default=None)):
     progress = db().sync_runs.find_one({}, fields, sort=[("startedAt", -1)]) or {"status": "not_started", "phase": "idle"}
     control = db().sync_control.find_one({"_id": "manual"}, {"_id": 0})
     if not control:
-        return progress
+        response = dict(progress)
+        try:
+            token, repository, workflow = _github_sync_settings()
+            scheduled_runs = [run for run in _github_sync_runs(token, repository, workflow) if run.get("event") == "schedule"]
+            latest_scheduled = scheduled_runs[0] if scheduled_runs else None
+            if latest_scheduled:
+                workflow_time = _stamp(latest_scheduled.get("created_at"))
+                importer_time = _stamp(progress.get("startedAt"))
+                importer_is_current = bool(workflow_time and importer_time and importer_time >= workflow_time)
+                response.update({
+                    "workflowStatus": latest_scheduled.get("status"),
+                    "workflowRunId": latest_scheduled.get("id"),
+                    "workflowUrl": latest_scheduled.get("html_url"),
+                })
+                if not importer_is_current and latest_scheduled.get("status") in ("queued", "in_progress"):
+                    response.update({"status": "running", "phase": "schedule_check" if latest_scheduled.get("status") == "in_progress" else "queued", "startedAt": latest_scheduled.get("created_at"), "progressPercent": 0})
+                elif not importer_is_current and latest_scheduled.get("status") == "completed" and latest_scheduled.get("conclusion") not in ("success", "skipped"):
+                    response.update({"status": "failed", "phase": "failed", "error": "The scheduled GitHub workflow failed before it reported catalog progress. Open the workflow run for its failure details."})
+        except (HTTPException, requests.RequestException):
+            pass
+        return response
     response = dict(progress)
     response["workflowStatus"] = control.get("status", "queued")
     response["workflowRunId"] = control.get("runId")
@@ -551,8 +770,155 @@ def update_order(order_id: str, input: OrderStatusInput, authorization: str | No
         raise HTTPException(status_code=404, detail="Order not found.")
     return {"ok": True}
 
+def _catalog_product_id(product: dict[str, Any]) -> str:
+    return f"shopbase-{product.get('sourceId', '')}" if product.get("source") == "shopbase" else str(product.get("id", ""))
+
+def _category_groups_for_store(store):
+    settings = store.store_settings.find_one({"_id": "storefront"}) or {}
+    categories = list(store.categories.find({"source": "shopbase", "type": {"$ne": "parent"}}, {"_id": 0, "sourceId": 1, "name": 1, "parentId": 1, "parentName": 1, "sortOrder": 1, "sourceOrder": 1}))
+    if categories and all(item.get("sourceOrder") is not None for item in categories):
+        categories.sort(key=lambda item: item["sourceOrder"])
+    live_groups = category_group_payload(categories)
+    saved_groups = settings.get("categoryGroups")
+    if not isinstance(saved_groups, list):
+        return live_groups, False
+    normalize = lambda value: re.sub(r"[\s\u00a0\-–—_.,:;|]+", "", str(value or "").casefold())
+    merged = []
+    for saved in saved_groups:
+        live = next((group for group in live_groups if group["id"] == saved["id"]), None)
+        children = list(saved.get("children", []))
+        known = {child.get("sourceId") or normalize(child.get("name")) for child in children}
+        if live:
+            for child in live.get("children", []):
+                key = child.get("sourceId") or normalize(child.get("name"))
+                match_index = next((index for index, item in enumerate(children) if (item.get("sourceId") and item.get("sourceId") == child.get("sourceId")) or normalize(item.get("name")) == normalize(child.get("name"))), None)
+                if match_index is None and key not in known:
+                    children.append(child)
+                    known.add(key)
+                elif match_index is not None and not children[match_index].get("sourceId") and child.get("sourceId"):
+                    children[match_index]["sourceId"] = child["sourceId"]
+            merged.append({**saved, "children": children})
+        else:
+            merged.append(saved)
+    saved_ids = {group["id"] for group in saved_groups}
+    merged.extend(group for group in live_groups if group["id"] not in saved_ids)
+    return merged, True
+
+@app.get("/api/admin/storefront")
+def admin_storefront_settings(authorization: str | None = Header(default=None)):
+    _admin_from_auth(authorization)
+    settings = db().store_settings.find_one({"_id": "storefront"}) or {}
+    return {key: settings[key] for key in ("content", "categoryGroups", "manualCategories") if key in settings}
+
+@app.patch("/api/admin/storefront")
+def update_admin_storefront(input: StorefrontSettingsInput, authorization: str | None = Header(default=None)):
+    _admin_from_auth(authorization)
+    values: dict[str, Any] = {}
+    if input.content is not None:
+        if len(json.dumps(input.content, ensure_ascii=False)) > 500_000:
+            raise HTTPException(status_code=422, detail="Storefront settings are too large to save.")
+        values["content"] = input.content
+    if input.categoryGroups is not None:
+        groups: list[dict[str, Any]] = []
+        for group in input.categoryGroups[:100]:
+            if not isinstance(group.get("id"), str) or not isinstance(group.get("name"), str) or not isinstance(group.get("children"), list):
+                raise HTTPException(status_code=422, detail="Each category group needs an ID, name, and child list.")
+            children = []
+            for child in group["children"][:1000]:
+                if not isinstance(child, dict) or not isinstance(child.get("name"), str):
+                    continue
+                children.append({key: child[key] for key in ("name", "sourceId", "sortOrder") if key in child and isinstance(child[key], (str, int, float))})
+            groups.append({"id": group["id"][:180], "name": group["name"][:180], "children": children})
+        values["categoryGroups"] = groups
+    if input.manualCategories is not None:
+        values["manualCategories"] = list(dict.fromkeys(value.strip()[:180] for value in input.manualCategories[:500] if value.strip()))
+    if values:
+        values["updatedAt"] = datetime.now(timezone.utc).isoformat()
+        db().store_settings.update_one({"_id": "storefront"}, {"$set": values}, upsert=True)
+    return {key: values[key] for key in values if key != "updatedAt"}
+
+@app.put("/api/admin/products")
+def save_admin_product(input: AdminProductInput, authorization: str | None = Header(default=None)):
+    _admin_from_auth(authorization)
+    product = input.model_dump(exclude_unset=True)
+    product.setdefault("updatedAt", datetime.now(timezone.utc).isoformat())
+    if product["source"] == "shopbase" and not product.get("sourceId"):
+        product["sourceId"] = product["id"].removeprefix("shopbase-")
+    db().admin_products.replace_one({"id": product["id"]}, product, upsert=True)
+    return product
+
+@app.get("/api/admin/products")
+def list_admin_products(authorization: str | None = Header(default=None)):
+    _admin_from_auth(authorization)
+    store = db()
+    fields = {"_id": 0, "sourceId": 1, "title": 1, "category": 1, "categorySourceId": 1, "parentCategory": 1, "parentCategoryId": 1, "price": 1, "suggestedRetailPrice": 1, "compareAt": 1, "image": 1, "stock": 1, "active": 1, "source": 1, "updatedAt": 1, "trending": 1, "offer": 1, "badge": 1, "rating": 1, "reviews": 1}
+    overrides = {item["id"]: item for item in store.admin_products.find({"source": "shopbase"}, {"_id": 0})}
+    products = []
+    for item in store.products.find({"source": "shopbase"}, fields).limit(20000):
+        product_id = _catalog_product_id(item)
+        product = public_product(item)
+        override = overrides.get(product_id)
+        if override:
+            for key in ("title", "category", "price", "compareAt", "image", "description", "stock", "active", "trending", "offer", "badge", "sizes", "sizeChart", "details", "attributes", "options", "categorySourceId", "parentCategory", "parentCategoryId"):
+                if key in override:
+                    product[key] = override[key]
+        products.append(product)
+    products.extend(store.admin_products.find({"source": "custom"}, {"_id": 0}).limit(20000))
+    products.sort(key=lambda item: str(item.get("title", "")).casefold())
+    return products
+
+@app.post("/api/admin/products/import")
+def import_admin_products(input: AdminProductImport, authorization: str | None = Header(default=None)):
+    _admin_from_auth(authorization)
+    products = [item.model_dump() for item in input.products]
+    if any(item.get("source") != "custom" for item in products):
+        raise HTTPException(status_code=422, detail="CSV products must be imported as manually managed products.")
+    operations = [UpdateOne({"id": item["id"]}, {"$set": {**item, "updatedAt": datetime.now(timezone.utc).isoformat()}}, upsert=True) for item in products]
+    db().admin_products.bulk_write(operations, ordered=False)
+    categories = list(dict.fromkeys(item["category"] for item in products if item.get("category")))
+    settings = db().store_settings.find_one({"_id": "storefront"}, {"_id": 0, "manualCategories": 1}) or {}
+    existing = settings.get("manualCategories", [])
+    manual_categories = list(dict.fromkeys([*(existing if isinstance(existing, list) else []), *categories]))
+    db().store_settings.update_one({"_id": "storefront"}, {"$set": {"manualCategories": manual_categories}}, upsert=True)
+    return {"ok": True, "imported": len(products)}
+
+@app.delete("/api/admin/products/{product_id}")
+def delete_admin_product(product_id: str, authorization: str | None = Header(default=None)):
+    _admin_from_auth(authorization)
+    existing = db().admin_products.find_one({"id": product_id}, {"_id": 0})
+    if existing and existing.get("source") == "custom":
+        db().admin_products.delete_one({"id": product_id})
+    elif product_id.startswith("shopbase-"):
+        source_id = product_id.removeprefix("shopbase-")
+        db().admin_products.update_one(
+            {"id": product_id},
+            {"$set": {"id": product_id, "source": "shopbase", "sourceId": source_id, "active": False, "updatedAt": datetime.now(timezone.utc).isoformat()}},
+            upsert=True,
+        )
+    else:
+        raise HTTPException(status_code=404, detail="Product not found.")
+    return {"ok": True}
+
+@app.get("/api/admin/products/{product_id}")
+def get_admin_product(product_id: str, authorization: str | None = Header(default=None)):
+    _admin_from_auth(authorization)
+    store = db()
+    saved = store.admin_products.find_one({"id": product_id}, {"_id": 0})
+    if saved and saved.get("source") == "custom":
+        return saved
+    source_id = saved.get("sourceId") if saved else product_id.removeprefix("shopbase-")
+    product = store.products.find_one({"sourceId": source_id, "source": "shopbase"}, {"_id": 0})
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found.")
+    result = public_product(product, include_details=True)
+    if saved:
+        for key in ("title", "category", "price", "compareAt", "image", "description", "stock", "active", "trending", "offer", "badge", "sizes", "sizeChart", "details", "attributes", "options", "categorySourceId", "parentCategory", "parentCategoryId"):
+            if key in saved:
+                result[key] = saved[key]
+    return result
+
 def public_product(product, include_details=False):
-    product["id"] = f"shopbase-{product.get('sourceId', '')}"
+    product["id"] = f"shopbase-{product.get('sourceId', '')}" if product.get("source") == "shopbase" else str(product.get("id", ""))
     # The supplier's suggested retail price is the storefront price. Keep the
     # wholesale value in MongoDB, but never expose it in the public catalog.
     product["price"] = product.get("suggestedRetailPrice") or product.get("price", 0)
@@ -577,7 +943,7 @@ def public_product(product, include_details=False):
         product["images"] = [primary_image] if primary_image else []
     else:
         product.pop("images", None)
-    if not include_details:
+    if not include_details and product.get("source") == "shopbase":
         product["description"] = ""
     return product
 
@@ -596,7 +962,21 @@ def catalog():
     try:
         store = db()
         fields = {"_id": 0, "sourceId": 1, "title": 1, "category": 1, "categorySourceId": 1, "parentCategory": 1, "parentCategoryId": 1, "price": 1, "suggestedRetailPrice": 1, "compareAt": 1, "image": 1, "stock": 1, "active": 1, "source": 1, "updatedAt": 1, "trending": 1, "offer": 1, "badge": 1, "rating": 1, "reviews": 1}
-        products = [public_product(item) for item in store.products.find({"active": True}, fields).limit(20000)]
+        overrides = {item["id"]: item for item in store.admin_products.find({"source": "shopbase"}, {"_id": 0})}
+        products = []
+        for item in store.products.find({"source": "shopbase"}, fields).limit(20000):
+            product_id = _catalog_product_id(item)
+            override = overrides.get(product_id)
+            if override and override.get("active") is False:
+                continue
+            product = public_product(item)
+            if override:
+                for key in ("title", "category", "price", "compareAt", "image", "description", "stock", "active", "trending", "offer", "badge", "sizes", "sizeChart", "details", "attributes", "options", "categorySourceId", "parentCategory", "parentCategoryId"):
+                    if key in override:
+                        product[key] = override[key]
+            products.append(product)
+        products.extend(public_product(item) for item in store.admin_products.find({"source": "custom", "active": True}, {"_id": 0}).limit(20000))
+        products = [product for product in products if product.get("active", True)]
         products.sort(key=lambda item: str(item.get("title", "")).casefold())
         view_counts = {item["productId"]: int(item.get("views", 0)) for item in store.product_views.find({}, {"_id": 0, "productId": 1, "views": 1})}
         categories = list(store.categories.find({"source": "shopbase", "type": {"$ne": "parent"}}, {"_id": 0, "sourceId": 1, "name": 1, "parentId": 1, "parentName": 1, "sortOrder": 1, "sourceOrder": 1}))
@@ -604,9 +984,11 @@ def catalog():
         # categories (e.g. Denim Jacket under two parent collections).
         if categories and all(item.get("sourceOrder") is not None for item in categories):
             categories.sort(key=lambda item: item["sourceOrder"])
-        groups = category_group_payload(categories)
-        latest = store.sync_runs.find_one({"status": "success"}, {"_id": 0}, sort=[("finishedAt", -1)])
-        return {"products": products, "categories": [item["name"] for item in categories], "categoryGroups": groups, "lastSync": (latest or {}).get("finishedAt"), "productViewCounts": view_counts}
+        groups, _ = _category_groups_for_store(store)
+        settings = store.store_settings.find_one({"_id": "storefront"}) or {}
+        manual_categories = settings.get("manualCategories", [])
+        latest = store.sync_runs.find_one({"status": {"$in": ["success", "success_with_skipped_details"]}}, {"_id": 0}, sort=[("finishedAt", -1)])
+        return {"products": products, "categories": list(dict.fromkeys([item["name"] for item in categories] + manual_categories)), "categoryGroups": groups, "categoryGroupsManaged": isinstance(settings.get("categoryGroups"), list), "manualCategories": manual_categories, "manualCategoriesManaged": isinstance(settings.get("manualCategories"), list), "content": settings.get("content"), "lastSync": (latest or {}).get("finishedAt"), "productViewCounts": view_counts}
     except HTTPException:
         raise
     except Exception:
@@ -633,10 +1015,19 @@ def product_view_counts():
 @app.get("/api/products/{source_id}")
 def product_details(source_id: str):
     try:
+        custom = db().admin_products.find_one({"id": source_id, "source": "custom", "active": True}, {"_id": 0})
+        if custom:
+            return public_product(custom, include_details=True)
         product = db().products.find_one({"sourceId": source_id, "source": "shopbase", "active": True}, {"_id": 0})
         if not product:
             raise HTTPException(status_code=404, detail="Product is unavailable.")
-        return public_product(product, include_details=True)
+        result = public_product(product, include_details=True)
+        override = db().admin_products.find_one({"id": f"shopbase-{source_id}", "source": "shopbase"}, {"_id": 0})
+        if override:
+            for key in ("title", "category", "price", "compareAt", "image", "description", "stock", "active", "trending", "offer", "badge", "sizes", "sizeChart", "details", "attributes", "options", "categorySourceId", "parentCategory", "parentCategoryId"):
+                if key in override:
+                    result[key] = override[key]
+        return result
     except HTTPException:
         raise
     except Exception:

@@ -36,9 +36,10 @@ export type Order = {
   id: string
   createdAt: string
   customer: { name: string; phone: string; email?: string; address: string; area: string }
-  items: { productId: string; title: string; image: string; price: number; quantity: number; size?: string }[]
+  items: { productId: string; title: string; image: string; price: number; quantity: number; size?: string; options?: Record<string, string> }[]
   subtotal: number
   delivery: number
+  deliveryZone?: 'inside' | 'outside'
   discount: number
   total: number
   coupon?: string

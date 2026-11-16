@@ -2,7 +2,7 @@ name: ShopBase catalog sync
 
 on:
   schedule:
-    - cron: '0 */6 * * *'
+    - cron: '0 * * * *'
   workflow_dispatch:
     inputs:
       refresh_details:
@@ -32,7 +32,7 @@ jobs:
           python-version: '3.12'
       - name: Install schedule checker dependency
         run: pip install pymongo
-      - name: Check saved sync interval
+      - name: Check saved sync interval and start time
         id: cadence
         shell: bash
         run: |

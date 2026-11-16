@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 1000" fill="none">
+  <rect width="800" height="1000" fill="#edf1ec"/>
+  <path d="M170 350h460l-32 440H202l-32-440Z" fill="#dfe7df"/>
+  <path d="M286 350c0-66 51-120 114-120s114 54 114 120" stroke="#8ea59a" stroke-width="18"/>
+  <path d="M320 522h160M320 578h160M320 634h116" stroke="#adc0b4" stroke-linecap="round" stroke-width="16"/>
+  <text x="400" y="870" fill="#587166" font-family="Arial,sans-serif" font-size="30" text-anchor="middle">Add product photo</text>
+</svg>
