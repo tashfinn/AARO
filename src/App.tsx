@@ -1434,6 +1434,7 @@ function SyncPanel({ lastSync, onLastSync, onSyncComplete, importNote, fileRef, 
   const [hostedPassword, setHostedPassword] = useState('')
   const [hostedLoginBusy, setHostedLoginBusy] = useState(false)
   const [hostedLoginMessage, setHostedLoginMessage] = useState('')
+  const hostedUsernameRef = useRef<HTMLInputElement>(null)
   const acceptProgress = (result: SyncProgress) => {
     setSyncProgress(result)
     if ((result.status === 'success' || result.status === 'success_with_skipped_details') && typeof result.finishedAt === 'string') {
@@ -1535,6 +1536,15 @@ function SyncPanel({ lastSync, onLastSync, onSyncComplete, importNote, fileRef, 
       setProgressError(error instanceof Error ? error.message : 'Could not start catalog sync.')
     } finally { setProgressLoading(false) }
   }
+  const startHostedCookieSync = () => {
+    if (!hostedLoginConfigured) {
+      setHostedLoginMessage('Enter and save your ShopBase credentials here to enable automatic cookie renewal.')
+      document.getElementById('hosted-login-setup')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      window.setTimeout(() => hostedUsernameRef.current?.focus(), 450)
+      return
+    }
+    void startSyncNow()
+  }
   const saveShopBaseCookie = () => {
     if (!apiBase || !token) { setProgressError('Saving the cookie needs an active admin session and catalog API.'); return }
     setCookieDraft('')
@@ -1594,12 +1604,12 @@ function SyncPanel({ lastSync, onLastSync, onSyncComplete, importNote, fileRef, 
         <span><b>{imported.length ? imported.length.toLocaleString() + ' imported products' : 'ShopBase catalog not synced'}</b><small>{lastSync ? 'Last catalog update ' + dateTimeLabel(lastSync) + ' (Bangladesh time)' : imported.length ? 'Products are available from your connected catalog API.' : 'Save your ShopBase login below to allow the hosted runner to refresh expired sessions.'}</small></span>
         <span className={'status-pill ' + (imported.length ? 'status-green' : 'status-amber')}><i />{imported.length ? 'Connected' : 'Needs sync'}</span>
       </div>
-      <div className="sync-actions"><button className="secondary-button" onClick={saveShopBaseCookie} disabled={progressLoading}>Sync cookie</button><button className="primary-button sync-now-button" onClick={startSyncNow} disabled={progressLoading || progress?.status === 'running'}><RotateCcw size={17} /> {progress?.status === 'running' ? 'Sync running…' : progressLoading ? 'Starting…' : 'Sync Now'}</button><button className="secondary-button" onClick={() => fileRef.current?.click()}><Upload size={17} /> Import supplier CSV</button><input ref={fileRef} type="file" accept=".csv,text/csv" hidden onChange={(event) => onImport(event.target.files?.[0])} /><button className="secondary-button" onClick={refreshProgress} disabled={progressLoading}><RotateCcw size={16} /> {progressLoading ? 'Checking progress…' : 'View sync progress'}</button></div>
-      <section className="sync-agent-card">
+      <div className="sync-actions"><button className="secondary-button" onClick={startHostedCookieSync} disabled={progressLoading || progress?.status === 'running'}><RotateCcw size={16} /> Sync cookie automatically</button><button className="secondary-button" onClick={saveShopBaseCookie} disabled={progressLoading}>Sync cookie manually</button><button className="primary-button sync-now-button" onClick={startSyncNow} disabled={progressLoading || progress?.status === 'running'}><RotateCcw size={17} /> {progress?.status === 'running' ? 'Sync running…' : progressLoading ? 'Starting…' : 'Sync Now'}</button><button className="secondary-button" onClick={() => fileRef.current?.click()}><Upload size={17} /> Import supplier CSV</button><input ref={fileRef} type="file" accept=".csv,text/csv" hidden onChange={(event) => onImport(event.target.files?.[0])} /><button className="secondary-button" onClick={refreshProgress} disabled={progressLoading}><RotateCcw size={16} /> {progressLoading ? 'Checking progress…' : 'View sync progress'}</button></div>
+      <section className="sync-agent-card" id="hosted-login-setup">
         <div className="sync-agent-heading"><b>Hosted automatic sign-in</b><span className={'status-pill ' + (hostedLoginConfigured ? 'status-green' : 'status-amber')}><i />{hostedLoginConfigured ? 'Configured' : 'Setup needed'}</span></div>
         <p>When the saved cookie expires, GitHub Actions signs in to ShopBase, gets a fresh session, and continues the sync. This runs in the cloud; your PC does not need to be on.</p>
         <form className="hosted-login-form" onSubmit={saveHostedLogin}>
-          <label>ShopBase phone number or username<input type="text" autoComplete="username" value={hostedUsername} onChange={(event) => setHostedUsername(event.target.value)} placeholder={hostedLoginConfigured ? 'Enter to replace saved login' : 'ShopBase login phone number'} required /></label>
+          <label>ShopBase phone number or username<input ref={hostedUsernameRef} type="text" autoComplete="username" value={hostedUsername} onChange={(event) => setHostedUsername(event.target.value)} placeholder={hostedLoginConfigured ? 'Enter to replace saved login' : 'ShopBase login phone number'} required /></label>
           <label>ShopBase password<input type="password" autoComplete="new-password" value={hostedPassword} onChange={(event) => setHostedPassword(event.target.value)} placeholder={hostedLoginConfigured ? 'Enter to replace saved password' : 'ShopBase password'} required /></label>
           <div className="sync-actions"><button className="primary-button" disabled={hostedLoginBusy || !hostedUsername || !hostedPassword}>{hostedLoginBusy ? 'Saving securely…' : hostedLoginConfigured ? 'Update hosted login' : 'Enable hosted renewal'}</button>{hostedLoginConfigured && <button type="button" className="secondary-button" onClick={removeHostedLogin} disabled={hostedLoginBusy}>Remove</button>}</div>
         </form>
