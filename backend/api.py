@@ -9,6 +9,7 @@ import secrets
 import time
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Literal
 from fastapi import FastAPI, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
@@ -23,6 +24,15 @@ origins = [x.strip() for x in os.getenv("FRONTEND_ORIGINS", "http://localhost:51
 app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=False, allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"], allow_headers=["*"])
 _client = None
 PASSWORD_ROUNDS = 310_000
+try:
+    with (Path(__file__).resolve().parent / "bangladesh-locations.json").open(encoding="utf-8") as location_file:
+        _location_payload = json.load(location_file)
+    BANGLADESH_AREAS = {
+        district["name"]: {area["name"]: area["zone"] for area in district["areas"]}
+        for district in _location_payload["districts"]
+    }
+except (OSError, KeyError, TypeError, json.JSONDecodeError):
+    BANGLADESH_AREAS = {}
 
 class CustomerCredentials(BaseModel):
     identifier: str = Field(min_length=3, max_length=254)
@@ -100,7 +110,7 @@ class OrderInput(BaseModel):
     delivery: float | None = Field(default=None, ge=0)
     discount: float | None = Field(default=None, ge=0)
     total: float | None = Field(default=None, ge=0)
-    deliveryZone: Literal["inside", "outside"] = "inside"
+    deliveryZone: Literal["inside", "outside", "city", "sub_dhaka"] = "outside"
     coupon: str | None = None
 
 class CouponInput(BaseModel):
@@ -300,7 +310,28 @@ def update_password(input: PasswordUpdate, authorization: str | None = Header(de
 @app.put("/api/account/addresses")
 def update_addresses(input: AddressUpdate, authorization: str | None = Header(default=None)):
     user = _customer_from_auth(authorization)
-    addresses = [{**address, "id": str(address.get("id") or uuid.uuid4().hex)} for address in input.addresses]
+    addresses = []
+    for raw_address in input.addresses:
+        address = dict(raw_address)
+        for field, label, limit in (("recipient", "Recipient", 120), ("phone", "Phone number", 32), ("district", "District", 80), ("thana", "Thana or area", 100), ("address", "Delivery address", 1000)):
+            value = address.get(field)
+            if not isinstance(value, str) or not value.strip() or len(value.strip()) > limit:
+                raise HTTPException(status_code=422, detail=f"Enter a valid {label.lower()}.")
+            address[field] = value.strip()
+        district_areas = BANGLADESH_AREAS.get(address["district"])
+        if not district_areas or address["thana"] not in district_areas:
+            raise HTTPException(status_code=422, detail="Choose a valid district and thana or area from the address lists.")
+        digits = "".join(character for character in address["phone"] if character.isdigit())
+        if not 8 <= len(digits) <= 15:
+            raise HTTPException(status_code=422, detail="Enter a valid phone number.")
+        comments = address.get("comments")
+        if comments is not None and (not isinstance(comments, str) or len(comments) > 1000):
+            raise HTTPException(status_code=422, detail="Comments must be 1,000 characters or fewer.")
+        address["area"] = f"{address['thana']}, {address['district']}"
+        address["comments"] = comments.strip() or None if isinstance(comments, str) else None
+        address["id"] = str(address.get("id") or uuid.uuid4().hex)
+        address["isDefault"] = bool(address.get("isDefault"))
+        addresses.append(address)
     default_ids = [item["id"] for item in addresses if item.get("isDefault")]
     if len(default_ids) > 1:
         raise HTTPException(status_code=422, detail="Choose only one default address.")
@@ -373,12 +404,21 @@ def create_order(input: OrderInput, authorization: str | None = Header(default=N
         raise HTTPException(status_code=503, detail="The store is temporarily closed and is not accepting orders.")
     user = _customer_from_auth(authorization) if authorization else None
 
-    customer = {key: input.customer.get(key) for key in ("name", "phone", "area", "address", "email") if key in input.customer}
-    for field, label, limit in (("name", "Full name", 120), ("phone", "Phone number", 32), ("area", "Delivery area", 180), ("address", "Delivery address", 1000)):
+    customer = {key: input.customer.get(key) for key in ("name", "phone", "district", "thana", "address", "email", "comments") if key in input.customer}
+    for field, label, limit in (("name", "Full name", 120), ("phone", "Phone number", 32), ("district", "District", 80), ("thana", "Thana or area", 100), ("address", "Delivery address", 1000)):
         value = customer.get(field)
         if not isinstance(value, str) or not value.strip() or len(value.strip()) > limit:
             raise HTTPException(status_code=422, detail=f"Enter a valid {label.lower()}.")
         customer[field] = value.strip()
+    district_areas = BANGLADESH_AREAS.get(customer["district"])
+    if not district_areas or customer["thana"] not in district_areas:
+        raise HTTPException(status_code=422, detail="Choose a valid district and thana or area from the address lists.")
+    delivery_zone = district_areas[customer["thana"]]
+    customer["area"] = f"{customer['thana']}, {customer['district']}"
+    if customer.get("comments") is not None:
+        if not isinstance(customer["comments"], str) or len(customer["comments"]) > 1000:
+            raise HTTPException(status_code=422, detail="Comments must be 1,000 characters or fewer.")
+        customer["comments"] = customer["comments"].strip() or None
     digits = "".join(character for character in customer["phone"] if character.isdigit())
     if not 8 <= len(digits) <= 15:
         raise HTTPException(status_code=422, detail="Enter a valid phone number for order confirmation.")
@@ -461,10 +501,17 @@ def create_order(input: OrderInput, authorization: str | None = Header(default=N
                 offer_discount += (quantity // (offer_quantity + free_quantity)) * free_quantity * unit_price
 
     content = (store.store_settings.find_one({"_id": "storefront"}, {"_id": 0, "content": 1}) or {}).get("content") or {}
-    try:
-        delivery = float(content.get("deliveryOutsideDhaka" if input.deliveryZone == "outside" else "deliveryInDhaka", 120 if input.deliveryZone == "outside" else 60))
-    except (TypeError, ValueError):
-        raise HTTPException(status_code=503, detail="Delivery charges are not configured correctly. Contact the store before retrying.")
+    # Migrate the original two-tier default the first time this newer three-tier flow runs.
+    legacy_default = "deliverySubDhaka" not in content and content.get("deliveryInDhaka") == 60 and content.get("deliveryOutsideDhaka", 120) == 120
+    if legacy_default:
+        delivery = {"city": 70, "sub_dhaka": 100, "outside": 120}[delivery_zone]
+    else:
+        rate_key = {"city": "deliveryInDhaka", "sub_dhaka": "deliverySubDhaka", "outside": "deliveryOutsideDhaka"}[delivery_zone]
+        default_rate = {"city": 70, "sub_dhaka": 100, "outside": 120}[delivery_zone]
+        try:
+            delivery = float(content.get(rate_key, default_rate))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=503, detail="Delivery charges are not configured correctly. Contact the store before retrying.")
     if not 0 <= delivery <= 10000:
         raise HTTPException(status_code=503, detail="Delivery charges are outside the allowed range. Contact the store before retrying.")
     discount = offer_discount
@@ -480,7 +527,7 @@ def create_order(input: OrderInput, authorization: str | None = Header(default=N
     discount = min(subtotal, discount)
     total = max(0.0, subtotal + delivery - discount)
     order_id = f"AR-{uuid.uuid4().hex[:8].upper()}"
-    order = {"id": order_id, "customer": customer, "items": priced_items, "subtotal": subtotal, "delivery": delivery, "deliveryZone": input.deliveryZone, "discount": discount, "total": total, "coupon": coupon_code, "customerId": user["_id"] if user else None, "createdAt": datetime.now(timezone.utc).isoformat(), "status": "Pending confirmation"}
+    order = {"id": order_id, "customer": customer, "items": priced_items, "subtotal": subtotal, "delivery": delivery, "deliveryZone": delivery_zone, "discount": discount, "total": total, "coupon": coupon_code, "customerId": user["_id"] if user else None, "createdAt": datetime.now(timezone.utc).isoformat(), "status": "Pending confirmation"}
     store.orders.insert_one(order)
     order.pop("_id", None)
     return order

@@ -3401,6 +3401,8 @@ a:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
 .quick-add-icon svg { width: 19px; height: 19px; }
 .cart-size-select { display: flex; align-items: center; gap: 8px; margin: 6px 0; color: var(--text-secondary); font-size: 13px; }
 .cart-size-select select { min-height: 36px; padding: 5px 26px 5px 9px; border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary); background: var(--surface); font: inherit; }
+.checkout-delivery-rate { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin: 4px 0 18px; padding: 13px 15px; border: 1px solid #dce5dc; border-radius: 7px; background: #f5f7f2; color: #425e53; font-size: 14px; }
+.checkout-delivery-rate b { color: #173f38; font-size: 16px; }
 .checkout-submit:disabled { opacity: .5; cursor: not-allowed; }
 :root { --focus: #d48a35; }
 button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible,

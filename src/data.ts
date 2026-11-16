@@ -23,7 +23,8 @@ export const initialState: StoreState = {
     trendingIds: [],
     offerIds: [],
     combos: [],
-    deliveryInDhaka: 60,
+    deliveryInDhaka: 70,
+    deliverySubDhaka: 100,
     deliveryOutsideDhaka: 120
   },
   views: 0

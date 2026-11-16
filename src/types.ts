@@ -32,14 +32,15 @@ export type CategoryGroup = { id: string; name: string; children: { sourceId?: s
 export type OfferDeal = { title: string; id: string; productId: string; kind: 'special_price' | 'quantity_discount' | 'buy_x_get_y_free'; value: number; discountKind: 'percent' | 'amount'; quantity: number; freeQuantity: number; active: boolean }
 export type Coupon = { code: string; kind: 'percent' | 'amount'; value: number; active: boolean; minimum?: number }
 export type OrderStatus = 'Pending confirmation' | 'Confirmed' | 'Processing' | 'Shipped' | 'Delivered' | 'Cancelled'
+export type DeliveryZone = 'city' | 'sub_dhaka' | 'outside'
 export type Order = {
   id: string
   createdAt: string
-  customer: { name: string; phone: string; email?: string; address: string; area: string }
+  customer: { name: string; phone: string; email?: string; address: string; area: string; district?: string; thana?: string; comments?: string }
   items: { productId: string; title: string; image: string; price: number; quantity: number; size?: string; options?: Record<string, string> }[]
   subtotal: number
   delivery: number
-  deliveryZone?: 'inside' | 'outside'
+  deliveryZone?: DeliveryZone | 'inside' | 'outside'
   discount: number
   total: number
   coupon?: string
@@ -60,6 +61,7 @@ export type StoreContent = {
   offerIds: string[]
   combos: { title: string; subtitle: string; image: string; price: number }[]
   deliveryInDhaka: number
+  deliverySubDhaka: number
   deliveryOutsideDhaka: number
 }
 
