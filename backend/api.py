@@ -50,6 +50,7 @@ class StorefrontSettingsInput(BaseModel):
     content: dict[str, Any] | None = None
     categoryGroups: list[dict[str, Any]] | None = None
     manualCategories: list[str] | None = None
+    manualCategoryVisibility: dict[str, bool] | None = None
 
 class AdminProductInput(BaseModel):
     id: str = Field(min_length=1, max_length=180)
@@ -59,7 +60,10 @@ class AdminProductInput(BaseModel):
     category: str = Field(min_length=1, max_length=180)
     price: float = Field(ge=0)
     compareAt: float | None = Field(default=None, ge=0)
+    originalPrice: float | None = Field(default=None, ge=0)
+    discountedPrice: float | None = Field(default=None, ge=0)
     image: str = Field(min_length=1, max_length=2048)
+    images: list[str] = Field(default_factory=list, max_length=20)
     description: str = Field(default="", max_length=20000)
     rating: float = Field(default=0, ge=0, le=5)
     reviews: int = Field(default=0, ge=0)
@@ -449,8 +453,7 @@ def create_order(input: OrderInput, authorization: str | None = Header(default=N
                 override = store.admin_products.find_one({"id": product_id, "source": "shopbase"}, {"_id": 0}) or {}
                 if not product:
                     raise HTTPException(status_code=409, detail="One of the products is no longer available. Refresh the catalog and try again.")
-                product = public_product(product, include_details=True)
-                product.update({key: override[key] for key in ("title", "category", "price", "compareAt", "image", "description", "stock", "active", "sizes", "options") if key in override})
+                product = _apply_shopbase_override(public_product(product, include_details=True), override)
             else:
                 product = store.admin_products.find_one({"id": product_id, "source": "custom"}, {"_id": 0})
                 if not product:
@@ -596,8 +599,8 @@ def save_offer(input: OfferInput, authorization: str | None = Header(default=Non
         if input.productId.startswith("shopbase-"):
             source_id = input.productId.removeprefix("shopbase-")
             product = db().products.find_one({"sourceId": source_id, "source": "shopbase"}, {"_id": 0, "price": 1, "suggestedRetailPrice": 1, "active": 1})
-            override = db().admin_products.find_one({"id": input.productId, "source": "shopbase"}, {"_id": 0, "price": 1, "active": 1}) or {}
-            price = override["price"] if "price" in override else (product or {}).get("suggestedRetailPrice") or (product or {}).get("price") or 0
+            override = db().admin_products.find_one({"id": input.productId, "source": "shopbase"}, {"_id": 0, "price": 1, "compareAt": 1, "discountedPrice": 1, "active": 1}) or {}
+            price = _shopbase_effective_price(product, override)
             active = bool(product and product.get("active", True) and override.get("active", True))
         else:
             product = db().admin_products.find_one({"id": input.productId, "source": "custom"}, {"_id": 0, "price": 1, "active": 1})
@@ -616,9 +619,9 @@ def save_offer(input: OfferInput, authorization: str | None = Header(default=Non
             if product_id.startswith("shopbase-"):
                 source_id = product_id.removeprefix("shopbase-")
                 product = db().products.find_one({"sourceId": source_id, "source": "shopbase"}, {"_id": 0, "price": 1, "suggestedRetailPrice": 1, "active": 1})
-                override = db().admin_products.find_one({"id": product_id, "source": "shopbase"}, {"_id": 0, "price": 1, "active": 1}) or {}
+                override = db().admin_products.find_one({"id": product_id, "source": "shopbase"}, {"_id": 0, "price": 1, "compareAt": 1, "discountedPrice": 1, "active": 1}) or {}
                 active = bool(product and product.get("active", True) and override.get("active", True))
-                price = override["price"] if "price" in override else (product or {}).get("suggestedRetailPrice") or (product or {}).get("price") or 0
+                price = _shopbase_effective_price(product, override)
             else:
                 product = db().admin_products.find_one({"id": product_id, "source": "custom"}, {"_id": 0, "price": 1, "active": 1})
                 active = bool(product and product.get("active", True))
@@ -929,6 +932,24 @@ def update_order(order_id: str, input: OrderStatusInput, authorization: str | No
 def _catalog_product_id(product: dict[str, Any]) -> str:
     return f"shopbase-{product.get('sourceId', '')}" if product.get("source") == "shopbase" else str(product.get("id", ""))
 
+def _shopbase_effective_price(source: dict[str, Any] | None, override: dict[str, Any]) -> float:
+    source = source or {}
+    original = float(source.get("suggestedRetailPrice") or source.get("price") or 0)
+    discounted = override.get("discountedPrice")
+    if discounted is None:
+        try:
+            legacy_price = float(override.get("price"))
+            legacy_compare = float(override.get("compareAt"))
+            if legacy_price < legacy_compare:
+                discounted = legacy_price
+        except (TypeError, ValueError):
+            pass
+    try:
+        discounted = float(discounted) if discounted is not None else None
+    except (TypeError, ValueError):
+        discounted = None
+    return discounted if discounted is not None and 0 <= discounted < original else original
+
 def _category_groups_for_store(store):
     settings = store.store_settings.find_one({"_id": "storefront"}) or {}
     categories = list(store.categories.find({"source": "shopbase", "type": {"$ne": "parent"}}, {"_id": 0, "sourceId": 1, "name": 1, "parentId": 1, "parentName": 1, "sortOrder": 1, "sourceOrder": 1}))
@@ -964,7 +985,7 @@ def _category_groups_for_store(store):
 def admin_storefront_settings(authorization: str | None = Header(default=None)):
     _admin_from_auth(authorization)
     settings = db().store_settings.find_one({"_id": "storefront"}) or {}
-    return {key: settings[key] for key in ("content", "categoryGroups", "manualCategories") if key in settings}
+    return {key: settings[key] for key in ("content", "categoryGroups", "manualCategories", "manualCategoryVisibility") if key in settings}
 
 @app.patch("/api/admin/storefront")
 def update_admin_storefront(input: StorefrontSettingsInput, authorization: str | None = Header(default=None)):
@@ -983,11 +1004,19 @@ def update_admin_storefront(input: StorefrontSettingsInput, authorization: str |
             for child in group["children"][:1000]:
                 if not isinstance(child, dict) or not isinstance(child.get("name"), str):
                     continue
-                children.append({key: child[key] for key in ("name", "sourceId", "sortOrder") if key in child and isinstance(child[key], (str, int, float))})
-            groups.append({"id": group["id"][:180], "name": group["name"][:180], "children": children})
+                item = {key: child[key] for key in ("name", "sourceId", "sortOrder") if key in child and isinstance(child[key], (str, int, float))}
+                if isinstance(child.get("showInStorefront"), bool):
+                    item["showInStorefront"] = child["showInStorefront"]
+                children.append(item)
+            saved_group = {"id": group["id"][:180], "name": group["name"][:180], "children": children}
+            if isinstance(group.get("showInStorefront"), bool):
+                saved_group["showInStorefront"] = group["showInStorefront"]
+            groups.append(saved_group)
         values["categoryGroups"] = groups
     if input.manualCategories is not None:
         values["manualCategories"] = list(dict.fromkeys(value.strip()[:180] for value in input.manualCategories[:500] if value.strip()))
+    if input.manualCategoryVisibility is not None:
+        values["manualCategoryVisibility"] = {name.strip()[:180]: visible for name, visible in list(input.manualCategoryVisibility.items())[:500] if isinstance(name, str) and name.strip() and isinstance(visible, bool)}
     if values:
         values["updatedAt"] = datetime.now(timezone.utc).isoformat()
         db().store_settings.update_one({"_id": "storefront"}, {"$set": values}, upsert=True)
@@ -1001,8 +1030,39 @@ def save_admin_product(input: AdminProductInput, authorization: str | None = Hea
     existing = db().admin_products.find_one({"id": product["id"]})
     if not product.get("addedAt"):
         product["addedAt"] = (existing or {}).get("addedAt") or (existing.get("_id").generation_time.isoformat() if existing and getattr(existing.get("_id"), "generation_time", None) else datetime.now(timezone.utc).isoformat())
-    if product["source"] == "shopbase" and not product.get("sourceId"):
-        product["sourceId"] = product["id"].removeprefix("shopbase-")
+    if product["source"] == "shopbase":
+        if not product.get("sourceId"):
+            product["sourceId"] = product["id"].removeprefix("shopbase-")
+        source = db().products.find_one({"sourceId": product["sourceId"], "source": "shopbase"}, {"_id": 0, "price": 1, "suggestedRetailPrice": 1})
+        if not source:
+            raise HTTPException(status_code=404, detail="The ShopBase product is no longer in the catalog.")
+        original_price = float(source.get("suggestedRetailPrice") or source.get("price") or 0)
+        discounted_price = product.get("discountedPrice")
+        if discounted_price is not None and float(discounted_price) >= original_price:
+            raise HTTPException(status_code=422, detail="Discounted selling price must be lower than the synced original price.")
+        product.pop("originalPrice", None)
+        product["price"] = float(discounted_price) if discounted_price is not None else original_price
+        product["compareAt"] = original_price if discounted_price is not None else None
+    else:
+        original_price = product.get("originalPrice")
+        if original_price is None:
+            legacy_compare = product.get("compareAt")
+            original_price = legacy_compare if legacy_compare is not None and float(legacy_compare) > float(product["price"]) else product["price"]
+        discounted_price = product.get("discountedPrice")
+        if discounted_price is None and float(product["price"]) < float(original_price):
+            discounted_price = product["price"]
+        if discounted_price is not None and float(discounted_price) >= float(original_price):
+            raise HTTPException(status_code=422, detail="Discounted selling price must be lower than the original price.")
+        product["originalPrice"] = float(original_price)
+        product["discountedPrice"] = float(discounted_price) if discounted_price is not None else None
+        product["price"] = float(discounted_price) if discounted_price is not None else float(original_price)
+        product["compareAt"] = float(original_price) if discounted_price is not None else None
+    images = product.get("images") or [product.get("image", "")]
+    images = list(dict.fromkeys(image.strip() for image in images if isinstance(image, str) and image.strip()))[:20]
+    if not images or any(len(image) > 2048 for image in images):
+        raise HTTPException(status_code=422, detail="Add at least one valid product image URL.")
+    product["images"] = images
+    product["image"] = images[0]
     db().admin_products.replace_one({"id": product["id"]}, product, upsert=True)
     return product
 
@@ -1010,7 +1070,7 @@ def save_admin_product(input: AdminProductInput, authorization: str | None = Hea
 def list_admin_products(authorization: str | None = Header(default=None)):
     _admin_from_auth(authorization)
     store = db()
-    fields = {"_id": 1, "sourceId": 1, "title": 1, "category": 1, "categorySourceId": 1, "parentCategory": 1, "parentCategoryId": 1, "price": 1, "suggestedRetailPrice": 1, "compareAt": 1, "image": 1, "stock": 1, "active": 1, "source": 1, "addedAt": 1, "updatedAt": 1, "trending": 1, "offer": 1, "badge": 1, "rating": 1, "reviews": 1, "sizes": 1, "options": 1}
+    fields = {"_id": 1, "sourceId": 1, "title": 1, "category": 1, "categorySourceId": 1, "parentCategory": 1, "parentCategoryId": 1, "price": 1, "suggestedRetailPrice": 1, "wholesalePrice": 1, "compareAt": 1, "image": 1, "stock": 1, "active": 1, "source": 1, "addedAt": 1, "updatedAt": 1, "trending": 1, "offer": 1, "badge": 1, "rating": 1, "reviews": 1, "sizes": 1, "options": 1}
     overrides = {item["id"]: item for item in store.admin_products.find({"source": "shopbase"}, {"_id": 0})}
     products = []
     for item in store.products.find({"source": "shopbase"}, fields).limit(20000):
@@ -1021,9 +1081,9 @@ def list_admin_products(authorization: str | None = Header(default=None)):
         product["addedAt"] = added_at
         override = overrides.get(product_id)
         if override:
-            for key in ("title", "category", "price", "compareAt", "image", "description", "stock", "active", "trending", "offer", "badge", "sizes", "sizeChart", "details", "attributes", "options", "categorySourceId", "parentCategory", "parentCategoryId"):
-                if key in override:
-                    product[key] = override[key]
+            product = _apply_shopbase_override(product, override, retailer_price=item.get("wholesalePrice"))
+        elif item.get("wholesalePrice") is not None:
+            product["retailerPrice"] = item["wholesalePrice"]
         products.append(product)
     for item in store.admin_products.find({"source": "custom"}).limit(20000):
         item["addedAt"] = item.get("addedAt") or (item.get("_id").generation_time.isoformat() if getattr(item.get("_id"), "generation_time", None) else None)
@@ -1077,23 +1137,41 @@ def get_admin_product(product_id: str, authorization: str | None = Header(defaul
         raise HTTPException(status_code=404, detail="Product not found.")
     result = public_product(product, include_details=True)
     if saved:
-        for key in ("title", "category", "price", "compareAt", "image", "description", "stock", "active", "trending", "offer", "badge", "sizes", "sizeChart", "details", "attributes", "options", "categorySourceId", "parentCategory", "parentCategoryId"):
-            if key in saved:
-                result[key] = saved[key]
+        result = _apply_shopbase_override(result, saved, retailer_price=product.get("wholesalePrice"))
+    elif product.get("wholesalePrice") is not None:
+        result["retailerPrice"] = product["wholesalePrice"]
     return result
 
 def public_product(product, include_details=False):
     product["id"] = f"shopbase-{product.get('sourceId', '')}" if product.get("source") == "shopbase" else str(product.get("id", ""))
-    # The supplier's suggested retail price is the storefront price. Keep the
-    # wholesale value in MongoDB, but never expose it in the public catalog.
-    product["price"] = product.get("suggestedRetailPrice") or product.get("price", 0)
-    if product.get("compareAt"):
+    if product.get("source") == "shopbase":
+        # The current supplier retail price is always the original price.
+        # Storefront discounts are explicit admin overrides, never inferred
+        # from a stale catalog price or supplier comparison field.
+        original_price = product.get("suggestedRetailPrice") or product.get("price", 0)
+        product["originalPrice"] = original_price
+        product["discountedPrice"] = None
+        product["price"] = original_price
+        product["compareAt"] = None
+    else:
         try:
-            if float(product["compareAt"]) <= float(product["price"]):
-                product["compareAt"] = None
+            price = float(product.get("price", 0) or 0)
+            legacy_original = float(product.get("compareAt") or 0)
+            original_price = float(product.get("originalPrice") or (legacy_original if legacy_original > price else price))
+            discounted_price = product.get("discountedPrice")
+            if discounted_price is None and price < original_price:
+                discounted_price = price
+            discounted_price = float(discounted_price) if discounted_price is not None else None
+            if discounted_price is not None and discounted_price >= original_price:
+                discounted_price = None
+            product["originalPrice"] = original_price
+            product["discountedPrice"] = discounted_price
+            product["price"] = discounted_price if discounted_price is not None else original_price
+            product["compareAt"] = original_price if discounted_price is not None else None
         except (TypeError, ValueError):
-            product["compareAt"] = None
-    for private_field in ("wholesalePrice", "listFingerprint", "lastSeenRun", "missingRuns", "detailsFetchedAt", "detailsVersion", "imageOverride", "sourceImage", "sourceImages"):
+            product["originalPrice"] = product.get("price", 0)
+            product["discountedPrice"] = None
+    for private_field in ("wholesalePrice", "retailerPrice", "listFingerprint", "lastSeenRun", "missingRuns", "detailsFetchedAt", "detailsVersion", "imageOverride", "sourceImage", "sourceImages"):
         product.pop(private_field, None)
     product.setdefault("rating", 0)
     product.setdefault("reviews", 0)
@@ -1101,15 +1179,55 @@ def public_product(product, include_details=False):
     # Older catalog runs stored recommendation thumbnails alongside the
     # product's actual image. The first item is the primary, high-resolution
     # product photo; never expose the recommendation images as a gallery.
-    primary_image = (product.get("images") or [None])[0] or product.get("image")
+    source_images = product.get("images") if isinstance(product.get("images"), list) else []
+    primary_image = (source_images or [None])[0] or product.get("image")
     if primary_image:
         product["image"] = primary_image
     if include_details:
-        product["images"] = [primary_image] if primary_image else []
+        if product.get("source") == "custom":
+            product["images"] = list(dict.fromkeys(image for image in source_images if isinstance(image, str) and image.strip())) or ([primary_image] if primary_image else [])
+        else:
+            product["images"] = [primary_image] if primary_image else []
     else:
         product.pop("images", None)
     if not include_details and product.get("source") == "shopbase":
         product["description"] = ""
+    return product
+
+def _apply_shopbase_override(product: dict[str, Any], override: dict[str, Any], *, retailer_price: Any = None) -> dict[str, Any]:
+    """Apply admin presentation overrides while keeping supplier prices current."""
+    original_price = float(product.get("price") or 0)
+    for key in ("title", "category", "image", "description", "stock", "active", "trending", "offer", "badge", "sizes", "sizeChart", "details", "attributes", "options", "categorySourceId", "parentCategory", "parentCategoryId"):
+        if key in override:
+            product[key] = override[key]
+    images = override.get("images")
+    if isinstance(images, list):
+        images = list(dict.fromkeys(image for image in images if isinstance(image, str) and image.strip()))[:20]
+        if images:
+            product["images"] = images
+            product["image"] = images[0]
+    discounted_price = override.get("discountedPrice")
+    if discounted_price is None:
+        # Preserve an intentional sale created by the previous editor version.
+        try:
+            legacy_price = float(override.get("price"))
+            legacy_compare = float(override.get("compareAt"))
+            if legacy_price < legacy_compare:
+                discounted_price = legacy_price
+        except (TypeError, ValueError):
+            pass
+    try:
+        discounted_price = float(discounted_price) if discounted_price is not None else None
+    except (TypeError, ValueError):
+        discounted_price = None
+    if discounted_price is not None and not 0 <= discounted_price < original_price:
+        discounted_price = None
+    product["originalPrice"] = original_price
+    product["discountedPrice"] = discounted_price
+    product["price"] = discounted_price if discounted_price is not None else original_price
+    product["compareAt"] = original_price if discounted_price is not None else None
+    if retailer_price is not None:
+        product["retailerPrice"] = retailer_price
     return product
 
 @app.get("/api/health")
@@ -1136,9 +1254,7 @@ def catalog():
                 continue
             product = public_product(item)
             if override:
-                for key in ("title", "category", "price", "compareAt", "image", "description", "stock", "active", "trending", "offer", "badge", "sizes", "sizeChart", "details", "attributes", "options", "categorySourceId", "parentCategory", "parentCategoryId"):
-                    if key in override:
-                        product[key] = override[key]
+                product = _apply_shopbase_override(product, override)
             products.append(product)
         products.extend(public_product(item) for item in store.admin_products.find({"source": "custom", "active": True}, {"_id": 0}).limit(20000))
         products = [product for product in products if product.get("active", True)]
@@ -1151,9 +1267,16 @@ def catalog():
             categories.sort(key=lambda item: item["sourceOrder"])
         groups, _ = _category_groups_for_store(store)
         settings = store.store_settings.find_one({"_id": "storefront"}) or {}
-        manual_categories = settings.get("manualCategories", [])
+        all_manual_categories = settings.get("manualCategories", [])
+        manual_visibility = settings.get("manualCategoryVisibility", {}) if isinstance(settings.get("manualCategoryVisibility", {}), dict) else {}
+        manual_categories = [name for name in all_manual_categories if manual_visibility.get(name, True) is not False]
+        visible_sources = {str(child.get("sourceId")) for group in groups if group.get("showInStorefront", True) is not False for child in group.get("children", []) if child.get("showInStorefront", True) is not False and child.get("sourceId")}
+        visible_names = {str(child.get("name", "")).casefold() for group in groups if group.get("showInStorefront", True) is not False for child in group.get("children", []) if child.get("showInStorefront", True) is not False and child.get("name")}
+        visible_names.update(name.casefold() for name in manual_categories)
+        products = [item for item in products if (str(item.get("categorySourceId")) in visible_sources if item.get("categorySourceId") else str(item.get("category", "")).casefold() in visible_names)]
         latest = store.sync_runs.find_one({"status": {"$in": ["success", "success_with_skipped_details"]}}, {"_id": 0}, sort=[("finishedAt", -1)])
-        return {"products": products, "categories": list(dict.fromkeys([item["name"] for item in categories] + manual_categories)), "categoryGroups": groups, "categoryGroupsManaged": isinstance(settings.get("categoryGroups"), list), "manualCategories": manual_categories, "manualCategoriesManaged": isinstance(settings.get("manualCategories"), list), "content": settings.get("content"), "lastSync": (latest or {}).get("finishedAt"), "productViewCounts": view_counts}
+        visible_shopbase_categories = [item["name"] for item in categories if str(item.get("sourceId", "")) in visible_sources]
+        return {"products": products, "categories": list(dict.fromkeys(visible_shopbase_categories + manual_categories)), "categoryGroups": groups, "categoryGroupsManaged": isinstance(settings.get("categoryGroups"), list), "manualCategories": all_manual_categories, "manualCategoryVisibility": manual_visibility, "manualCategoriesManaged": isinstance(settings.get("manualCategories"), list), "content": settings.get("content"), "lastSync": (latest or {}).get("finishedAt"), "productViewCounts": view_counts}
     except HTTPException:
         raise
     except Exception:
@@ -1189,9 +1312,7 @@ def product_details(source_id: str):
         result = public_product(product, include_details=True)
         override = db().admin_products.find_one({"id": f"shopbase-{source_id}", "source": "shopbase"}, {"_id": 0})
         if override:
-            for key in ("title", "category", "price", "compareAt", "image", "description", "stock", "active", "trending", "offer", "badge", "sizes", "sizeChart", "details", "attributes", "options", "categorySourceId", "parentCategory", "parentCategoryId"):
-                if key in override:
-                    result[key] = override[key]
+            result = _apply_shopbase_override(result, override)
         return result
     except HTTPException:
         raise

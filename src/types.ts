@@ -4,6 +4,9 @@ export type Product = {
   category: string
   price: number
   compareAt?: number
+  originalPrice?: number
+  discountedPrice?: number
+  retailerPrice?: number
   image: string
   description: string
   rating: number
@@ -28,7 +31,7 @@ export type Product = {
   parentCategoryId?: string
 }
 
-export type CategoryGroup = { id: string; name: string; children: { sourceId?: string; name: string; sortOrder?: number }[] }
+export type CategoryGroup = { id: string; name: string; showInStorefront?: boolean; children: { sourceId?: string; name: string; sortOrder?: number; showInStorefront?: boolean }[] }
 
 export type OfferDeal = { title: string; id: string; productId: string; productIds?: string[]; kind: 'special_price' | 'quantity_discount' | 'buy_multiple' | 'buy_x_get_y_free' | 'bundle' | 'free_delivery'; value: number; discountKind: 'percent' | 'amount'; quantity: number; freeQuantity: number; reward?: 'discount' | 'free_delivery' | 'both'; active: boolean }
 export type Coupon = { code: string; kind: 'percent' | 'amount'; value: number; active: boolean; minimum?: number }
