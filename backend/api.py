@@ -62,7 +62,7 @@ class AdminProductInput(BaseModel):
     compareAt: float | None = Field(default=None, ge=0)
     originalPrice: float | None = Field(default=None, ge=0)
     discountedPrice: float | None = Field(default=None, ge=0)
-    image: str = Field(min_length=1, max_length=2048)
+    image: str = Field(min_length=1, max_length=8_000_000)
     images: list[str] = Field(default_factory=list, max_length=20)
     description: str = Field(default="", max_length=20000)
     rating: float = Field(default=0, ge=0, le=5)
@@ -1059,7 +1059,7 @@ def save_admin_product(input: AdminProductInput, authorization: str | None = Hea
         product["compareAt"] = float(original_price) if discounted_price is not None else None
     images = product.get("images") or [product.get("image", "")]
     images = list(dict.fromkeys(image.strip() for image in images if isinstance(image, str) and image.strip()))[:20]
-    if not images or any(len(image) > 2048 for image in images):
+    if not images or any(len(image) > 8_000_000 or not image.startswith(("http://", "https://", "data:image/")) for image in images):
         raise HTTPException(status_code=422, detail="Add at least one valid product image URL.")
     product["images"] = images
     product["image"] = images[0]
