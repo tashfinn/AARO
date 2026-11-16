@@ -69,6 +69,7 @@ class AdminProductInput(BaseModel):
     trending: bool = False
     offer: bool = False
     updatedAt: str | None = None
+    addedAt: str | None = None
     sizes: list[str] = Field(default_factory=list, max_length=100)
     sizeChart: str | None = Field(default=None, max_length=10000)
     details: str | None = Field(default=None, max_length=20000)
@@ -997,6 +998,9 @@ def save_admin_product(input: AdminProductInput, authorization: str | None = Hea
     _admin_from_auth(authorization)
     product = input.model_dump(exclude_unset=True)
     product.setdefault("updatedAt", datetime.now(timezone.utc).isoformat())
+    existing = db().admin_products.find_one({"id": product["id"]})
+    if not product.get("addedAt"):
+        product["addedAt"] = (existing or {}).get("addedAt") or (existing.get("_id").generation_time.isoformat() if existing and getattr(existing.get("_id"), "generation_time", None) else datetime.now(timezone.utc).isoformat())
     if product["source"] == "shopbase" and not product.get("sourceId"):
         product["sourceId"] = product["id"].removeprefix("shopbase-")
     db().admin_products.replace_one({"id": product["id"]}, product, upsert=True)
@@ -1006,19 +1010,25 @@ def save_admin_product(input: AdminProductInput, authorization: str | None = Hea
 def list_admin_products(authorization: str | None = Header(default=None)):
     _admin_from_auth(authorization)
     store = db()
-    fields = {"_id": 0, "sourceId": 1, "title": 1, "category": 1, "categorySourceId": 1, "parentCategory": 1, "parentCategoryId": 1, "price": 1, "suggestedRetailPrice": 1, "compareAt": 1, "image": 1, "stock": 1, "active": 1, "source": 1, "updatedAt": 1, "trending": 1, "offer": 1, "badge": 1, "rating": 1, "reviews": 1, "sizes": 1, "options": 1}
+    fields = {"_id": 1, "sourceId": 1, "title": 1, "category": 1, "categorySourceId": 1, "parentCategory": 1, "parentCategoryId": 1, "price": 1, "suggestedRetailPrice": 1, "compareAt": 1, "image": 1, "stock": 1, "active": 1, "source": 1, "addedAt": 1, "updatedAt": 1, "trending": 1, "offer": 1, "badge": 1, "rating": 1, "reviews": 1, "sizes": 1, "options": 1}
     overrides = {item["id"]: item for item in store.admin_products.find({"source": "shopbase"}, {"_id": 0})}
     products = []
     for item in store.products.find({"source": "shopbase"}, fields).limit(20000):
         product_id = _catalog_product_id(item)
+        added_at = item.get("addedAt") or (item.get("_id").generation_time.isoformat() if getattr(item.get("_id"), "generation_time", None) else None)
         product = public_product(item)
+        product.pop("_id", None)
+        product["addedAt"] = added_at
         override = overrides.get(product_id)
         if override:
             for key in ("title", "category", "price", "compareAt", "image", "description", "stock", "active", "trending", "offer", "badge", "sizes", "sizeChart", "details", "attributes", "options", "categorySourceId", "parentCategory", "parentCategoryId"):
                 if key in override:
                     product[key] = override[key]
         products.append(product)
-    products.extend(store.admin_products.find({"source": "custom"}, {"_id": 0}).limit(20000))
+    for item in store.admin_products.find({"source": "custom"}).limit(20000):
+        item["addedAt"] = item.get("addedAt") or (item.get("_id").generation_time.isoformat() if getattr(item.get("_id"), "generation_time", None) else None)
+        item.pop("_id", None)
+        products.append(item)
     products.sort(key=lambda item: str(item.get("title", "")).casefold())
     return products
 
@@ -1028,7 +1038,7 @@ def import_admin_products(input: AdminProductImport, authorization: str | None =
     products = [item.model_dump() for item in input.products]
     if any(item.get("source") != "custom" for item in products):
         raise HTTPException(status_code=422, detail="CSV products must be imported as manually managed products.")
-    operations = [UpdateOne({"id": item["id"]}, {"$set": {**item, "updatedAt": datetime.now(timezone.utc).isoformat()}}, upsert=True) for item in products]
+    operations = [UpdateOne({"id": item["id"]}, {"$set": {**item, "updatedAt": datetime.now(timezone.utc).isoformat()}, "$setOnInsert": {"addedAt": item.get("addedAt") or datetime.now(timezone.utc).isoformat()}}, upsert=True) for item in products]
     db().admin_products.bulk_write(operations, ordered=False)
     categories = list(dict.fromkeys(item["category"] for item in products if item.get("category")))
     settings = db().store_settings.find_one({"_id": "storefront"}, {"_id": 0, "manualCategories": 1}) or {}

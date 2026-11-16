@@ -325,7 +325,7 @@ def run():
      continue
     hosted=mirror(doc["sourceImage"],sid)
     doc.update({"images":[hosted],"image":hosted,"imageOverride":None,"active":bool(doc["stock"]),"detailsFetchedAt":now(),"detailsVersion":DETAILS_VERSION,"lastSeenRun":runid,"missingRuns":0})
-    batch.append(UpdateOne({"sourceId":sid,"source":"shopbase"},{"$set":doc},upsert=True))
+    batch.append(UpdateOne({"sourceId":sid,"source":"shopbase"},{"$set":doc,"$setOnInsert":{"addedAt":now()}},upsert=True))
     created+=1
     if len(batch)>=250: p.bulk_write(batch,ordered=False); batch.clear()
    seen+=1

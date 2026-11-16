@@ -16,6 +16,7 @@ export type Product = {
   source?: 'custom' | 'shopbase'
   images?: string[]
   sourceId?: string
+  addedAt?: string
   updatedAt: string
   sizes?: string[]
   sizeChart?: string
