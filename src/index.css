@@ -248,12 +248,12 @@ img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .modal-backdrop { position: fixed; z-index: 50; inset: 0; display: flex; align-items: center; justify-content: center; padding: 20px; background: rgba(17,33,30,.45); backdrop-filter: blur(3px); animation: fadeIn .16s ease-out; }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 .drawer-backdrop { justify-content: flex-end; padding: 0; }
-.cart-drawer { width: min(470px,100%); height: 100%; display: flex; flex-direction: column; transform-origin: right center; background: #fbfcf9; box-shadow: -12px 0 35px rgba(16,34,31,.18); animation: bagExpandFromRight .48s cubic-bezier(.2,.76,.24,1) both; will-change: transform, opacity; }
-@keyframes bagExpandFromRight { from { transform: scaleX(.88); opacity: .7; } to { transform: scaleX(1); opacity: 1; } }
-@keyframes bagCollapseToRight { from { transform: scaleX(1); opacity: 1; } to { transform: scaleX(.88); opacity: .7; } }
+.cart-drawer { width: min(470px,100%); height: 100%; display: flex; flex-direction: column; transform: translate3d(0,0,0); background: #fbfcf9; box-shadow: -12px 0 35px rgba(16,34,31,.18); animation: bagSlideInFromRight .56s cubic-bezier(.22,.78,.22,1) both; will-change: transform; }
+@keyframes bagSlideInFromRight { from { transform: translate3d(100%,0,0); } to { transform: translate3d(0,0,0); } }
+@keyframes bagSlideOutToRight { from { transform: translate3d(0,0,0); } to { transform: translate3d(100%,0,0); } }
 @keyframes drawerFadeOut { from { opacity: 1; } to { opacity: 0; } }
-.drawer-backdrop.is-closing { animation: drawerFadeOut .48s ease-in both; pointer-events: none; }
-.cart-drawer.is-closing { animation: bagCollapseToRight .48s cubic-bezier(.55,0,.8,.3) both; }
+.drawer-backdrop.is-closing { animation: drawerFadeOut .56s ease-in both; pointer-events: none; }
+.cart-drawer.is-closing { animation: bagSlideOutToRight .56s cubic-bezier(.55,0,.8,.3) both; }
 .drawer-head { display: flex; align-items: center; justify-content: space-between; padding: 24px 25px 18px; border-bottom: 1px solid #e6ebe4; }
 .drawer-head h2 { margin: 5px 0 0; color: #1b3e38; font: 700 23px var(--font-display); letter-spacing: -.04em; }
 .drawer-head .icon-button { background: #edf2ee; }
