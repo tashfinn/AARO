@@ -309,9 +309,9 @@ export default function App() {
       const current = examples[word]
       position += deleting ? -1 : 1
       setSearchPlaceholder(current.slice(0, Math.max(0, position)))
-      if (!deleting && position >= current.length) { deleting = true; timer = window.setTimeout(tick, 1050); return }
-      if (deleting && position <= 0) { deleting = false; word = (word + 1) % examples.length; timer = window.setTimeout(tick, 500); return }
-      timer = window.setTimeout(tick, deleting ? 45 : 82)
+      if (!deleting && position >= current.length) { deleting = true; timer = window.setTimeout(tick, 850); return }
+      if (deleting && position <= 0) { deleting = false; word = (word + 1) % examples.length; timer = window.setTimeout(tick, 180); return }
+      timer = window.setTimeout(tick, 78)
     }
     timer = window.setTimeout(tick, 350)
     return () => window.clearTimeout(timer)
@@ -1145,17 +1145,25 @@ function OfferBanner({ state, onShop }: { state: StoreState; onShop: () => void 
 }
 
 function CartDrawer({ cartItems, subtotal, delivery, subDhakaDelivery, outsideDelivery, discount, coupon, couponInput, setCouponInput, applyCoupon, clearCoupon, onQuantity, onSize, onOption, onClose, onCheckout, onShop }: { cartItems: (CartLine & { product: Product })[]; subtotal: number; delivery: number; subDhakaDelivery: number; outsideDelivery: number; discount: number; coupon: Coupon | null; couponInput: string; setCouponInput: (value: string) => void; applyCoupon: () => void; clearCoupon: () => void; onQuantity: (line: CartLine, qty: number) => void; onSize: (line: CartLine, size: string) => void; onOption: (line: CartLine, name: string, value: string) => void; onClose: () => void; onCheckout: () => void; onShop: () => void }) {
-  return <div className="modal-backdrop drawer-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-    <aside className="cart-drawer">
-      <div className="drawer-head"><div><span className="section-kicker">AARO / YOUR BAG</span><h2>Your bag ({cartItems.reduce((sum, line) => sum + line.quantity, 0)})</h2></div><IconButton label="Close bag" onClick={onClose}><X size={20} /></IconButton></div>
+  const [closing, setClosing] = useState(false)
+  const closeTimer = useRef<number | null>(null)
+  const requestClose = (afterClose = onClose) => {
+    if (closing) return
+    setClosing(true)
+    closeTimer.current = window.setTimeout(afterClose, 280)
+  }
+  useEffect(() => () => { if (closeTimer.current !== null) window.clearTimeout(closeTimer.current) }, [])
+  return <div className={`modal-backdrop drawer-backdrop ${closing ? 'is-closing' : ''}`} onMouseDown={(event) => event.target === event.currentTarget && requestClose()}>
+    <aside className={`cart-drawer ${closing ? 'is-closing' : ''}`}>
+      <div className="drawer-head"><div><span className="section-kicker">AARO / YOUR BAG</span><h2>Your bag ({cartItems.reduce((sum, line) => sum + line.quantity, 0)})</h2></div><IconButton label="Close bag" onClick={() => requestClose()}><X size={20} /></IconButton></div>
       {cartItems.length ? <>
-        <div className="free-delivery"><span><Truck size={16} /> Delivery: {money(delivery)} Dhaka city · {money(subDhakaDelivery)} Sub-Dhaka · {money(outsideDelivery)} elsewhere</span><small>Choose the correct delivery zone at checkout.</small></div>
+        <div className="free-delivery"><span><Truck size={16} /><span className="delivery-zones">Delivery: {money(delivery)} Dhaka city · {money(subDhakaDelivery)} Sub-Dhaka · {money(outsideDelivery)} Outside Dhaka</span></span><small>Choose the correct delivery zone at checkout.</small></div>
         <div className="cart-lines">{cartItems.map((line) => { const { product, quantity, size, options } = line; const sizeOption=product.options?.find((option)=>/^size$/i.test(option.name)); const availableSizes=product.sizes?.length?product.sizes:sizeOption?.values||[]; return <div className="cart-line" key={cartLineKey(line)}><ImageView src={product.image} alt={product.title} /><div className="cart-line-copy"><span>{product.category}</span><b>{product.title}</b>{availableSizes.length ? <label className="cart-size-select">Size<select value={size || ''} onChange={(event) => onSize(line, event.target.value)}><option value="">Choose size</option>{availableSizes.map((option) => <option key={option} value={option}>{option}</option>)}</select></label> : null}{(product.options || []).filter((option) => !/^size$/i.test(option.name)).map((option) => <label className="cart-size-select" key={option.name}>{option.name}<select value={options?.[option.name] || ''} onChange={(event) => onOption(line, option.name, event.target.value)}><option value="">Choose {option.name.toLowerCase()}</option>{option.values.map((value) => <option key={value} value={value}>{value}</option>)}</select></label>)}<strong>{money(product.price)}</strong><div className="quantity-control"><button aria-label="Decrease quantity" onClick={() => onQuantity(line, quantity - 1)}><Minus size={13} /></button><span>{quantity}</span><button aria-label="Increase quantity" onClick={() => onQuantity(line, quantity + 1)}><Plus size={13} /></button></div></div><button className="remove-line" onClick={() => onQuantity(line, 0)} aria-label={`Remove ${product.title}`}><X size={16} /></button></div> })}</div>
         <div className="coupon-row"><TicketPercent size={17} /><input value={couponInput} onChange={(event) => setCouponInput(event.target.value.toUpperCase())} placeholder="Coupon code" /><button onClick={applyCoupon}>{coupon ? 'Applied' : 'Apply'}</button></div>
         {coupon && <div className="coupon-applied"><CheckCircle2 size={14} /> {coupon.code} is on this order <button onClick={() => { setCouponInput(''); clearCoupon() }}>Remove</button></div>}
         {cartItems.some(({ product, ...line }) => !hasRequiredProductChoices(product, line)) && <p className="cart-choice-alert" role="status">Choose a size and any required options for each item before checkout.</p>}
-        <div className="drawer-summary"><div className="bag-subtotal-row"><span>Subtotal</span><b>{money(subtotal)}</b></div>{discount > 0 && <div className="discount-line"><span>Offer & coupon savings</span><b>−{money(discount)}</b></div>}<button className="dark-button checkout-submit" disabled={cartItems.some(({ product, ...line }) => !hasRequiredProductChoices(product, line))} onClick={onCheckout}>Continue to checkout <ArrowRight size={17} /></button><p><ShieldCheck size={14} /> Cash on delivery · Guest checkout available</p></div>
-      </> : <div className="empty-cart"><div><ShoppingBag size={28} /></div><h3>Your bag has room to grow.</h3><p>Find something lovely for your everyday.</p><button className="dark-button" onClick={onShop}>Explore <ArrowRight size={16} /></button></div>}
+        <div className="drawer-summary"><div className="bag-subtotal-row"><span>Subtotal</span><b>{money(subtotal)}</b></div>{discount > 0 && <div className="discount-line"><span>Offer & coupon savings</span><b>−{money(discount)}</b></div>}<button className="dark-button checkout-submit" disabled={cartItems.some(({ product, ...line }) => !hasRequiredProductChoices(product, line))} onClick={() => requestClose(onCheckout)}>Continue to checkout <ArrowRight size={17} /></button><p><ShieldCheck size={14} /> Cash on delivery · Guest checkout available</p></div>
+      </> : <div className="empty-cart"><div><ShoppingBag size={28} /></div><h3>Your bag has room to grow.</h3><p>Find something lovely for your everyday.</p><button className="dark-button" onClick={() => requestClose(onShop)}>Explore <ArrowRight size={16} /></button></div>}
     </aside>
   </div>
 }
@@ -1346,7 +1354,7 @@ function AdminOffers({ state, products, onNewCoupon, onNewOffer, toggleCoupon, d
     return `Free delivery${offer.value ? ` on orders over ${money(offer.value)}` : ''}`
   }
   return <>
-    <div className="panel offers-feature"><div className="offers-feature-copy"><span className="section-kicker">CURRENT OFFER EDIT</span><h2>Offers customers can see.</h2><p>Create product deals customers can use automatically in their bag, or manage checkout coupons.</p><div className="offers-actions"><button className="primary-button" onClick={onNewOffer}><Plus size={17} /> Create offer</button><button className="secondary-button" onClick={onNewCoupon}><TicketPercent size={17} /> Create coupon</button></div></div><div className="offer-feature-art"><span>THE GOOD<br />DEAL EDIT</span><b>For a little<br />less.</b><i>✳</i></div></div>
+    <div className="panel offers-feature"><div className="offers-feature-copy"><span className="section-kicker">CURRENT OFFER EDIT</span><h2>Offers customers can see.</h2><p>Create product deals customers can use automatically in their bag, or manage checkout coupons.</p><div className="offers-actions"><button className="primary-button" onClick={onNewOffer}><Plus size={17} /> Create offer</button><button className="secondary-button" onClick={onNewCoupon}><TicketPercent size={17} /> Create coupon</button></div></div><div className="offer-feature-art"><span>THE GOOD<br />DEAL EDIT</span><b>For a little<br />less.</b></div></div>
     <section className="panel offer-list-panel"><div className="panel-heading"><div><h3>Product offers</h3><p>Deals are applied automatically to eligible items in the bag.</p></div></div>
       {state.offers.length ? <div className="offer-product-list">{state.offers.map((offer) => { const product = productFor(offer.productId); const bundleNames = (offer.productIds || []).map((id) => productFor(id)?.title).filter(Boolean); const description = offer.kind === 'free_delivery' ? offerLabel(offer) : offer.kind === 'bundle' ? `${bundleNames.join(' + ') || 'Selected products'} · ${offerLabel(offer)}` : product ? `${product.title} · ${offerLabel(offer)}` : 'The selected product is no longer in the active catalog.'; return <div className="offer-product-row offer-deal-row" key={offer.id}>{product && <ImageView src={product.image} alt="" />}<span><b>{offer.title || product?.title || (offer.kind === 'free_delivery' ? 'Free delivery offer' : offer.kind === 'bundle' ? 'Product bundle' : 'Product offer')}</b><small>{description}</small></span><button onClick={() => toggleOffer(offer.id)}>{offer.active ? 'Active' : 'Paused'}</button><button onClick={() => deleteOffer(offer.id)}>Delete</button></div> })}</div> : <p className="empty-row">No offers yet. Create a product deal, bundle, or free-delivery offer.</p>}
     </section>
