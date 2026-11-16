@@ -1,1 +1,1 @@
-browser-cookie3>=0.20,<1
+websocket-client>=1.8,<2
