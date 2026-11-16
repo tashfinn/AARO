@@ -3644,3 +3644,107 @@ input:focus, select:focus, textarea:focus { outline: none !important; box-shadow
   .category-management-panel .category-group-admin .category-admin-list { grid-template-columns: 1fr; }
   .category-card-image { height: 155px; }
 }
+
+/* Keep the redesigned category manager independent from legacy initial-avatar
+   grid rules above. Each category is a real photo card with controls below it. */
+.admin-shell .category-management-panel .category-group-admin .category-admin-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  padding: 18px;
+}
+.admin-shell .category-management-panel .category-group-admin .category-admin-card,
+.admin-shell .category-management-panel > .category-admin-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+}
+.admin-shell .category-management-panel .category-card-image {
+  display: block;
+  width: 100%;
+  height: 176px;
+  flex: 0 0 176px;
+  overflow: hidden;
+  background: var(--surface-raised);
+}
+.admin-shell .category-management-panel .category-card-image > img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+}
+.admin-shell .category-management-panel .category-card-content {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+  padding: 14px 16px 16px;
+}
+.admin-shell .category-management-panel .category-card-title {
+  display: grid;
+  gap: 5px;
+  width: 100%;
+  min-width: 0;
+}
+.admin-shell .category-management-panel .category-card-title .category-edit-name {
+  width: 100%;
+  min-width: 0;
+  white-space: normal;
+  text-align: left;
+}
+.admin-shell .category-management-panel .category-card-title .category-edit-name span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.admin-shell .category-management-panel .category-card-image .category-image-action {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 1;
+  min-height: 36px;
+  padding: 8px 12px;
+  white-space: nowrap;
+  color: var(--text-primary);
+  background: var(--surface);
+  box-shadow: 0 2px 12px #0003;
+}
+.admin-shell .category-management-panel .category-visibility-toggle {
+  max-width: 100%;
+  white-space: normal;
+}
+.admin-shell .category-management-panel .manual-category-card .category-card-content {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+.admin-shell .category-management-panel .manual-category-card .category-card-title {
+  grid-column: 1 / -1;
+}
+@media (max-width: 900px) {
+  .admin-shell .category-management-panel .category-group-admin .category-admin-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    padding: 14px;
+  }
+}
+@media (max-width: 560px) {
+  .admin-shell .category-management-panel .category-group-admin .category-admin-list {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+    padding: 12px;
+  }
+  .admin-shell .category-management-panel .category-card-image {
+    height: 190px;
+    flex-basis: 190px;
+  }
+}
