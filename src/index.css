@@ -3460,4 +3460,4 @@ input:focus, select:focus, textarea:focus { outline: none !important; box-shadow
 
 
 /* Keep the full campaign image visible on narrow screens. */
-@media (max-width: 600px) { .hero-art .hero-carousel-card.hero-carousel-image-0 .hero-carousel-photo { object-fit: contain; background: #17231f; } }
+@media (max-width: 600px) { .hero-art .hero-carousel-card.hero-carousel-image-0 .hero-carousel-photo { object-fit: cover; object-position: center; } }
