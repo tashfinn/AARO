@@ -1150,7 +1150,7 @@ function CartDrawer({ cartItems, subtotal, delivery, subDhakaDelivery, outsideDe
   const requestClose = (afterClose = onClose) => {
     if (closing) return
     setClosing(true)
-    closeTimer.current = window.setTimeout(afterClose, 280)
+    closeTimer.current = window.setTimeout(afterClose, 480)
   }
   useEffect(() => () => { if (closeTimer.current !== null) window.clearTimeout(closeTimer.current) }, [])
   return <div className={`modal-backdrop drawer-backdrop ${closing ? 'is-closing' : ''}`} onMouseDown={(event) => event.target === event.currentTarget && requestClose()}>
