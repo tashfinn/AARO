@@ -1077,6 +1077,8 @@ img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .checkout-page-form, .checkout-order-summary { padding: clamp(18px, 3vw, 30px); }
 .checkout-page-form label { display: flex; flex-direction: column; gap: 7px; margin-bottom: 16px; color: #425e53; font-size: 14px; font-weight: 700; }
 .checkout-page-form label > span { display: inline; color: #89978f; font-weight: 400; }
+.checkout-page-form label > .field-label-title, .settings-form label > .field-label-title { display: block; color: inherit; font-weight: 700; }
+.field-label-title em { margin-left: 4px; color: #89978f; font-size: .92em; font-style: normal; font-weight: 400; }
 .checkout-page-form input, .checkout-page-form select, .checkout-page-form textarea { width: 100%; min-height: 48px; padding: 11px 13px; border: 1px solid #dce5dc; border-radius: 5px; outline: 0; background: white; color: #273f38; font-size: 16px; }
 .checkout-page-form textarea { resize: vertical; }
 .checkout-page-form input:focus, .checkout-page-form select:focus, .checkout-page-form textarea:focus { border-color: #7eaaa0; box-shadow: 0 0 0 3px rgba(15,118,110,.08); }
