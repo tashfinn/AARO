@@ -29,7 +29,7 @@ export type Product = {
 
 export type CategoryGroup = { id: string; name: string; children: { sourceId?: string; name: string; sortOrder?: number }[] }
 
-export type OfferDeal = { title: string; id: string; productId: string; productIds?: string[]; kind: 'special_price' | 'quantity_discount' | 'buy_x_get_y_free' | 'bundle' | 'free_delivery'; value: number; discountKind: 'percent' | 'amount'; quantity: number; freeQuantity: number; active: boolean }
+export type OfferDeal = { title: string; id: string; productId: string; productIds?: string[]; kind: 'special_price' | 'quantity_discount' | 'buy_multiple' | 'buy_x_get_y_free' | 'bundle' | 'free_delivery'; value: number; discountKind: 'percent' | 'amount'; quantity: number; freeQuantity: number; reward?: 'discount' | 'free_delivery' | 'both'; active: boolean }
 export type Coupon = { code: string; kind: 'percent' | 'amount'; value: number; active: boolean; minimum?: number }
 export type OrderStatus = 'Pending confirmation' | 'Confirmed' | 'Processing' | 'Shipped' | 'Delivered' | 'Cancelled'
 export type DeliveryZone = 'city' | 'sub_dhaka' | 'outside'

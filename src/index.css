@@ -2725,6 +2725,14 @@ a:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
 .sync-schedule-settings { grid-template-columns: minmax(170px, 1fr) minmax(170px, .8fr) auto; }
 .sync-schedule-settings input[type="time"] { width: 100%; min-height: 42px; padding: 8px 12px; border: 1px solid var(--border-strong); border-radius: 6px; color: var(--text-primary); background: var(--surface); font: inherit; outline: none; }
 .sync-progress-card .sync-error-detail { display: block; margin-top: 5px; font-weight: 400; }
+.sync-agent-card { display: grid; gap: 9px; margin-top: 14px; padding: 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-raised); }
+.sync-agent-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.sync-agent-heading b { color: var(--text-primary); font-size: 14px; }
+.sync-agent-card p, .sync-agent-card small { margin: 0; color: var(--text-secondary); font-size: 13px; line-height: 1.5; }
+.sync-agent-pairing { display: grid; gap: 8px; padding: 12px; border-radius: 8px; background: var(--surface); }
+.sync-agent-pairing code { display: block; padding: 9px; overflow-wrap: anywhere; border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary); background: var(--surface-raised); font-size: 12px; user-select: all; }
+.sync-agent-pairing button { justify-self: start; }
+.theme-dark .sync-agent-card { background: var(--surface-raised); }
 .order-tabs button { align-items: center; align-self: stretch; line-height: 1.2; }
 .order-tabs button .order-count { flex: 0 0 18px; align-self: center; display: inline-grid; place-items: center; width: 18px; min-width: 18px; height: 18px; margin: 0; padding: 0; border-radius: 50%; color: #805a28; background: #f7e9cf; font-size: 11px; font-weight: 700; line-height: 1; vertical-align: middle; transform: none; }
 .admin-nav button > b { flex: 0 0 auto; align-self: center; line-height: 1; }

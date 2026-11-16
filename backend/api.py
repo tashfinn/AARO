@@ -84,6 +84,11 @@ class AdminProductImport(BaseModel):
 class SyncCookieInput(BaseModel):
     cookie: str = Field(min_length=20, max_length=20000)
 
+class SyncAgentRepairInput(BaseModel):
+    runId: str = Field(min_length=1, max_length=100)
+    cookie: str | None = Field(default=None, min_length=20, max_length=20000)
+    error: str | None = Field(default=None, max_length=500)
+
 class AdminCredentials(BaseModel):
     identifier: str = Field(min_length=1, max_length=120)
     password: str = Field(min_length=1, max_length=256)
@@ -135,6 +140,7 @@ class OfferInput(BaseModel):
     discountKind: str = "percent"
     quantity: int = Field(default=1, ge=1, le=1000)
     freeQuantity: int = Field(default=1, ge=1, le=1000)
+    reward: Literal["discount", "free_delivery", "both"] = "discount"
     active: bool = True
 
 class OrderStatusInput(BaseModel):
@@ -494,16 +500,17 @@ def create_order(input: OrderInput, authorization: str | None = Header(default=N
         unit_price = max(0.0, float(product.get("price") or 0))
         subtotal += unit_price * quantity
         priced_items.append({"productId": product_id, "title": str(product.get("title") or "Product"), "image": str(product.get("image") or ""), "price": unit_price, "quantity": quantity, **({"size": size} if size else {}), **({"options": normalized_options} if normalized_options else {})})
-        offer = store.offers.find_one({"productId": product_id, "active": True}, {"_id": 0})
-        if offer:
+        for offer in store.offers.find({"productId": product_id, "active": True}, {"_id": 0}):
             offer_quantity = max(1, int(offer.get("quantity") or 1))
             if offer.get("kind") == "special_price":
                 offer_discount += max(0.0, unit_price - min(unit_price, float(offer.get("value") or 0))) * quantity
-            elif offer.get("kind") == "quantity_discount":
+            elif offer.get("kind") in ("quantity_discount", "buy_multiple"):
                 groups = quantity // offer_quantity
                 eligible_quantity = groups * offer_quantity
-                saving = eligible_quantity * unit_price * float(offer.get("value") or 0) / 100 if offer.get("discountKind") == "percent" else groups * float(offer.get("value") or 0)
-                offer_discount += min(eligible_quantity * unit_price, saving)
+                reward = offer.get("reward", "discount")
+                if offer.get("kind") == "quantity_discount" or reward in ("discount", "both"):
+                    saving = eligible_quantity * unit_price * float(offer.get("value") or 0) / 100 if offer.get("discountKind") == "percent" else groups * float(offer.get("value") or 0)
+                    offer_discount += min(eligible_quantity * unit_price, saving)
             elif offer.get("kind") == "buy_x_get_y_free":
                 free_quantity = max(1, int(offer.get("freeQuantity") or 1))
                 offer_discount += (quantity // (offer_quantity + free_quantity)) * free_quantity * unit_price
@@ -531,7 +538,14 @@ def create_order(input: OrderInput, authorization: str | None = Header(default=N
             raise HTTPException(status_code=503, detail="Delivery charges are not configured correctly. Contact the store before retrying.")
     if not 0 <= delivery <= 10000:
         raise HTTPException(status_code=503, detail="Delivery charges are outside the allowed range. Contact the store before retrying.")
-    if any(float(offer.get("value") or 0) <= subtotal for offer in store.offers.find({"kind": "free_delivery", "active": True}, {"_id": 0, "value": 1})):
+    free_delivery_offer = any(float(offer.get("value") or 0) <= subtotal for offer in store.offers.find({"kind": "free_delivery", "active": True}, {"_id": 0, "value": 1}))
+    free_delivery_quantity_offer = any(
+        offer.get("kind") == "buy_multiple"
+        and offer.get("reward") in ("free_delivery", "both")
+        and quantities_by_id.get(offer.get("productId", ""), 0) >= max(1, int(offer.get("quantity") or 1))
+        for offer in store.offers.find({"kind": "buy_multiple", "active": True}, {"_id": 0, "productId": 1, "quantity": 1, "reward": 1})
+    )
+    if free_delivery_offer or free_delivery_quantity_offer:
         delivery = 0.0
     discount = offer_discount
     coupon_code = input.coupon.strip().upper() if isinstance(input.coupon, str) and input.coupon.strip() else None
@@ -564,15 +578,19 @@ def list_offers(authorization: str | None = Header(default=None)):
 @app.post("/api/admin/offers")
 def save_offer(input: OfferInput, authorization: str | None = Header(default=None)):
     _admin_from_auth(authorization)
-    if input.kind not in ("special_price", "quantity_discount", "buy_x_get_y_free", "bundle", "free_delivery"):
+    if input.kind not in ("special_price", "quantity_discount", "buy_multiple", "buy_x_get_y_free", "bundle", "free_delivery"):
         raise HTTPException(status_code=422, detail="Unknown offer type.")
-    if input.kind == "quantity_discount" and input.discountKind not in ("percent", "amount"):
+    if input.kind in ("quantity_discount", "buy_multiple") and input.discountKind not in ("percent", "amount"):
         raise HTTPException(status_code=422, detail="Discount must be a percentage or fixed amount.")
+    if input.kind == "buy_multiple" and input.quantity < 2:
+        raise HTTPException(status_code=422, detail="A buy-multiple offer must require at least two items.")
     if input.kind in ("special_price", "quantity_discount") and input.value <= 0:
         raise HTTPException(status_code=422, detail="Enter a positive offer value.")
-    if input.kind == "quantity_discount" and input.discountKind == "percent" and input.value > 100:
+    if input.kind == "buy_multiple" and input.reward in ("discount", "both") and input.value <= 0:
+        raise HTTPException(status_code=422, detail="Enter a positive discount for this buy-multiple offer.")
+    if input.kind in ("quantity_discount", "buy_multiple") and input.reward in ("discount", "both") and input.discountKind == "percent" and input.value > 100:
         raise HTTPException(status_code=422, detail="A percentage offer cannot exceed 100%.")
-    if input.kind in ("special_price", "quantity_discount", "buy_x_get_y_free"):
+    if input.kind in ("special_price", "quantity_discount", "buy_multiple", "buy_x_get_y_free"):
         if not input.productId:
             raise HTTPException(status_code=422, detail="Choose an active product for the offer.")
         if input.productId.startswith("shopbase-"):
@@ -648,13 +666,8 @@ def _github_headers(token: str):
         "X-GitHub-Api-Version": "2022-11-28",
     }
 
-@app.put("/api/admin/sync/cookie")
-def update_shopbase_cookie(input: SyncCookieInput, authorization: str | None = Header(default=None)):
-    _admin_from_auth(authorization)
+def _save_github_shopbase_cookie(cookie: str):
     token, repository, _ = _github_sync_settings()
-    cookie = input.cookie.strip()
-    if "\n" in cookie or "\r" in cookie or "cookie" not in cookie.lower() and "=" not in cookie:
-        raise HTTPException(status_code=422, detail="Paste the ShopBase Cookie request value.")
     headers = _github_headers(token)
     try:
         key_response = requests.get(f"https://api.github.com/repos/{repository}/actions/secrets/public-key", headers=headers, timeout=15)
@@ -663,12 +676,7 @@ def update_shopbase_cookie(input: SyncCookieInput, authorization: str | None = H
         key_response.raise_for_status()
         key = key_response.json()
         sealed = public.SealedBox(public.PublicKey(key["key"], encoding.Base64Encoder)).encrypt(cookie.encode())
-        response = requests.put(
-            f"https://api.github.com/repos/{repository}/actions/secrets/SHOPBASE_SESSION_COOKIE",
-            headers=headers,
-            json={"encrypted_value": base64.b64encode(sealed).decode(), "key_id": key["key_id"]},
-            timeout=15,
-        )
+        response = requests.put(f"https://api.github.com/repos/{repository}/actions/secrets/SHOPBASE_SESSION_COOKIE", headers=headers, json={"encrypted_value": base64.b64encode(sealed).decode(), "key_id": key["key_id"]}, timeout=15)
         if response.status_code in (401, 403):
             raise HTTPException(status_code=502, detail="GitHub token needs repository secrets write permission.")
         if response.status_code not in (201, 204):
@@ -676,7 +684,107 @@ def update_shopbase_cookie(input: SyncCookieInput, authorization: str | None = H
             raise HTTPException(status_code=502, detail="GitHub did not accept the encrypted session cookie.")
     except requests.RequestException as error:
         raise HTTPException(status_code=502, detail="Could not update the GitHub Actions secret.") from error
+
+def _valid_shopbase_cookie(cookie: str):
+    return "\n" not in cookie and "\r" not in cookie and ("cookie" in cookie.lower() or "=" in cookie)
+
+@app.put("/api/admin/sync/cookie")
+def update_shopbase_cookie(input: SyncCookieInput, authorization: str | None = Header(default=None)):
+    _admin_from_auth(authorization)
+    cookie = input.cookie.strip()
+    if not _valid_shopbase_cookie(cookie):
+        raise HTTPException(status_code=422, detail="Paste the ShopBase Cookie request value.")
+    _save_github_shopbase_cookie(cookie)
     return {"ok": True, "message": "ShopBase sync cookie saved securely to GitHub Actions."}
+
+def _sync_agent_from_auth(authorization: str | None):
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Pair this computer with the admin panel first.")
+    token_hash = hashlib.sha256(authorization[7:].strip().encode()).hexdigest()
+    agent = db().sync_agents.find_one({"_id": token_hash, "active": True})
+    if not agent:
+        raise HTTPException(status_code=401, detail="This computer's pairing has expired. Pair it again from Product sync.")
+    db().sync_agents.update_one({"_id": token_hash, "active": True}, {"$set": {"lastSeenAt": datetime.now(timezone.utc).isoformat()}})
+    agent["_id"] = token_hash
+    return agent
+
+@app.post("/api/admin/sync/agent/pair")
+def pair_sync_agent(authorization: str | None = Header(default=None)):
+    _admin_from_auth(authorization)
+    store = db().sync_agents
+    store.update_many({"active": True}, {"$set": {"active": False, "revokedAt": datetime.now(timezone.utc).isoformat()}})
+    token = secrets.token_urlsafe(36)
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    store.insert_one({"_id": token_hash, "active": True, "createdAt": datetime.now(timezone.utc).isoformat(), "lastRepairRunId": None, "lastRepairState": "idle", "lastMessage": "Paired. Waiting for a failed catalog sync."})
+    return {"token": token, "message": "One-time pairing code created. It will only be shown once."}
+
+@app.get("/api/admin/sync/agent")
+def sync_agent_status(authorization: str | None = Header(default=None)):
+    _admin_from_auth(authorization)
+    agent = db().sync_agents.find_one({"active": True}, {"_id": 0, "createdAt": 1, "lastSeenAt": 1, "lastMessage": 1, "lastRepairAt": 1, "lastRepairState": 1})
+    return {"paired": bool(agent), **(agent or {})}
+
+@app.delete("/api/admin/sync/agent")
+def revoke_sync_agent(authorization: str | None = Header(default=None)):
+    _admin_from_auth(authorization)
+    db().sync_agents.update_many({"active": True}, {"$set": {"active": False, "revokedAt": datetime.now(timezone.utc).isoformat()}})
+    return {"ok": True, "message": "Automatic cookie renewal has been disconnected from this PC."}
+
+@app.get("/api/sync-agent/poll")
+def poll_sync_agent(authorization: str | None = Header(default=None)):
+    agent = _sync_agent_from_auth(authorization)
+    latest = db().sync_runs.find_one({}, {"_id": 0, "runId": 1, "status": 1, "error": 1, "finishedAt": 1, "updatedAt": 1}, sort=[("startedAt", -1)])
+    run_id = str((latest or {}).get("runId") or "")
+    # The local agent must prove its saved browser session still works before replacing GitHub's secret.
+    is_new_failure = latest and latest.get("status") == "failed" and run_id and run_id != agent.get("lastRepairRunId")
+    retry_pending = latest and latest.get("status") == "failed" and run_id and run_id == agent.get("lastRepairRunId") and agent.get("lastRepairState") in ("needs_signin", "checking")
+    if is_new_failure and agent.get("lastRepairState") in ("queued", "stopped") and agent.get("lastRepairAt"):
+        recovered = db().sync_runs.find_one({"status": {"$in": ["success", "success_with_skipped_details"]}, "finishedAt": {"$gt": agent["lastRepairAt"]}}, {"runId": 1})
+        if not recovered:
+            db().sync_agents.update_one({"_id": agent["_id"], "active": True}, {"$set": {"lastRepairRunId": run_id, "lastRepairState": "stopped", "lastMessage": "The cookie was refreshed and one retry ran, but the latest sync still failed. Automatic retries stopped to prevent a loop; open the GitHub run to see the importer error."}})
+            return {"action": "wait", "pollAfterSeconds": 60}
+    if is_new_failure or retry_pending:
+        changes = {"lastRepairRunId": run_id, "lastRepairState": "checking", "lastMessage": "Checking whether the saved ShopBase browser session can repair the failed sync."}
+        db().sync_agents.update_one({"_id": agent["_id"], "active": True}, {"$set": changes})
+        return {"action": "check_session", "runId": run_id}
+    return {"action": "wait", "pollAfterSeconds": 60}
+
+@app.post("/api/sync-agent/repair")
+def repair_sync_agent(input: SyncAgentRepairInput, authorization: str | None = Header(default=None)):
+    agent = _sync_agent_from_auth(authorization)
+    store = db().sync_agents
+    if input.runId != agent.get("lastRepairRunId"):
+        raise HTTPException(status_code=409, detail="This sync failure is no longer the pending repair request.")
+    if not input.cookie:
+        message = input.error or "No usable ShopBase session was found on this PC. Sign in to ShopBase in the sync browser and leave it open."
+        store.update_one({"_id": agent["_id"], "active": True}, {"$set": {"lastMessage": message, "lastRepairState": "needs_signin", "lastRepairAt": datetime.now(timezone.utc).isoformat()}})
+        return {"ok": False, "message": message}
+    cookie = input.cookie.strip()
+    if not _valid_shopbase_cookie(cookie):
+        raise HTTPException(status_code=422, detail="The local browser did not provide a valid ShopBase cookie value.")
+    latest = db().sync_runs.find_one({}, {"runId": 1, "status": 1}, sort=[("startedAt", -1)])
+    if (latest or {}).get("status") != "failed" or str((latest or {}).get("runId") or "") != input.runId:
+        raise HTTPException(status_code=409, detail="The latest catalog sync has changed. No cookie was saved.")
+    token, repository, workflow = _github_sync_settings()
+    active = next((run for run in _github_sync_runs(token, repository, workflow) if run.get("status") in ("queued", "in_progress")), None)
+    if active:
+        _save_github_shopbase_cookie(cookie)
+        store.update_one({"_id": agent["_id"], "active": True}, {"$set": {"lastRepairState": "queued", "lastRepairAt": datetime.now(timezone.utc).isoformat(), "lastMessage": "Fresh ShopBase session saved securely. A sync is already running; the agent will watch its result and repair again only if it fails."}})
+        return {"ok": True, "message": "Fresh ShopBase session saved. Waiting for the active sync to finish."}
+    _save_github_shopbase_cookie(cookie)
+    requested_at = datetime.now(timezone.utc).isoformat()
+    try:
+        response = requests.post(f"https://api.github.com/repos/{repository}/actions/workflows/{workflow}/dispatches", headers=_github_headers(token), json={"ref": "main", "inputs": {"refresh_details": "false"}}, timeout=20)
+        if response.status_code in (401, 403):
+            raise HTTPException(status_code=502, detail="GitHub rejected the automatic retry request. Check Actions write access for GITHUB_ACTIONS_TOKEN.")
+        if response.status_code != 204:
+            response.raise_for_status()
+            raise HTTPException(status_code=502, detail="GitHub did not accept the automatic retry request.")
+    except requests.RequestException as error:
+        raise HTTPException(status_code=502, detail="The fresh cookie was saved, but GitHub could not queue the retry.") from error
+    db().sync_control.update_one({"_id": "manual"}, {"$set": {"requestedAt": requested_at, "runId": None, "status": "queued", "htmlUrl": None, "repository": repository, "workflow": workflow, "error": None}}, upsert=True)
+    store.update_one({"_id": agent["_id"], "active": True}, {"$set": {"lastMessage": "Fresh ShopBase session saved securely; the failed catalog sync was queued for an automatic retry.", "lastRepairAt": requested_at, "lastRepairState": "queued"}})
+    return {"ok": True, "message": "Fresh ShopBase session saved securely. Catalog sync retry queued."}
 
 def _github_sync_runs(token: str, repository: str, workflow: str):
     url = f"https://api.github.com/repos/{repository}/actions/workflows/{workflow}/runs"

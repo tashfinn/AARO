@@ -152,7 +152,7 @@ function readState(): StoreState {
     const products = Array.isArray(saved.products) ? saved.products.filter((item) => item && typeof item.id === 'string' && typeof item.title === 'string' && typeof item.category === 'string' && typeof item.image === 'string' && typeof item.description === 'string' && Number.isFinite(item.price)) : []
     const categories = Array.isArray(saved.categories) ? saved.categories.filter((item): item is string => typeof item === 'string') : [...initialState.categories]
     const coupons = Array.isArray(saved.coupons) ? saved.coupons.filter((item): item is Coupon => Boolean(item && typeof item.code === 'string' && (item.kind === 'percent' || item.kind === 'amount') && Number.isFinite(item.value) && typeof item.active === 'boolean')) : []
-    const offers = Array.isArray(saved.offers) ? saved.offers.filter((item): item is OfferDeal => Boolean(item && typeof item.id === 'string' && typeof item.title === 'string' && typeof item.productId === 'string' && ['special_price', 'quantity_discount', 'buy_x_get_y_free', 'bundle', 'free_delivery'].includes(item.kind) && Number.isFinite(item.value) && typeof item.active === 'boolean')) : []
+    const offers = Array.isArray(saved.offers) ? saved.offers.filter((item): item is OfferDeal => Boolean(item && typeof item.id === 'string' && typeof item.title === 'string' && typeof item.productId === 'string' && ['special_price', 'quantity_discount', 'buy_multiple', 'buy_x_get_y_free', 'bundle', 'free_delivery'].includes(item.kind) && Number.isFinite(item.value) && typeof item.active === 'boolean')) : []
     const orders = Array.isArray(saved.orders) ? saved.orders.filter((item): item is Order => Boolean(item && typeof item.id === 'string' && item.customer && typeof item.customer.phone === 'string' && Array.isArray(item.items) && Number.isFinite(item.total))) : []
     return { ...initialState, ...saved, products, categories: categories.length ? categories : [...initialState.categories], coupons, offers, orders, views: Number.isFinite(saved.views) ? Number(saved.views) : 0, content }
   } catch { return { ...initialState, content: { ...initialState.content }, products: [], categories: [...initialState.categories], coupons: [], offers: [], orders: [], views: 0 } }
@@ -610,18 +610,20 @@ export default function App() {
   }, [activeProducts, query])
   const cartItems = useMemo(() => cart.map((line) => ({ ...line, product: state.products.find((item) => item.id === line.productId) })).filter((line): line is CartLine & { product: Product } => Boolean(line.product)), [cart, state.products])
   const subtotal = cartItems.reduce((sum, line) => sum + line.product.price * line.quantity, 0)
-  const offerSavings = cartItems.reduce((sum, line) => {
-    const offer = state.offers.find((item) => item.active && item.productId === line.product.id)
-    if (!offer) return sum
-    const unitPrice = line.product.price
-    if (offer.kind === 'special_price') return sum + Math.max(0, unitPrice - Math.min(unitPrice, offer.value)) * line.quantity
-    if (offer.kind === 'quantity_discount') {
-      const groups = Math.floor(line.quantity / Math.max(1, offer.quantity))
+  const offerSavings = state.offers.filter((offer) => offer.active && offer.kind !== 'bundle' && offer.kind !== 'free_delivery').reduce((sum, offer) => {
+    const lines = cartItems.filter((line) => line.product.id === offer.productId)
+    const quantity = lines.reduce((total, line) => total + line.quantity, 0)
+    if (!quantity || !lines[0]) return sum
+    const unitPrice = lines[0].product.price
+    if (offer.kind === 'special_price') return sum + Math.max(0, unitPrice - Math.min(unitPrice, offer.value)) * quantity
+    if (offer.kind === 'quantity_discount' || offer.kind === 'buy_multiple') {
+      const groups = Math.floor(quantity / Math.max(1, offer.quantity))
       const eligibleQuantity = groups * Math.max(1, offer.quantity)
+      if (offer.kind === 'buy_multiple' && !['discount', 'both'].includes(offer.reward || 'discount')) return sum
       const saving = offer.discountKind === 'percent' ? eligibleQuantity * unitPrice * offer.value / 100 : groups * offer.value
       return sum + Math.min(eligibleQuantity * unitPrice, saving)
     }
-    const freeCount = Math.floor(line.quantity / (Math.max(1, offer.quantity) + Math.max(1, offer.freeQuantity))) * Math.max(1, offer.freeQuantity)
+    const freeCount = Math.floor(quantity / (Math.max(1, offer.quantity) + Math.max(1, offer.freeQuantity))) * Math.max(1, offer.freeQuantity)
     return sum + freeCount * unitPrice
   }, 0)
   const bundleSavings = state.offers.filter((offer) => offer.active && offer.kind === 'bundle').reduce((sum, offer) => {
@@ -635,7 +637,7 @@ export default function App() {
   const couponDiscount = coupon && coupon.active && subtotal >= (coupon.minimum || 0) ? Math.min(subtotal, coupon.kind === 'percent' ? subtotal * coupon.value / 100 : coupon.value) : 0
   const discount = Math.min(subtotal, offerSavings + bundleSavings + couponDiscount)
   const selectedDeliveryFee = deliveryZone === 'city' ? state.content.deliveryInDhaka : deliveryZone === 'sub_dhaka' ? state.content.deliverySubDhaka : state.content.deliveryOutsideDhaka
-  const freeDeliveryApplied = state.offers.some((offer) => offer.active && offer.kind === 'free_delivery' && subtotal >= offer.value)
+  const freeDeliveryApplied = state.offers.some((offer) => offer.active && (offer.kind === 'free_delivery' && subtotal >= offer.value || offer.kind === 'buy_multiple' && ['free_delivery', 'both'].includes(offer.reward || '') && cart.filter((line) => line.productId === offer.productId).reduce((sum, line) => sum + line.quantity, 0) >= Math.max(1, offer.quantity)))
   const deliveryFee = freeDeliveryApplied ? 0 : selectedDeliveryFee
   const revenue = state.orders.filter((order) => !['Cancelled', 'Pending confirmation'].includes(order.status)).reduce((sum, order) => sum + order.total, 0)
   const customerCount = new Set(state.orders.map((order) => order.customer.phone)).size
@@ -914,11 +916,11 @@ export default function App() {
     const form = new FormData(event.currentTarget)
     const kind = String(form.get('kind')) as OfferDeal['kind']
     const productIds = form.getAll('productIds').map(String).filter(Boolean)
-    const nextOffer: OfferDeal = { title: String(form.get('title') || '').trim(), id: `offer-${Date.now()}`, productId: String(form.get('productId') || ''), ...(kind === 'bundle' ? { productIds } : {}), kind, value: Number(form.get('value')) || 0, discountKind: String(form.get('discountKind') || 'percent') as OfferDeal['discountKind'], quantity: Number(form.get('quantity')) || 1, freeQuantity: Number(form.get('freeQuantity')) || 1, active: true }
-    if (['special_price', 'quantity_discount', 'buy_x_get_y_free'].includes(kind) && !nextOffer.productId) { notify('Choose a product for this offer.'); return }
+    const nextOffer: OfferDeal = { title: String(form.get('title') || '').trim(), id: `offer-${Date.now()}`, productId: String(form.get('productId') || ''), ...(kind === 'bundle' ? { productIds } : {}), kind, value: Number(form.get('value')) || 0, discountKind: String(form.get('discountKind') || 'percent') as OfferDeal['discountKind'], quantity: Number(form.get('quantity')) || 1, freeQuantity: Number(form.get('freeQuantity')) || 1, ...(kind === 'buy_multiple' ? { reward: String(form.get('reward') || 'discount') as OfferDeal['reward'] } : {}), active: true }
+    if (['special_price', 'quantity_discount', 'buy_multiple', 'buy_x_get_y_free'].includes(kind) && !nextOffer.productId) { notify('Choose a product for this offer.'); return }
     if (kind === 'bundle' && new Set(productIds).size < 2) { notify('Choose at least two different products for the bundle.'); return }
     if (kind === 'free_delivery' && nextOffer.value < 0) { notify('Enter a valid minimum order amount.'); return }
-    if (nextOffer.kind === 'quantity_discount' && nextOffer.discountKind === 'percent' && nextOffer.value > 100) { notify('A percentage offer cannot exceed 100%.'); return }
+    if ((nextOffer.kind === 'quantity_discount' || nextOffer.kind === 'buy_multiple' && ['discount', 'both'].includes(nextOffer.reward || '')) && nextOffer.discountKind === 'percent' && nextOffer.value > 100) { notify('A percentage offer cannot exceed 100%.'); return }
     if (API_BASE && adminToken) { const response = await fetch(`${API_BASE}/api/admin/offers`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` }, body: JSON.stringify(nextOffer) }); if (!response.ok) { const result = await response.json().catch(() => ({})); notify(result.detail || 'Offer could not be saved.'); return } }
     updateState((current) => ({ ...current, offers: [...current.offers, nextOffer] }))
     setOfferFormOpen(false); notify('Offer saved')
@@ -1220,7 +1222,7 @@ function ProductPage({ product, offer, relatedProducts, wishlist, wished, onClos
     <button className="product-back" onClick={onClose}><ChevronLeft size={17} /> Back to shopping</button>
     <div className="product-page-layout">
       <div className="detail-gallery"><div className="detail-image"><ImageView src={activeImage} alt={product.title} loading="eager" /></div>{detailImages.length > 1 && <div className="detail-thumbnails">{detailImages.map((image) => <button type="button" className={activeImage === image ? 'selected' : ''} key={image} onClick={() => setActiveImage(image)} aria-label={`View ${product.title} image`}><ImageView src={image} alt="" /></button>)}</div>}</div>
-      <div className="detail-copy"><span className="section-kicker">{detailProduct.category.toUpperCase()} / THE EVERYDAY EDIT</span><h1>{detailProduct.title}</h1><div className="detail-price">{money(detailProduct.price)} {detailProduct.compareAt && <del>{money(detailProduct.compareAt)}</del>}{detailProduct.compareAt && <small>YOU SAVE {money(detailProduct.compareAt - detailProduct.price)}</small>}</div><p className="product-description">{detailProduct.description || (detailProduct.source === 'shopbase' ? 'Loading product details…' : '')}</p>{offer && <div className="product-offer-callout"><Tags size={16} /><span><b>{offer.title || 'Special offer'}</b><small>{offer.kind === 'special_price' ? `Offer price: ${money(offer.value)}` : offer.kind === 'quantity_discount' ? `Buy ${offer.quantity}, save ${offer.discountKind === 'percent' ? `${offer.value}%` : money(offer.value)}` : `Buy ${offer.quantity}, get ${offer.freeQuantity} free`}</small></span></div>}{Boolean(availableSizes.length) && <div className="size-picker"><div><b>Choose a size</b>{detailProduct.sizeChart && <button type="button" onClick={() => document.getElementById('product-size-chart')?.scrollIntoView({ behavior: 'smooth', block: 'center' })}>Size guide</button>}</div><div>{availableSizes.map((item) => <button type="button" className={size === item ? 'selected' : ''} key={item} onClick={() => { setSize(item); if (sizeOption) setSelectedOptions((current) => ({ ...current, [sizeOption.name]: item })); setChoiceNotice('') }}>{item}</button>)}</div></div>}{detailProduct.options?.filter((option) => !/^size$/i.test(option.name)).map((option) => <div className="size-picker product-option-picker" key={option.name}><div><b>Choose {option.name.toLowerCase()}</b></div><div>{option.values.map((item) => <button type="button" className={selectedOptions[option.name] === item ? 'selected' : ''} key={item} onClick={() => setSelectedOptions((current) => ({ ...current, [option.name]: item }))}>{item}</button>)}</div></div>)}{uniqueAttributes.length > 0 ? <ul className="product-attributes">{uniqueAttributes.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}</ul> : null}{detailProduct.sizeChart && <details className="product-size-chart" id="product-size-chart"><summary>Size chart & measurements</summary><pre>{detailProduct.sizeChart}</pre></details>}<div className="detail-actions"><div className="quantity-control"><button onClick={() => setQuantity(Math.max(1, quantity - 1))}><Minus size={13} /></button><span>{quantity}</span><button onClick={() => setQuantity(quantity + 1)}><Plus size={13} /></button></div><button className="dark-button" onClick={() => { if (!hasRequiredProductChoices(detailProduct, { size, options: selectedOptions })) { const missingOption = detailProduct.options?.find((option) => !/^size$/i.test(option.name) && option.values.length && !selectedOptions[option.name]); setChoiceNotice(availableSizes.length && !size ? 'Please select a size first.' : `Please select ${missingOption?.name.toLowerCase() || 'the required option'} first.`); return } const cartOptions = Object.fromEntries(Object.entries(selectedOptions).filter(([name]) => !/^size$/i.test(name))); setChoiceNotice(''); onAdd(detailProduct, quantity, size, cartOptions) }}>Add to bag <ShoppingBag size={17} /></button><IconButton label={wished ? 'Remove from wishlist' : 'Save to wishlist'} className={wished ? 'wished' : ''} onClick={() => onWish(product.id)}><Heart size={18} fill={wished ? 'currentColor' : 'none'} /></IconButton></div>{choiceNotice && <p className="product-choice-notice" role="alert">{choiceNotice}</p>}<div className="detail-policies"><span><Truck size={16} /> Delivery across Bangladesh</span><span><ShieldCheck size={16} /> Easy support if needed</span></div></div>
+      <div className="detail-copy"><span className="section-kicker">{detailProduct.category.toUpperCase()} / THE EVERYDAY EDIT</span><h1>{detailProduct.title}</h1><div className="detail-price">{money(detailProduct.price)} {detailProduct.compareAt && <del>{money(detailProduct.compareAt)}</del>}{detailProduct.compareAt && <small>YOU SAVE {money(detailProduct.compareAt - detailProduct.price)}</small>}</div><p className="product-description">{detailProduct.description || (detailProduct.source === 'shopbase' ? 'Loading product details…' : '')}</p>{offer && <div className="product-offer-callout"><Tags size={16} /><span><b>{offer.title || 'Special offer'}</b><small>{offer.kind === 'special_price' ? `Offer price: ${money(offer.value)}` : offer.kind === 'quantity_discount' ? `Buy ${offer.quantity}, save ${offer.discountKind === 'percent' ? `${offer.value}%` : money(offer.value)}` : offer.kind === 'buy_multiple' ? `Buy ${offer.quantity}${['discount', 'both'].includes(offer.reward || 'discount') ? `, save ${offer.discountKind === 'percent' ? `${offer.value}%` : money(offer.value)}` : ''}${['free_delivery', 'both'].includes(offer.reward || '') ? ' + free delivery' : ''}` : `Buy ${offer.quantity}, get ${offer.freeQuantity} free`}</small></span></div>}{Boolean(availableSizes.length) && <div className="size-picker"><div><b>Choose a size</b>{detailProduct.sizeChart && <button type="button" onClick={() => document.getElementById('product-size-chart')?.scrollIntoView({ behavior: 'smooth', block: 'center' })}>Size guide</button>}</div><div>{availableSizes.map((item) => <button type="button" className={size === item ? 'selected' : ''} key={item} onClick={() => { setSize(item); if (sizeOption) setSelectedOptions((current) => ({ ...current, [sizeOption.name]: item })); setChoiceNotice('') }}>{item}</button>)}</div></div>}{detailProduct.options?.filter((option) => !/^size$/i.test(option.name)).map((option) => <div className="size-picker product-option-picker" key={option.name}><div><b>Choose {option.name.toLowerCase()}</b></div><div>{option.values.map((item) => <button type="button" className={selectedOptions[option.name] === item ? 'selected' : ''} key={item} onClick={() => setSelectedOptions((current) => ({ ...current, [option.name]: item }))}>{item}</button>)}</div></div>)}{uniqueAttributes.length > 0 ? <ul className="product-attributes">{uniqueAttributes.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}</ul> : null}{detailProduct.sizeChart && <details className="product-size-chart" id="product-size-chart"><summary>Size chart & measurements</summary><pre>{detailProduct.sizeChart}</pre></details>}<div className="detail-actions"><div className="quantity-control"><button onClick={() => setQuantity(Math.max(1, quantity - 1))}><Minus size={13} /></button><span>{quantity}</span><button onClick={() => setQuantity(quantity + 1)}><Plus size={13} /></button></div><button className="dark-button" onClick={() => { if (!hasRequiredProductChoices(detailProduct, { size, options: selectedOptions })) { const missingOption = detailProduct.options?.find((option) => !/^size$/i.test(option.name) && option.values.length && !selectedOptions[option.name]); setChoiceNotice(availableSizes.length && !size ? 'Please select a size first.' : `Please select ${missingOption?.name.toLowerCase() || 'the required option'} first.`); return } const cartOptions = Object.fromEntries(Object.entries(selectedOptions).filter(([name]) => !/^size$/i.test(name))); setChoiceNotice(''); onAdd(detailProduct, quantity, size, cartOptions) }}>Add to bag <ShoppingBag size={17} /></button><IconButton label={wished ? 'Remove from wishlist' : 'Save to wishlist'} className={wished ? 'wished' : ''} onClick={() => onWish(product.id)}><Heart size={18} fill={wished ? 'currentColor' : 'none'} /></IconButton></div>{choiceNotice && <p className="product-choice-notice" role="alert">{choiceNotice}</p>}<div className="detail-policies"><span><Truck size={16} /> Delivery across Bangladesh</span><span><ShieldCheck size={16} /> Easy support if needed</span></div></div>
     </div>
     {relatedProducts.length > 0 && <div className="related-products"><ProductSection title="More from this category" kicker={`MORE TO LOVE IN ${product.category.toUpperCase()}`} products={relatedProducts} wishlist={wishlist} onWish={onWish} onOpen={onOpen} onAdd={(item) => onAdd(item, 1)} onSeeAll={onSeeRelated} compact /></div>}
   </section>
@@ -1335,6 +1337,7 @@ function AdminOffers({ state, products, onNewCoupon, onNewOffer, toggleCoupon, d
   const offerLabel = (offer: OfferDeal) => {
     if (offer.kind === 'special_price') return `Special price ${money(offer.value)}`
     if (offer.kind === 'quantity_discount') return `Buy ${offer.quantity}, save ${offer.discountKind === 'percent' ? `${offer.value}%` : money(offer.value)}`
+    if (offer.kind === 'buy_multiple') return `Buy ${offer.quantity}${['discount', 'both'].includes(offer.reward || 'discount') ? `, save ${offer.discountKind === 'percent' ? `${offer.value}%` : money(offer.value)}` : ''}${['free_delivery', 'both'].includes(offer.reward || '') ? ' + free delivery' : ''}`
     if (offer.kind === 'buy_x_get_y_free') return `Buy ${offer.quantity}, get ${offer.freeQuantity} free`
     if (offer.kind === 'bundle') return `Bundle of ${(offer.productIds || []).length} products for ${money(offer.value)}`
     return `Free delivery${offer.value ? ` on orders over ${money(offer.value)}` : ''}`
@@ -1371,6 +1374,7 @@ function OfferEditor({ products, onClose, onSave }: { products: Product[]; onClo
   const [search, setSearch] = useState('')
   const [kind, setKind] = useState<OfferDeal['kind']>('special_price')
   const [discountKind, setDiscountKind] = useState<OfferDeal['discountKind']>('percent')
+  const [reward, setReward] = useState<NonNullable<OfferDeal['reward']>>('discount')
   const [productId, setProductId] = useState('')
   const [selectedProductIds, setSelectedProductIds] = useState<string[]>([])
   const filtered = products.filter((product) => `${product.title} ${product.category}`.toLowerCase().includes(search.toLowerCase())).slice(0, 60)
@@ -1379,9 +1383,10 @@ function OfferEditor({ products, onClose, onSave }: { products: Product[]; onClo
     <label>Offer name<input name="title" required maxLength={120} placeholder="e.g. Buy 2, save 10%" /></label>
     {kind !== 'free_delivery' && <label>Find products<input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search product name or category" /></label>}
     {kind === 'bundle' ? <fieldset className="offer-bundle-products"><legend>Choose bundle products</legend>{filtered.map((product) => <label key={product.id}><input type="checkbox" checked={selectedProductIds.includes(product.id)} onChange={(event) => setSelectedProductIds((ids) => event.target.checked ? [...ids, product.id] : ids.filter((id) => id !== product.id))} /><span>{product.title} · {money(product.price)}</span></label>)}<small>Select two or more products. The bundle discount applies when each chosen product is in the bag.</small></fieldset> : kind !== 'free_delivery' ? <label>Select product<select name="productId" required value={productId} onChange={(event) => setProductId(event.target.value)}><option value="" disabled>Choose a product</option>{filtered.map((product) => <option value={product.id} key={product.id}>{product.title} · {money(product.price)}</option>)}</select></label> : null}
-    <label>Offer type<select name="kind" value={kind} onChange={(event) => setKind(event.target.value as OfferDeal['kind'])}><option value="special_price">Set a special product price</option><option value="quantity_discount">Buy a quantity and save</option><option value="buy_x_get_y_free">Buy X, get Y free</option><option value="bundle">Bundle selected products at one price</option><option value="free_delivery">Free delivery on orders over an amount</option></select></label>
+    <label>Offer type<select name="kind" value={kind} onChange={(event) => setKind(event.target.value as OfferDeal['kind'])}><option value="special_price">Set a special product price</option><option value="quantity_discount">Buy a quantity and save</option><option value="buy_multiple">Buy multiple and get a reward</option><option value="buy_x_get_y_free">Buy X, get Y free</option><option value="bundle">Bundle selected products at one price</option><option value="free_delivery">Free delivery on orders over an amount</option></select></label>
     {kind === 'special_price' && <label>Offer price (৳)<input name="value" type="number" min="1" max={selectedProduct?.price} required /></label>}
     {kind === 'quantity_discount' && <><div className="settings-two"><label>Minimum quantity<input name="quantity" type="number" min="1" defaultValue="2" required /></label><label>Discount type<select name="discountKind" value={discountKind} onChange={(event) => setDiscountKind(event.target.value as OfferDeal['discountKind'])}><option value="percent">Percentage</option><option value="amount">Fixed ৳ amount</option></select></label></div><label>Discount amount<input name="value" type="number" min="1" max={discountKind === 'percent' ? 100 : undefined} required /></label></>}
+    {kind === 'buy_multiple' && <><div className="settings-two"><label>Buy quantity<input name="quantity" type="number" min="2" max="1000" defaultValue="2" required /></label><label>Customer reward<select name="reward" value={reward} onChange={(event) => setReward(event.target.value as NonNullable<OfferDeal['reward']>)}><option value="discount">Discount only</option><option value="free_delivery">Free delivery only</option><option value="both">Discount and free delivery</option></select></label></div>{(reward === 'discount' || reward === 'both') && <div className="settings-two"><label>Discount type<select name="discountKind" value={discountKind} onChange={(event) => setDiscountKind(event.target.value as OfferDeal['discountKind'])}><option value="percent">Percentage</option><option value="amount">Fixed ৳ amount per qualifying group</option></select></label><label>Discount amount<input name="value" type="number" min="1" max={discountKind === 'percent' ? 100 : undefined} required /></label></div>}<p className="form-help">The reward applies when the customer adds the selected product in this quantity to their bag.</p></>}
     {kind === 'buy_x_get_y_free' && <div className="settings-two"><label>Buy quantity<input name="quantity" type="number" min="1" defaultValue="3" required /></label><label>Free quantity<input name="freeQuantity" type="number" min="1" defaultValue="1" required /></label></div>}
     {kind === 'bundle' && <div className="settings-two"><label>Quantity of each bundle item<input name="quantity" type="number" min="1" defaultValue="1" required /></label><label>Bundle price (৳)<input name="value" type="number" min="0" required /></label></div>}
     {kind === 'free_delivery' && <label>Minimum order subtotal (৳)<input name="value" type="number" min="0" defaultValue="0" required /><span>Leave at 0 to offer free delivery on every order.</span></label>}
@@ -1413,6 +1418,10 @@ function SyncPanel({ lastSync, onLastSync, onSyncComplete, importNote, fileRef, 
   const [scheduleMessage, setScheduleMessage] = useState('')
   const [cookieEditorOpen, setCookieEditorOpen] = useState(false)
   const [cookieDraft, setCookieDraft] = useState('')
+  const [agentStatus, setAgentStatus] = useState<{ paired: boolean; lastSeenAt?: string; lastMessage?: string; lastRepairAt?: string } | null>(null)
+  const [agentPairingCode, setAgentPairingCode] = useState('')
+  const [agentBusy, setAgentBusy] = useState(false)
+  const [agentMessage, setAgentMessage] = useState('')
   const acceptProgress = (result: SyncProgress) => {
     setSyncProgress(result)
     if ((result.status === 'success' || result.status === 'success_with_skipped_details') && typeof result.finishedAt === 'string') {
@@ -1466,6 +1475,47 @@ function SyncPanel({ lastSync, onLastSync, onSyncComplete, importNote, fileRef, 
   useEffect(() => {
     void refreshProgress()
   }, [apiBase, token])
+  const refreshAgentStatus = async () => {
+    if (!apiBase || !token) return
+    try {
+      const response = await fetch(apiBase + '/api/admin/sync/agent', { cache: 'no-store', headers: { Authorization: 'Bearer ' + token } })
+      const result = await response.json()
+      if (response.ok) setAgentStatus(result)
+    } catch { /* Keep the last reported local-agent status visible during short network interruptions. */ }
+  }
+  useEffect(() => { void refreshAgentStatus() }, [apiBase, token])
+  useEffect(() => {
+    const timer = window.setInterval(() => { void refreshAgentStatus() }, 30000)
+    return () => window.clearInterval(timer)
+  }, [apiBase, token])
+  const pairAgent = async () => {
+    if (!apiBase || !token) return
+    setAgentBusy(true); setAgentMessage(''); setAgentPairingCode('')
+    try {
+      const response = await fetch(apiBase + '/api/admin/sync/agent/pair', { method: 'POST', headers: { Authorization: 'Bearer ' + token } })
+      const result = await response.json()
+      if (!response.ok) throw new Error(result.detail || 'Could not create a secure pairing code.')
+      setAgentPairingCode(result.token)
+      setAgentMessage('Pair this PC with the one-time code below. The code is only shown once.')
+      await refreshAgentStatus()
+    } catch (error) { setAgentMessage(error instanceof Error ? error.message : 'Could not create a secure pairing code.') }
+    finally { setAgentBusy(false) }
+  }
+  const revokeAgent = async () => {
+    if (!apiBase || !token) return
+    setAgentBusy(true); setAgentMessage('')
+    try {
+      const response = await fetch(apiBase + '/api/admin/sync/agent', { method: 'DELETE', headers: { Authorization: 'Bearer ' + token } })
+      const result = await response.json()
+      if (!response.ok) throw new Error(result.detail || 'Could not disconnect the local companion.')
+      setAgentPairingCode(''); setAgentMessage(result.message || 'Automatic cookie renewal disconnected.'); await refreshAgentStatus()
+    } catch (error) { setAgentMessage(error instanceof Error ? error.message : 'Could not disconnect the local companion.') }
+    finally { setAgentBusy(false) }
+  }
+  const copyAgentPairingCode = async () => {
+    try { await navigator.clipboard.writeText(agentPairingCode); setAgentMessage('Pairing code copied. Paste it into Pair-ShopBase-Auto-Sync.bat on this PC.') }
+    catch { setAgentMessage('Select and copy the pairing code, then paste it into Pair-ShopBase-Auto-Sync.bat on this PC.') }
+  }
   const startSyncNow = async () => {
     if (!apiBase || !token) { setProgressError('Sync Now needs an active admin session and catalog API.'); return }
     setProgressLoading(true)
@@ -1539,6 +1589,14 @@ function SyncPanel({ lastSync, onLastSync, onSyncComplete, importNote, fileRef, 
         <span className={'status-pill ' + (imported.length ? 'status-green' : 'status-amber')}><i />{imported.length ? 'Connected' : 'Needs sync'}</span>
       </div>
       <div className="sync-actions"><button className="secondary-button" onClick={saveShopBaseCookie} disabled={progressLoading}>Sync cookie</button><button className="primary-button sync-now-button" onClick={startSyncNow} disabled={progressLoading || progress?.status === 'running'}><RotateCcw size={17} /> {progress?.status === 'running' ? 'Sync running…' : progressLoading ? 'Starting…' : 'Sync Now'}</button><button className="secondary-button" onClick={() => fileRef.current?.click()}><Upload size={17} /> Import supplier CSV</button><input ref={fileRef} type="file" accept=".csv,text/csv" hidden onChange={(event) => onImport(event.target.files?.[0])} /><button className="secondary-button" onClick={refreshProgress} disabled={progressLoading}><RotateCcw size={16} /> {progressLoading ? 'Checking progress…' : 'View sync progress'}</button></div>
+      <section className="sync-agent-card">
+        <div className="sync-agent-heading"><b>Automatic cookie renewal on this PC</b><span className={'status-pill ' + (agentStatus?.paired ? 'status-green' : 'status-amber')}><i />{agentStatus?.paired ? 'PC paired' : 'Not paired'}</span></div>
+        <p>A small background helper checks for failed syncs, signs in with the credentials already stored in your D: tool, verifies the catalog session, updates the encrypted GitHub secret, and retries once. This PC must be on and signed in to Windows; if ShopBase requests OTP/CAPTCHA, complete it in the browser window.</p>
+        {agentStatus?.lastMessage && <small>{agentStatus.lastMessage}{agentStatus.lastSeenAt ? ' · Last check ' + dateTimeLabel(agentStatus.lastSeenAt) : ''}</small>}
+        {agentPairingCode && <div className="sync-agent-pairing"><b>One-time pairing code</b><code>{agentPairingCode}</code><button className="secondary-button" type="button" onClick={copyAgentPairingCode}><Copy size={15} /> Copy code</button><small>On the PC that will stay on, open tools/Pair-ShopBase-Auto-Sync.bat, paste the API address and code when asked, then allow it to add the checker to Windows startup. The code is hidden after leaving this page.</small></div>}
+        {agentMessage && <small role="status">{agentMessage}</small>}
+        <div className="sync-actions">{agentStatus?.paired ? <button className="secondary-button" type="button" onClick={revokeAgent} disabled={agentBusy}>Disconnect this PC</button> : <button className="primary-button" type="button" onClick={pairAgent} disabled={agentBusy}>{agentBusy ? 'Preparing…' : 'Set up automatic renewal'}</button>}</div>
+      </section>
       {progressError && <div className="import-result sync-progress-error">{progressError}</div>}
       {syncNotice && <div className="import-result sync-progress-message" role="status">{syncNotice}</div>}
       {progress && <div className="sync-progress-card" aria-live="polite">
