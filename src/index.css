@@ -2899,6 +2899,16 @@ a:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
 .theme-dark :is(input, textarea, select)::placeholder,
 .theme-dark .search-wrap input::placeholder,
 .theme-dark .account-access-form input::placeholder { color: var(--text-secondary); opacity: 1; }
+.theme-dark .checkout-page-form :is(input, textarea, select) {
+  color: #f3f5f2;
+  background-color: #252a29;
+  border-color: #454d49;
+}
+.theme-dark .checkout-page-form :is(input, textarea, select)::placeholder { color: #aeb9b3; opacity: 1; }
+.theme-dark .checkout-page-form :is(label, .form-help, p, h1, h2, h3, strong, b) { color: #e1e8e3; }
+.theme-dark .checkout-order-summary :is(p, span, small, h2, h3, strong, b) { color: #d3ddd6; }
+.theme-dark .checkout-page-form .checkout-note,
+.theme-dark .checkout-page-form .delivery-charge { color: #e1e8e3; background-color: #252a29; border-color: #454d49; }
 .theme-dark .sync-note { color: var(--accent); background: var(--surface-raised); border-color: var(--border); }
 .theme-dark .sync-note b { color: var(--accent); }
 .theme-dark .sync-note small { color: var(--text-secondary); }
