@@ -138,7 +138,7 @@ class OfferInput(BaseModel):
     title: str = Field(default="", max_length=120)
     id: str = Field(min_length=1, max_length=80)
     productId: str = Field(default="", max_length=120)
-    productIds: list[str] = Field(default_factory=list, max_length=20)
+    productIds: list[str] = Field(default_factory=list)
     kind: str
     value: float = Field(default=0, ge=0)
     discountKind: str = "percent"
