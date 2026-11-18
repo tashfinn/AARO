@@ -302,6 +302,8 @@ img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .drawer-summary > div { display: flex; justify-content: space-between; margin: 9px 0; color: #73827a; font-size: 10px; }
 .drawer-summary > div b { color: #314d44; font-size: 10px; }
 .drawer-summary .discount-line, .drawer-summary .discount-line b { color: #16806e; }
+.drawer-summary .discount-line > span, .checkout-totals .discount-line > span { display: grid; gap: 2px; }
+.drawer-summary .discount-line small, .checkout-totals .discount-line small { color: #71877d; font-size: .82em; font-weight: 400; }
 .drawer-summary .summary-total { margin-top: 15px; padding-top: 13px; border-top: 1px solid #e8ece6; color: #29473f; font-weight: 700; }
 .drawer-summary .summary-total b { color: #193e38; font: 700 16px var(--font-display); }
 .checkout-submit { width: 100%; margin-top: 12px; }
