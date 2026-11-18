@@ -21,14 +21,14 @@ def number(s):
  s=re.sub(r"[^0-9]","",s.translate(DIGITS)); return int(s) if s else None
 def product_stock_state(soup):
  text=re.sub(r"\s+"," ",soup.get_text(" ",strip=True)).translate(DIGITS).casefold()
- unavailable=bool(re.search(r"(?:স্টক|স্টকে)\s*[:：-]?\s*(?:নাই|নেই|শেষ|out|unavailable|0)|\b(?:out of stock|sold out|unavailable|not available)\b|\b(?:stock|quantity)\s*[:：-]?\s*0\b",text))
- available=bool(re.search(r"(?:স্টক|স্টকে)\s*[:：-]?\s*(?:আছে|available|in stock)|\b(?:in stock|available)\b|\b(?:stock|quantity)\s*[:：-]?\s*[1-9][0-9]*\b",text))
+ unavailable=bool(re.search(r"(?:স্টক|স্টকে|স্টক-এ)\s*[:：-]?\s*(?:নাই|নেই|শেষ|আউট|out|unavailable|0)|\b(?:out of stock|sold out|unavailable|not available)\b|\b(?:stock|quantity)\s*[:：-]?\s*0\b",text))
+ available=bool(re.search(r"(?:স্টক|স্টকে|স্টক-এ)\s*[:：-]?\s*(?:আছে|available|in stock)|\b(?:in stock|available)\b|\b(?:stock|quantity)\s*[:：-]?\s*[1-9][0-9]*\b",text))
  if unavailable and not available: return False
  if available and not unavailable: return True
  controls=[]
- for button in soup.select("button, input[type='submit'], [role='button']"):
+ for button in soup.select("button, a[href], input[type='submit'], [role='button']"):
   label=" ".join((button.get_text(" ",strip=True),str(button.get("value", "")),str(button.get("aria-label", "")))).casefold()
-  if re.search(r"add to (?:cart|bag)|buy now|অর্ডার করুন|কার্টে যোগ",label): controls.append(button)
+  if re.search(r"add to (?:cart|bag)|buy now|checkout|অর্ডার|এখনই কিনুন|কার্টে যোগ",label): controls.append(button)
  if controls:
   return not all(button.has_attr("disabled") or button.get("aria-disabled", "").casefold()=="true" for button in controls)
  return None
