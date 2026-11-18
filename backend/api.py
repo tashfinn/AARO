@@ -1093,6 +1093,27 @@ def list_admin_products(authorization: str | None = Header(default=None)):
     products.sort(key=lambda item: str(item.get("title", "")).casefold())
     return products
 
+@app.post("/api/admin/products/{product_id}/availability-check")
+def check_one_product_availability(product_id: str, authorization: str | None = Header(default=None)):
+    _admin_from_auth(authorization)
+    if not product_id.startswith("shopbase-"):
+        raise HTTPException(status_code=422, detail="Availability checks are only supported for ShopBase products.")
+    source_id = product_id.removeprefix("shopbase-")
+    if not db().products.find_one({"sourceId": source_id, "source": "shopbase"}, {"_id": 1}):
+        raise HTTPException(status_code=404, detail="This ShopBase product is not in the saved catalog.")
+    token, repository, workflow = _github_sync_settings()
+    response = requests.post(
+        f"https://api.github.com/repos/{repository}/actions/workflows/{workflow}/dispatches",
+        headers=_github_headers(token),
+        json={"ref": "main", "inputs": {"refresh_details": "false", "check_product_id": source_id}},
+        timeout=20,
+    )
+    if response.status_code in (401, 403):
+        raise HTTPException(status_code=502, detail="GitHub rejected the workflow request. Check the Actions permission on the saved GitHub token.")
+    if response.status_code != 204:
+        raise HTTPException(status_code=502, detail=f"GitHub could not start the single-product check (HTTP {response.status_code}).")
+    return {"ok": True, "sourceId": source_id, "message": "Availability check queued for this product only. The catalog will not be synced."}
+
 @app.post("/api/admin/products/import")
 def import_admin_products(input: AdminProductImport, authorization: str | None = Header(default=None)):
     _admin_from_auth(authorization)

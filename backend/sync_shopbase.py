@@ -345,7 +345,30 @@ def run():
  except Exception as e:
   runs.update_one({"runId":runid},{"$set":{"status":"failed","phase":"failed","error":str(e)[:500],"startedAt":started,"finishedAt":now(),"updatedAt":now(),"seen":seen,"productsProcessed":seen,"categoriesProcessed":categories_processed,"productsDiscovered":products_discovered,"created":created,"changed":changed,"unchanged":unchanged,"skippedDetails":len(failed_details)}},upsert=True); raise
  finally: client.close()
+
+def check_one(source_id):
+ if not URI: raise SyncError("MONGODB_URI is missing.")
+ client=MongoClient(URI,serverSelectionTimeoutMS=10000); db=client[DB]
+ try:
+  product=db.products.find_one({"sourceId":source_id,"source":"shopbase"})
+  if not product: raise SyncError(f"ShopBase product {source_id} is not in the saved catalog.")
+  path=product.get("detailPath") or f"/store/products/details/{source_id}"
+  try: s=session(); soup=get(s,path)
+  except Exception as error:
+   if not is_auth_error(error): raise
+   s=session(renew_hosted_cookie()); soup=get(s,path)
+  text=soup.get_text(" ",strip=True)
+  available=bool(re.search(r"স্টক\s*[:：]?\s*আছে",text))
+  unavailable=bool(re.search(r"স্টক\s*[:：]?\s*(নাই|নেই|out)",text,re.I))
+  if not available and not unavailable: raise SyncError("ShopBase product page loaded, but its stock status could not be read. Availability was left unchanged.")
+  stock=1 if available else 0; status="available" if available else "out_of_stock"; stamp=now()
+  db.products.update_one({"sourceId":source_id,"source":"shopbase"},{"$set":{"stock":stock,"active":bool(stock),"sourceStatus":status,"availabilityCheckedAt":stamp,"updatedAt":stamp}})
+  db.admin_products.update_one({"id":f"shopbase-{source_id}","source":"shopbase"},{"$set":{"stock":stock,"active":bool(stock),"sourceStatus":status,"availabilityCheckedAt":stamp,"updatedAt":stamp}})
+  print(f"Availability for {source_id}: {status} at {stamp}")
+ finally: client.close()
 if __name__=="__main__":
- try: run()
+ try:
+  if len(sys.argv)==3 and sys.argv[1]=="--check-product-id": check_one(sys.argv[2])
+  else: run()
  except Exception as e: print(f"Catalog sync failed: {e}",file=sys.stderr); raise SystemExit(1)
 

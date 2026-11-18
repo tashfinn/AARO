@@ -10,6 +10,11 @@ on:
         required: true
         type: boolean
         default: true
+      check_product_id:
+        description: 'Check availability for this one ShopBase product only'
+        required: false
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -62,6 +67,7 @@ jobs:
       SHOPBASE_REQUEST_DELAY_SECONDS: '0.35'
       SHOPBASE_DETAIL_REFRESH_DAYS: '7'
       SHOPBASE_FORCE_DETAIL_REFRESH: ${{ github.event_name == 'workflow_dispatch' && inputs.refresh_details }}
+      SHOPBASE_CHECK_PRODUCT_ID: ${{ github.event_name == 'workflow_dispatch' && inputs.check_product_id || '' }}
       CLOUDINARY_CLOUD_NAME: ${{ secrets.CLOUDINARY_CLOUD_NAME }}
       CLOUDINARY_API_KEY: ${{ secrets.CLOUDINARY_API_KEY }}
       CLOUDINARY_API_SECRET: ${{ secrets.CLOUDINARY_API_SECRET }}
@@ -88,5 +94,9 @@ jobs:
         if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: python -m playwright install --with-deps chromium
       - name: Run catalog sync
+        if: env.SHOPBASE_CHECK_PRODUCT_ID == ''
         run: python sync_shopbase.py
+      - name: Check one product availability
+        if: env.SHOPBASE_CHECK_PRODUCT_ID != ''
+        run: python sync_shopbase.py --check-product-id "$SHOPBASE_CHECK_PRODUCT_ID"
 
