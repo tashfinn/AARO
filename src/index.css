@@ -3564,10 +3564,10 @@ input:focus, select:focus, textarea:focus { outline: none !important; box-shadow
 .hero-slide-editor-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .hero-slide-editor-heading .secondary-button { display: inline-flex; align-items: center; gap: 7px; width: auto; min-height: 36px; }
 .add-hero-slide { display: inline-flex; align-items: center; gap: 8px; margin: 4px 0 20px; }
-.hero-art .hero-carousel-card { border: 1px solid rgba(255,255,255,.26); box-shadow: 0 16px 44px rgba(7,16,12,.2); }
-.hero-art .hero-carousel-active { box-shadow: 0 22px 56px rgba(7,16,12,.28), inset 0 0 0 1px rgba(255,255,255,.12); }
-.hero-art .hero-carousel-dots { padding: 8px 11px; border: 1px solid rgba(255,255,255,.24); border-radius: 999px; background: rgba(20,34,29,.42); backdrop-filter: blur(16px) saturate(140%); -webkit-backdrop-filter: blur(16px) saturate(140%); }
-.hero-art .hero-slide-cta { border: 1px solid rgba(255,255,255,.35); box-shadow: 0 8px 24px rgba(10,18,14,.2); }
+.hero-art .hero-carousel-card { border: 1px solid rgba(255,255,255,.34); box-shadow: 0 20px 52px rgba(7,16,12,.24); }
+.hero-art .hero-carousel-active { box-shadow: 0 26px 64px rgba(7,16,12,.34), inset 0 0 0 1px rgba(255,255,255,.18); }
+.hero-art .hero-carousel-dots { padding: 9px 12px; border: 1px solid rgba(255,255,255,.34); border-radius: 999px; background: rgba(20,34,29,.58); backdrop-filter: blur(20px) saturate(155%); -webkit-backdrop-filter: blur(20px) saturate(155%); box-shadow: 0 8px 22px rgba(0,0,0,.2); }
+.hero-art .hero-slide-cta { border: 1px solid rgba(255,255,255,.42); box-shadow: 0 10px 28px rgba(10,18,14,.27); }
 @media (max-width: 600px) { .hero-slide-editor-heading { align-items: flex-start; } .hero-slide-editor-heading .secondary-button { min-height: 32px; padding-inline: 9px; font-size: 12px; } }
 .theme-dark .category-loading-card i, .theme-dark .category-loading-card span, .theme-dark .product-loading-card span, .theme-dark .product-loading-card i, .theme-dark .product-loading-card small, .theme-dark .product-loading-heading i { background: rgba(220,238,225,.12); }
 .theme-dark .product-loading-heading b { color: #e9eee9; }
