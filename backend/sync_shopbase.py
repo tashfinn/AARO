@@ -353,29 +353,24 @@ def check_one(source_id, check_id=""):
   product=db.products.find_one({"sourceId":source_id,"source":"shopbase"})
   if not product: raise SyncError(f"ShopBase product {source_id} is not in the saved catalog.")
   category_id=str(product.get("categorySourceId") or "")
-  try: s=session()
+  try: s=session(); product_categories=categories(get(s,"/store/products/all"))
   except Exception as error:
    if not is_auth_error(error): raise
-   s=session(renew_hosted_cookie())
-  if not category_id:
-   try: available=any(re.search(rf"/store/products/details/{re.escape(source_id)}(?:$|[?#])",a.get("href", "")) for a in get(s,"/store/products/all").select("a[href]"))
-   except Exception as error:
-    if not is_auth_error(error): raise
-    s=session(renew_hosted_cookie())
-    available=any(re.search(rf"/store/products/details/{re.escape(source_id)}(?:$|[?#])",a.get("href", "")) for a in get(s,"/store/products/all").select("a[href]"))
-  else:
-   listing_path=f"/store/products/{category_id}"
-   try: first=get(s,listing_path)
-   except Exception as error:
-    if not is_auth_error(error): raise
-    s=session(renew_hosted_cookie()); first=get(s,listing_path)
-   available=False
-   listing_pages=pages(first,category_id)
-   for page_number in range(1,listing_pages+1):
-    listing=first if page_number==1 else get(s,f"{listing_path}/{page_number}")
-    if any(re.search(rf"/store/products/details/{re.escape(source_id)}(?:$|[?#])",a.get("href", "")) for a in listing.select("a[href]")):
-     available=True
-     break
+   s=session(renew_hosted_cookie()); product_categories=categories(get(s,"/store/products/all"))
+  target_category=next((category for category in product_categories if category["sourceId"]==category_id),None)
+  if not target_category: raise SyncError(f"ShopBase category {category_id or '(missing)'} for this product was not found in the live category list; availability was left unchanged.")
+  try: first=get(s,target_category["url"])
+  except Exception as error:
+   if not is_auth_error(error): raise
+   s=session(renew_hosted_cookie()); product_categories=categories(get(s,"/store/products/all")); target_category=next((category for category in product_categories if category["sourceId"]==category_id),None)
+   if not target_category: raise SyncError(f"ShopBase category {category_id} was not found after refreshing the session.")
+   first=get(s,target_category["url"])
+  available=False
+  for page_number in range(1,pages(first,category_id)+1):
+   listing=first if page_number==1 else get(s,f"/store/products/{category_id}/{page_number}")
+   if any(re.search(rf"/store/products/details/{re.escape(source_id)}(?:$|[?#])",a.get("href", "")) for a in listing.select("a[href]")):
+    available=True
+    break
   stock=1 if available else 0; status="available" if stock else "out_of_stock"; stamp=now()
   db.products.update_one({"sourceId":source_id,"source":"shopbase"},{"$set":{"stock":stock,"active":bool(stock),"sourceStatus":status,"availabilityCheckedAt":stamp,"updatedAt":stamp}})
   db.admin_products.update_one({"id":f"shopbase-{source_id}","source":"shopbase"},{"$set":{"stock":stock,"active":bool(stock),"sourceStatus":status,"availabilityCheckedAt":stamp,"updatedAt":stamp}})
