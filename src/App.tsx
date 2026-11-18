@@ -223,11 +223,11 @@ function HeroCarouselPhoto({ src, mobileSrc, alt, loading }: { src: string; mobi
 }
 
 function CategoryLoadingCards() {
-  return <div className="category-loading-grid" role="status" aria-label="Loading categories">{[0,1,2,3].map((item) => <div className="category-loading-card" key={item}><span /><i /></div>)}</div>
+  return <div className="category-loading-wrap" role="status" aria-label="Loading categories"><div className="loading-caption"><span className="loading-orbit" />Loading categories</div><div className="category-loading-grid">{[0,1,2,3].map((item) => <div className="category-loading-card" key={item}><span /><i /></div>)}</div></div>
 }
 
 function ProductLoadingSection({ title }: { title: string }) {
-  return <section className="product-loading-section page-width" role="status" aria-label={title}><div className="product-loading-heading"><i /><b>{title}</b></div><div className="product-loading-grid">{[0,1,2,3].map((item) => <div className="product-loading-card" key={item}><span /><i /><i /><small /></div>)}</div></section>
+  return <section className="product-loading-section page-width" role="status" aria-label={title}><div className="product-loading-heading"><i /><b>{title}</b><span className="loading-caption"><span className="loading-orbit" />Loading products</span></div><div className="product-loading-grid">{[0,1,2,3].map((item) => <div className="product-loading-card" key={item}><span /><i /><i /><small /></div>)}</div></section>
 }
 
 function IconButton({ label, onClick, children, className = '' }: { label: string; onClick: () => void; children: ReactNode; className?: string }) {
