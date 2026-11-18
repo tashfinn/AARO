@@ -1342,6 +1342,7 @@ function AdminLogin({ apiBase, onSuccess }: { apiBase: string; onSuccess: (token
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [rememberMe, setRememberMe] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
   return <main className="admin-login-page"><form className="login-modal" onSubmit={async (event) => {
     event.preventDefault(); setBusy(true); setError('')
     const form = new FormData(event.currentTarget)
@@ -1352,7 +1353,7 @@ function AdminLogin({ apiBase, onSuccess }: { apiBase: string; onSuccess: (token
       onSuccess(body.accessToken, rememberMe)
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not reach the admin service.') }
     finally { setBusy(false) }
-  }}><span className="section-kicker">AARO / ADMIN</span><label>Admin ID<input name="identifier" autoComplete="username" placeholder="Finn" required /></label><label>Password<input name="password" type="password" autoComplete="current-password" required /></label><label className="remember-me-row"><input type="checkbox" checked={rememberMe} onChange={(event) => setRememberMe(event.target.checked)} /> Remember me on this browser</label>{error && <p role="alert">{error}</p>}<button className="dark-button" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'} <ArrowRight size={16} /></button></form></main>
+  }}><span className="section-kicker">AARO / ADMIN</span><label>Admin ID<input name="identifier" autoComplete="username" placeholder="Enter admin ID" required /></label><label>Password<div className="password-input-wrap"><input name="password" type={showPassword ? 'text' : 'password'} autoComplete="current-password" required /><button type="button" className="password-visibility-toggle" aria-label={showPassword ? 'Hide password' : 'Show password'} onClick={() => setShowPassword((visible) => !visible)}>{showPassword ? <EyeOff size={17} /> : <Eye size={17} />}</button></div></label><label className="remember-me-row"><input type="checkbox" checked={rememberMe} onChange={(event) => setRememberMe(event.target.checked)} /> Remember me on this browser</label>{error && <p role="alert">{error}</p>}<button className="dark-button" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'} <ArrowRight size={16} /></button></form></main>
 }
 
 function AccountAccessPage({ mode, apiBase, darkTheme, onToggleTheme, onModeChange, onBack, onAuth }: { mode: 'login' | 'register'; apiBase: string; darkTheme: boolean; onToggleTheme: () => void; onModeChange: (mode: 'login' | 'register') => void; onBack: () => void; onAuth: (token: string, identifier: string) => void }) {
