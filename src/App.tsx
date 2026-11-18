@@ -122,13 +122,13 @@ function storePath(page: StorePage, category = 'All', groups: CategoryGroup[] = 
   return parent ? `/category/${slugify(parent.name)}${child ? `/${slugify(child.name)}` : ''}` : `/category/${slugify(category)}`
 }
 function productPath(product: Product) {
-  const parent = slugify(product.parentCategory || 'catalog')
-  const subcategory = slugify(product.category || 'products')
-  return `/category/${parent}/${subcategory}/${slugify(product.title)}/${encodeURIComponent(product.id)}`
+  return `/product/${slugify(product.title)}`
 }
 
 function productIdFromPath() {
   const parts = window.location.pathname.split('/').filter(Boolean)
+  if (parts[0] === 'product' && parts[1]) return decodeURIComponent(parts[1])
+  // Keep older product links working while all newly generated links use clean slugs.
   if (parts[0] === 'category' && parts.length >= 5) return decodeURIComponent(parts[4])
   return parts[0] === 'products' && parts.length > 2 ? decodeURIComponent(parts[parts.length - 1]) : null
 }
@@ -304,7 +304,7 @@ export default function App() {
   const deliveryZone = getDeliveryZone(selectedDistrict, selectedThana)
   const [productRouteId, setProductRouteId] = useState<string | null>(productIdFromPath)
   const productReturnState = useRef<{ page: StorePage; category: string; categorySourceId: string; parentCategoryId: string; submittedQuery: string; minPrice: number; maxPrice: number; priceSort: 'recommended' | 'low-high' | 'high-low'; scrollY: number } | null>(null)
-  const selectedProduct = useMemo(() => state.products.find((product) => product.id === productRouteId) || null, [productRouteId, state.products])
+  const selectedProduct = useMemo(() => state.products.find((product) => product.id === productRouteId || slugify(product.title) === productRouteId) || null, [productRouteId, state.products])
   const [wishlist, setWishlist] = useState<string[]>(() => { try { const value: unknown = JSON.parse(localStorage.getItem(WISHLIST_KEY) || '[]'); return Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : [] } catch { return [] } })
   const [user, setUser] = useState<string | null>(() => localStorage.getItem(USER_KEY))
   const [accountToken, setAccountToken] = useState(() => localStorage.getItem(AUTH_TOKEN_KEY) || '')
@@ -603,14 +603,14 @@ export default function App() {
     return () => { cancelled = true }
   }, [catalogRefreshTick])
   useEffect(() => {
-    if (!productRouteId || !API_BASE) return
+    if (!selectedProduct || !API_BASE) return
     let current = true
-    fetch(`${API_BASE}/api/products/${encodeURIComponent(productRouteId)}/view`, { method: 'POST', keepalive: true })
+    fetch(`${API_BASE}/api/products/${encodeURIComponent(selectedProduct.id)}/view`, { method: 'POST', keepalive: true })
       .then((response) => response.ok ? response.json() as Promise<{ productId: string; views: number }> : null)
       .then((result) => { if (current && result && Number.isFinite(result.views)) setProductViewCounts((counts) => ({ ...counts, [result.productId]: result.views })) })
       .catch(() => { /* Product browsing remains available if view counting is temporarily offline. */ })
     return () => { current = false }
-  }, [productRouteId])
+  }, [selectedProduct?.id])
   useEffect(() => {
     if (!API_BASE) return
     let current = true
