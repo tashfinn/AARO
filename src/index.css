@@ -3836,3 +3836,4 @@ input:focus, select:focus, textarea:focus { outline: none !important; box-shadow
   }
 }
 .checkout-delivery-rate .delivery-estimate { display: block; margin-top: 4px; color: var(--text-secondary); font-size: 12px; line-height: 1.4; }
+.product-route-loading { min-height: 62vh; display: flex; align-items: center; justify-content: center; gap: 12px; color: var(--text-secondary); font-size: 15px; }

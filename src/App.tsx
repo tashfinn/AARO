@@ -127,15 +127,27 @@ function storePath(page: StorePage, category = 'All', groups: CategoryGroup[] = 
   return parent ? `/category/${slugify(parent.name)}${child ? `/${categoryPathSlug(child.name, child.sourceId ? `subcategory-${child.sourceId}` : `subcategory-${child.sortOrder ?? childIndex + 1}`)}` : ''}` : `/category/${categoryPathSlug(category)}`
 }
 function productPath(product: Product) {
-  return `/product/${slugify(product.title)}`
+  const key = product.source === 'shopbase' ? product.sourceId || product.id.replace(/^shopbase-/, '') : product.id
+  return `/product/${slugify(product.title)}/${encodeURIComponent(key)}`
 }
 
 function productIdFromPath() {
   const parts = window.location.pathname.split('/').filter(Boolean)
+  if (parts[0] === 'product' && parts[2]) return decodeURIComponent(parts[2])
   if (parts[0] === 'product' && parts[1]) return decodeURIComponent(parts[1])
   // Keep older product links working while all newly generated links use clean slugs.
   if (parts[0] === 'category' && parts.length >= 5) return decodeURIComponent(parts[4])
   return parts[0] === 'products' && parts.length > 2 ? decodeURIComponent(parts[parts.length - 1]) : null
+}
+function initialStorePage(): StorePage {
+  const path = window.location.pathname
+  const first = path.split('/').filter(Boolean)[0] || ''
+  if (first === 'account') return 'account'
+  if (first === 'trending' || first === 'offers' || first === 'combos' || first === 'wishlist' || first === 'terms') return first
+  if (first === 'category') return 'category'
+  if (first === 'delivery-returns') return 'delivery'
+  if (first === 'contact-us') return 'contact'
+  return 'shop'
 }
 
 function readState(): StoreState {
@@ -250,7 +262,7 @@ export default function App() {
     next.views += 1
     return next
   })
-  const [page, setPage] = useState<StorePage>(() => window.location.pathname === '/account' ? 'account' : 'shop')
+  const [page, setPage] = useState<StorePage>(initialStorePage)
   const [heroSlide, setHeroSlide] = useState(0)
   const [heroCarouselPaused, setHeroCarouselPaused] = useState(false)
   const heroTouchStartX = useRef<number | null>(null)
@@ -308,8 +320,11 @@ export default function App() {
   const [selectedThana, setSelectedThana] = useState('')
   const deliveryZone = getDeliveryZone(selectedDistrict, selectedThana)
   const [productRouteId, setProductRouteId] = useState<string | null>(productIdFromPath)
+  const [routeProduct, setRouteProduct] = useState<Product | null>(null)
+  const [routeProductLoading, setRouteProductLoading] = useState(() => Boolean(productIdFromPath()))
+  const [routeProductError, setRouteProductError] = useState('')
   const productReturnState = useRef<{ page: StorePage; category: string; categorySourceId: string; parentCategoryId: string; submittedQuery: string; minPrice: number; maxPrice: number; priceSort: 'recommended' | 'low-high' | 'high-low'; scrollY: number } | null>(null)
-  const selectedProduct = useMemo(() => state.products.find((product) => product.id === productRouteId || slugify(product.title) === productRouteId) || null, [productRouteId, state.products])
+  const selectedProduct = useMemo(() => state.products.find((product) => product.id === productRouteId || product.sourceId === productRouteId || slugify(product.title) === productRouteId) || (routeProduct && (routeProduct.id === productRouteId || routeProduct.sourceId === productRouteId) ? routeProduct : null), [productRouteId, routeProduct, state.products])
   const [wishlist, setWishlist] = useState<string[]>(() => { try { const value: unknown = JSON.parse(localStorage.getItem(WISHLIST_KEY) || '[]'); return Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : [] } catch { return [] } })
   const [user, setUser] = useState<string | null>(() => localStorage.getItem(USER_KEY))
   const [accountToken, setAccountToken] = useState(() => localStorage.getItem(AUTH_TOKEN_KEY) || '')
@@ -608,6 +623,28 @@ export default function App() {
     return () => { cancelled = true }
   }, [catalogRefreshTick])
   useEffect(() => {
+    let current = true
+    setRouteProduct(null)
+    setRouteProductError('')
+    if (!productRouteId) { setRouteProductLoading(false); return () => { current = false } }
+    const inMemory = state.products.some((product) => product.id === productRouteId || product.sourceId === productRouteId || slugify(product.title) === productRouteId)
+    if (inMemory) { setRouteProductLoading(false); return () => { current = false } }
+    const routeParts = window.location.pathname.split('/').filter(Boolean)
+    const hasProductKey = routeParts[0] === 'product' ? routeParts.length >= 3 : routeParts[0] === 'category' ? routeParts.length >= 5 : routeParts[0] === 'products' && routeParts.length > 2
+    if (!API_BASE || !hasProductKey) { setRouteProductLoading(false); return () => { current = false } }
+    setRouteProductLoading(true)
+    const lookupId = productRouteId.replace(/^shopbase-/, '')
+    fetch(`${API_BASE}/api/products/${encodeURIComponent(lookupId)}`, { cache: 'no-store' })
+      .then(async (response) => {
+        const result = await response.json().catch(() => ({}))
+        if (!response.ok) throw new Error(result.detail || 'This product could not be found.')
+        if (current) setRouteProduct(result as Product)
+      })
+      .catch((error) => { if (current) setRouteProductError(error instanceof Error ? error.message : 'This product could not be loaded.') })
+      .finally(() => { if (current) setRouteProductLoading(false) })
+    return () => { current = false }
+  }, [productRouteId])
+  useEffect(() => {
     if (!selectedProduct || !API_BASE) return
     let current = true
     fetch(`${API_BASE}/api/products/${encodeURIComponent(selectedProduct.id)}/view`, { method: 'POST', keepalive: true })
@@ -646,6 +683,17 @@ export default function App() {
     return manualSetting?.[1] !== false
   }), [categoryGroups, manualCategoryVisibility, state.products])
   const storefrontCategoryGroups = categoryGroups.filter((group) => group.showInStorefront !== false).map((group) => ({ ...group, children: group.children.filter((child) => child.showInStorefront !== false) }))
+  const coupleGiftGroup = storefrontCategoryGroups.find((group) => group.id === 'couple-gifts')
+  const coupleGiftSubcategories = coupleGiftGroup?.children.reduce<CategoryGroup['children']>((unique, child) => {
+    const canonicalName = child.name.replace(/শাড়ী/g, 'শাড়ি').replace(/শাড়ি/g, 'শাড়ি')
+    const existingIndex = unique.findIndex((item) => item.name.replace(/শাড়ী/g, 'শাড়ি').replace(/শাড়ি/g, 'শাড়ি') === canonicalName)
+    if (existingIndex < 0) { unique.push(child); return unique }
+    const existing = unique[existingIndex]
+    const productCount = (item: CategoryGroup['children'][number]) => state.products.filter((product) => (item.sourceId && String(product.categorySourceId || '') === String(item.sourceId)) || ((!item.sourceId || !product.categorySourceId) && product.category.toLocaleLowerCase() === item.name.toLocaleLowerCase())).length
+    if (productCount(child) > productCount(existing)) unique[existingIndex] = child
+    return unique
+  }, []) || []
+  const storefrontCategoriesWithDuplicateCleanup = storefrontCategoryGroups.map((group) => group.id === 'couple-gifts' ? { ...group, children: coupleGiftSubcategories } : group)
   const catalogMaxPrice = Math.max(1000, ...activeProducts.map((product) => product.price))
   useEffect(() => { setProductsToShow(48) }, [category, submittedQuery, page, minPrice, maxPrice, priceSort])
   const visibleProducts = useMemo(() => {
@@ -1197,7 +1245,7 @@ export default function App() {
       <main onClick={(event) => { if (showSearch && !(event.target as HTMLElement).closest('.search-wrap,.search-suggestions')) setShowSearch(false) }}>
         <>
         {catalogError && <div className="catalog-warning" role="status">The live catalog could not be reached. Showing any saved products available in this browser.</div>}
-        {checkout ? <CheckoutPage cartItems={cartItems} subtotal={subtotal} delivery={state.content.deliveryInDhaka} subDhakaDelivery={state.content.deliverySubDhaka} outsideDelivery={state.content.deliveryOutsideDhaka} district={selectedDistrict} thana={selectedThana} onDistrict={setSelectedDistrict} onThana={setSelectedThana} discount={discount} total={subtotal + deliveryFee - discount} freeDelivery={freeDeliveryApplied} coupon={coupon} onPlaceOrder={placeOrder} onBack={returnToBag} /> : selectedProduct ? <ProductPage product={selectedProduct} offer={state.offers.find((item) => item.active && item.productId === selectedProduct.id)} relatedProducts={activeProducts.filter((item) => item.categorySourceId === selectedProduct.categorySourceId && item.id !== selectedProduct.id).slice(0, 4)} wishlist={wishlist} wished={wishlist.includes(selectedProduct.id)} onClose={closeProduct} onWish={toggleWish} onOpen={openProduct} onSeeRelated={() => showStore('category', selectedProduct.category, selectedProduct.categorySourceId || '', selectedProduct.parentCategoryId || '')} onAdd={(product, quantity, size, options) => { addToCart(product, quantity, size, options) }} /> : <>
+        {productRouteId && !selectedProduct ? routeProductLoading || catalogLoading ? <div className="product-route-loading page-width" role="status"><span className="loading-orbit" />Loading this product…</div> : <div className="product-route-loading page-width" role="alert"><b>{routeProductError || 'This product could not be found.'}</b><button className="text-link" onClick={() => showStore('shop')}>Back to shopping</button></div> : checkout ? <CheckoutPage cartItems={cartItems} subtotal={subtotal} delivery={state.content.deliveryInDhaka} subDhakaDelivery={state.content.deliverySubDhaka} outsideDelivery={state.content.deliveryOutsideDhaka} district={selectedDistrict} thana={selectedThana} onDistrict={setSelectedDistrict} onThana={setSelectedThana} discount={discount} total={subtotal + deliveryFee - discount} freeDelivery={freeDeliveryApplied} coupon={coupon} onPlaceOrder={placeOrder} onBack={returnToBag} /> : selectedProduct ? <ProductPage product={selectedProduct} offer={state.offers.find((item) => item.active && item.productId === selectedProduct.id)} relatedProducts={activeProducts.filter((item) => item.categorySourceId === selectedProduct.categorySourceId && item.id !== selectedProduct.id).slice(0, 4)} wishlist={wishlist} wished={wishlist.includes(selectedProduct.id)} onClose={closeProduct} onWish={toggleWish} onOpen={openProduct} onSeeRelated={() => showStore('category', selectedProduct.category, selectedProduct.categorySourceId || '', selectedProduct.parentCategoryId || '')} onAdd={(product, quantity, size, options) => { addToCart(product, quantity, size, options) }} /> : <>
         {page === 'shop' && !submittedQuery && <><section className="hero page-width"><div className="hero-art" onTouchStart={(event) => { setHeroCarouselPaused(true); heroTouchStartX.current = event.touches[0]?.clientX ?? null }} onTouchEnd={(event) => { const start = heroTouchStartX.current; const end = event.changedTouches[0]?.clientX; if (start !== null && end !== undefined && Math.abs(end - start) > 45) moveHeroCarousel(end < start ? 1 : -1); heroTouchStartX.current = null; setHeroCarouselPaused(false) }} aria-label="AARO featured collections"><div className="hero-carousel-track">{heroImages.map((image, index) => { const role = (index - heroSlide + heroImages.length) % heroImages.length; const slide = heroSlides[index]; return <article key={image} className={`hero-carousel-card hero-carousel-image-${role} ${role === 0 ? 'hero-carousel-active' : ''}`} aria-hidden={role !== 0} onClick={() => { if (role !== 0) setHeroSlide(index) }} role={role === 0 ? undefined : 'button'} tabIndex={role === 0 ? undefined : 0}><HeroCarouselPhoto src={image} mobileSrc={slide.mobileImage || ""} alt="AARO fashion collection" loading={role === 0 ? "eager" : "lazy"} /><span className="hero-carousel-shade" /><div className="hero-carousel-copy"><h1>{slide.title}</h1><p>{slide.description}</p><button className="hero-slide-cta" tabIndex={role === 0 ? 0 : -1} onMouseEnter={() => setHeroCarouselPaused(true)} onMouseLeave={() => setHeroCarouselPaused(false)} onClick={() => { const target = slide.link.trim(); if (target === '/offers') showStore('offers'); else if (target === '/trending') showStore('trending'); else if (target === '/') showStore('shop'); else if (target) window.location.assign(target) }}>{slide.cta || state.content.heroCta || 'Explore'} <ArrowRight size={17} /></button></div></article> })}</div><div className="hero-carousel-dots" aria-label="Choose featured collection">{heroImages.map((_, index) => <button key={index} className={heroSlide === index ? 'active' : ''} aria-label={`Show featured collection ${index + 1}`} onClick={() => setHeroSlide(index)} />)}</div></div></section>
           <section className="service-strip page-width"><div><span className="service-icon"><Truck size={19} /></span><span><b>Delivery across Bangladesh</b><small>Dhaka & beyond</small></span></div><div><span className="service-icon"><ShieldCheck size={19} /></span><span><b>Thoughtful, trusted picks</b><small>Picked with care</small></span></div><div><span className="service-icon"><RotateCcw size={19} /></span><span><b>Easy order support</b><small>We’re here to help</small></span></div><div><span className="service-icon"><Package size={19} /></span><span><b>10,000+ products</b><small>Across 100+ categories</small></span></div></section>
           <section className="category-section page-width"><div className="section-heading"><div><span className="section-kicker">A LITTLE BIT OF EVERYTHING</span><h2>Find your kind of good.</h2></div><div className="category-carousel-controls"><button aria-label="Previous categories" onClick={() => categoryCarouselRef.current && slideCategoryCarousel(categoryCarouselRef.current, -1)}><ChevronLeft size={18} /></button><button aria-label="Next categories" onClick={() => categoryCarouselRef.current && slideCategoryCarousel(categoryCarouselRef.current, 1)}><ChevronRight size={18} /></button><button className="text-link" onClick={() => showStore('category', 'All')}>Browse all Categories <ArrowRight size={16} /></button></div></div><div className="category-tiles" ref={categoryCarouselRef}>{catalogLoading && !visibleHomeCategories.length ? <CategoryLoadingCards /> : visibleHomeCategories.map(({ category: categoryName, products }, index) => <button className="category-tile" style={{ animationDelay: `${Math.min(index, 8) * 55}ms` }} key={categoryName} onClick={() => showStore('category', categoryName)}><ImageView src={state.content.categoryImages?.[categoryName] || products[0].image} alt={categoryName} /><span className="tile-overlay" /><span className="tile-copy"><b>{categoryName}</b><i>Explore <ArrowRight size={15} /></i></span><span className="category-dismiss" role="button" aria-label={`Hide ${categoryName} for this session`} onClick={(event) => { event.stopPropagation(); dismissHomeCategory(categoryName) }} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); event.stopPropagation(); dismissHomeCategory(categoryName) } }}>×</span></button>)}</div></section>
@@ -1212,8 +1260,8 @@ export default function App() {
           <div className="breadcrumb"><button onClick={() => showStore('shop')}>Home</button><ChevronRight size={14} /><span>{submittedQuery ? 'Search results' : page === 'category' ? category : formatPageTitle}</span></div>
           <div className="listing-heading"><div><span className="section-kicker">THE AARO EDIT / {visibleProducts.length} FINDS</span><h1>{submittedQuery ? `Results for “${submittedQuery}”` : formatPageTitle}</h1><p>{page === 'offers' ? 'Little extras to make a good find feel even better.' : page === 'trending' ? 'The pieces customers keep coming back for.' : page === 'wishlist' ? 'All the things you have saved for later.' : 'Good things, picked with your everyday in mind.'}</p></div>{page === 'category' && <button className="filter-button" aria-expanded={filtersOpen} onClick={() => setFiltersOpen((open) => !open)}><SlidersHorizontal size={16} /> Filters <ChevronDown size={14} /></button>}</div>
           {page === 'category' && <>
-            <div className="filter-chips">{storefrontCategoryGroups.map((group) => <button className={selectedParentCategoryId === group.id ? 'selected' : ''} key={group.id} onClick={() => showStore('category', group.name, '', group.id)}>{group.name}</button>)}</div>
-            {selectedParentCategoryId && <div className="filter-chips subcategory-chips">{(storefrontCategoryGroups.find((group) => group.id === selectedParentCategoryId)?.children || []).map((child) => <button className={category === child.name ? 'selected' : ''} key={`${selectedParentCategoryId}-${child.sourceId || child.name}`} onClick={() => showStore('category', child.name, child.sourceId || '', selectedParentCategoryId)}>{child.name}</button>)}</div>}
+            <div className="filter-chips">{storefrontCategoriesWithDuplicateCleanup.map((group) => <button className={selectedParentCategoryId === group.id ? 'selected' : ''} key={group.id} onClick={() => showStore('category', group.name, '', group.id)}>{group.name}</button>)}</div>
+            {selectedParentCategoryId && <div className="filter-chips subcategory-chips">{(storefrontCategoriesWithDuplicateCleanup.find((group) => group.id === selectedParentCategoryId)?.children || []).map((child) => <button className={category === child.name ? 'selected' : ''} key={`${selectedParentCategoryId}-${child.sourceId || child.name}`} onClick={() => showStore('category', child.name, child.sourceId || '', selectedParentCategoryId)}>{child.name}</button>)}</div>}
           </>}
           {page === 'category' && filtersOpen && <div className="catalog-filters"><label className="sort-control">Sort by<select value={priceSort} onChange={(event) => setPriceSort(event.target.value as typeof priceSort)}><option value="recommended">Recommended</option><option value="low-high">Price: low to high</option><option value="high-low">Price: high to low</option></select></label><div className="price-range"><div className="price-range-heading"><b>Price range</b><span>{money(minPrice)} – {money(Math.min(maxPrice, catalogMaxPrice))}</span></div><label>Minimum price<input aria-label="Minimum price" type="range" min="0" max={catalogMaxPrice} step="100" value={Math.min(minPrice, catalogMaxPrice)} onChange={(event) => setMinPrice(Math.min(Number(event.target.value), maxPrice))} /></label><label>Maximum price<input aria-label="Maximum price" type="range" min="0" max={catalogMaxPrice} step="100" value={Math.min(maxPrice, catalogMaxPrice)} onChange={(event) => setMaxPrice(Math.max(Number(event.target.value), minPrice))} /></label></div><button className="reset-filters" onClick={() => { setMinPrice(0); setMaxPrice(catalogMaxPrice); setPriceSort('recommended') }}>Reset filters</button></div>}
           {visibleProducts.length ? <><div className="product-grid listing-grid">{visibleProducts.slice(0, productsToShow).map((product) => <ProductCard key={product.id} product={product} wished={wishlist.includes(product.id)} onWish={toggleWish} onOpen={openProduct} onAdd={addToCart} />)}</div>{visibleProducts.length > productsToShow && <button className="load-more-button" onClick={() => setProductsToShow((count) => Math.min(count + 48, visibleProducts.length))}>Load more products <span>{Math.min(48, visibleProducts.length - productsToShow)} more</span></button>}</> : catalogLoading ? <ProductLoadingSection title="Loading products" /> : <div className="empty-state"><Search size={27} /><h3>{page === 'wishlist' ? 'Nothing saved just yet' : 'No finds in this range'}</h3><p>{page === 'wishlist' ? 'Tap the heart on anything you love and it will show up here.' : 'Adjust the price range or browse another category.'}</p><button className="dark-button" onClick={() => { setQuery(''); showStore('shop') }}>Explore all products <ArrowRight size={16} /></button></div>}
