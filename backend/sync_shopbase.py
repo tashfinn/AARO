@@ -19,19 +19,6 @@ class SyncError(RuntimeError): pass
 def now(): return datetime.now(timezone.utc).isoformat()
 def number(s):
  s=re.sub(r"[^0-9]","",s.translate(DIGITS)); return int(s) if s else None
-def product_stock_state(soup):
- text=re.sub(r"\s+"," ",soup.get_text(" ",strip=True)).translate(DIGITS).casefold()
- unavailable=bool(re.search(r"(?:স্টক|স্টকে|স্টক-এ)\s*[:：-]?\s*(?:নাই|নেই|শেষ|আউট|out|unavailable|0)|\b(?:out of stock|sold out|unavailable|not available)\b|\b(?:stock|quantity)\s*[:：-]?\s*0\b",text))
- available=bool(re.search(r"(?:স্টক|স্টকে|স্টক-এ)\s*[:：-]?\s*(?:আছে|available|in stock)|\b(?:in stock|available)\b|\b(?:stock|quantity)\s*[:：-]?\s*[1-9][0-9]*\b",text))
- if unavailable and not available: return False
- if available and not unavailable: return True
- controls=[]
- for button in soup.select("button, a[href], input[type='submit'], [role='button']"):
-  label=" ".join((button.get_text(" ",strip=True),str(button.get("value", "")),str(button.get("aria-label", "")))).casefold()
-  if re.search(r"add to (?:cart|bag)|buy now|checkout|অর্ডার|এখনই কিনুন|কার্টে যোগ",label): controls.append(button)
- if controls:
-  return not all(button.has_attr("disabled") or button.get("aria-disabled", "").casefold()=="true" for button in controls)
- return None
 def digest(*parts): return hashlib.sha256("\x1f".join(parts).encode()).hexdigest()
 def details_are_stale(product):
  if os.getenv("SHOPBASE_FORCE_DETAIL_REFRESH","false").strip().lower() in ("1","true","yes","on"): return True
@@ -365,18 +352,35 @@ def check_one(source_id, check_id=""):
  try:
   product=db.products.find_one({"sourceId":source_id,"source":"shopbase"})
   if not product: raise SyncError(f"ShopBase product {source_id} is not in the saved catalog.")
-  path=product.get("detailPath") or f"/store/products/details/{source_id}"
-  try: s=session(); soup=get(s,path)
+  category_id=str(product.get("categorySourceId") or "")
+  try: s=session()
   except Exception as error:
    if not is_auth_error(error): raise
-   s=session(renew_hosted_cookie()); soup=get(s,path)
-  available=product_stock_state(soup)
-  if available is None: raise SyncError("ShopBase product page loaded, but it showed no clear stock label or purchase control. Availability was left unchanged.")
+   s=session(renew_hosted_cookie())
+  if not category_id:
+   try: available=any(re.search(rf"/store/products/details/{re.escape(source_id)}(?:$|[?#])",a.get("href", "")) for a in get(s,"/store/products/all").select("a[href]"))
+   except Exception as error:
+    if not is_auth_error(error): raise
+    s=session(renew_hosted_cookie())
+    available=any(re.search(rf"/store/products/details/{re.escape(source_id)}(?:$|[?#])",a.get("href", "")) for a in get(s,"/store/products/all").select("a[href]"))
+  else:
+   listing_path=f"/store/products/{category_id}"
+   try: first=get(s,listing_path)
+   except Exception as error:
+    if not is_auth_error(error): raise
+    s=session(renew_hosted_cookie()); first=get(s,listing_path)
+   available=False
+   listing_pages=pages(first,category_id)
+   for page_number in range(1,listing_pages+1):
+    listing=first if page_number==1 else get(s,f"{listing_path}/{page_number}")
+    if any(re.search(rf"/store/products/details/{re.escape(source_id)}(?:$|[?#])",a.get("href", "")) for a in listing.select("a[href]")):
+     available=True
+     break
   stock=1 if available else 0; status="available" if stock else "out_of_stock"; stamp=now()
   db.products.update_one({"sourceId":source_id,"source":"shopbase"},{"$set":{"stock":stock,"active":bool(stock),"sourceStatus":status,"availabilityCheckedAt":stamp,"updatedAt":stamp}})
   db.admin_products.update_one({"id":f"shopbase-{source_id}","source":"shopbase"},{"$set":{"stock":stock,"active":bool(stock),"sourceStatus":status,"availabilityCheckedAt":stamp,"updatedAt":stamp}})
   if check_id: db.availability_checks.update_one({"checkId":check_id},{"$set":{"status":"complete","available":bool(stock),"checkedAt":stamp}})
-  print(f"Availability for {source_id}: {status} at {stamp}")
+  print(f"Product {source_id} was {'found in' if available else 'not found in'} its ShopBase product listing: {status} at {stamp}")
  except Exception as error:
   if check_id: db.availability_checks.update_one({"checkId":check_id},{"$set":{"status":"failed","error":str(error)[:300],"checkedAt":now()}})
   raise
