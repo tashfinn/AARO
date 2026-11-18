@@ -335,7 +335,8 @@ export default function App() {
   const [couponFormOpen, setCouponFormOpen] = useState(false)
   const [offerFormOpen, setOfferFormOpen] = useState(false)
   const [lastSync, setLastSync] = useState(localStorage.getItem('aaro-last-import') || '')
-  const [catalogLoading, setCatalogLoading] = useState(Boolean(import.meta.env.PROD || import.meta.env.VITE_API_URL))
+  // Render the storefront from the local snapshot immediately; refresh the live catalog in the background.
+  const [catalogLoading, setCatalogLoading] = useState(false)
   const [catalogError, setCatalogError] = useState(false)
   const [productViewCounts, setProductViewCounts] = useState<Record<string, number>>({})
   const [catalogRefreshTick, setCatalogRefreshTick] = useState(0)
