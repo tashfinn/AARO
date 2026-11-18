@@ -504,13 +504,39 @@ def create_order(input: OrderInput, authorization: str | None = Header(default=N
         unit_price = max(0.0, float(product.get("price") or 0))
         subtotal += unit_price * quantity
         priced_items.append({"productId": product_id, "title": str(product.get("title") or "Product"), "image": str(product.get("image") or ""), "price": unit_price, "quantity": quantity, **({"size": size} if size else {}), **({"options": normalized_options} if normalized_options else {})})
-        for offer in store.offers.find({"productId": product_id, "active": True}, {"_id": 0}):
+
+    for offer in store.offers.find({"active": True, "kind": {"$in": ["special_price", "quantity_discount", "buy_multiple", "buy_x_get_y_free"]}}, {"_id": 0}):
+        target_ids = list(dict.fromkeys(offer.get("productIds") or ([offer.get("productId")] if offer.get("productId") else [])))
+        for product_id in target_ids:
+            quantity = quantities_by_id.get(product_id, 0)
+            product = products_by_id.get(product_id)
+            if not quantity or not product:
+                continue
+            unit_price = max(0.0, float(product.get("price") or 0))
             offer_quantity = max(1, int(offer.get("quantity") or 1))
             if offer.get("kind") == "special_price":
                 offer_discount += max(0.0, unit_price - min(unit_price, float(offer.get("value") or 0))) * quantity
+            elif offer.get("kind") == "buy_multiple" and offer.get("tiers"):
+                remaining = quantity
+                tiers = sorted((tier for tier in offer.get("tiers", []) if isinstance(tier, dict)), key=lambda item: int(item.get("quantity") or 0), reverse=True)
+                for tier in tiers:
+                    tier_quantity = max(1, int(tier.get("quantity") or 1))
+                    groups = remaining // tier_quantity
+                    if not groups:
+                        continue
+                    remaining -= groups * tier_quantity
+                    eligible_retail = groups * tier_quantity * unit_price
+                    value = max(0.0, float(tier.get("value") or 0))
+                    if tier.get("mode") == "price":
+                        saving = groups * max(0.0, tier_quantity * unit_price - value)
+                    elif tier.get("mode") == "none":
+                        saving = 0.0
+                    elif tier.get("discountKind") == "percent":
+                        saving = eligible_retail * min(value, 100.0) / 100
+                    else:
+                        saving = groups * value
+                    offer_discount += min(eligible_retail, saving)
             elif offer.get("kind") in ("quantity_discount", "buy_multiple"):
-                if offer.get("kind") == "buy_multiple" and offer.get("tiers"):
-                    continue
                 groups = quantity // offer_quantity
                 eligible_quantity = groups * offer_quantity
                 reward = offer.get("reward", "discount")
@@ -520,33 +546,6 @@ def create_order(input: OrderInput, authorization: str | None = Header(default=N
             elif offer.get("kind") == "buy_x_get_y_free":
                 free_quantity = max(1, int(offer.get("freeQuantity") or 1))
                 offer_discount += (quantity // (offer_quantity + free_quantity)) * free_quantity * unit_price
-
-    # Apply tiered quantity offers once across all variants of a product.
-    for offer in store.offers.find({"kind": "buy_multiple", "active": True, "tiers": {"$exists": True, "$ne": []}}, {"_id": 0}):
-        product_id = offer.get("productId", "")
-        quantity = quantities_by_id.get(product_id, 0)
-        tiers = [tier for tier in offer.get("tiers", []) if isinstance(tier, dict) and int(tier.get("quantity") or 0) <= quantity]
-        if not tiers or product_id not in products_by_id:
-            continue
-        unit_price = max(0.0, float(products_by_id[product_id].get("price") or 0))
-        remaining = quantity
-        for tier in sorted(tiers, key=lambda item: int(item.get("quantity") or 0), reverse=True):
-            tier_quantity = max(1, int(tier.get("quantity") or 1))
-            groups = remaining // tier_quantity
-            if not groups:
-                continue
-            remaining -= groups * tier_quantity
-            eligible_retail = groups * tier_quantity * unit_price
-            value = max(0.0, float(tier.get("value") or 0))
-            if tier.get("mode") == "price":
-                saving = groups * max(0.0, tier_quantity * unit_price - value)
-            elif tier.get("mode") == "none":
-                saving = 0.0
-            elif tier.get("discountKind") == "percent":
-                saving = eligible_retail * min(value, 100.0) / 100
-            else:
-                saving = groups * value
-            offer_discount += min(eligible_retail, saving)
 
     for offer in store.offers.find({"kind": "bundle", "active": True}, {"_id": 0}):
         product_ids = list(dict.fromkeys(item for item in offer.get("productIds", []) if isinstance(item, str)))
@@ -573,11 +572,13 @@ def create_order(input: OrderInput, authorization: str | None = Header(default=N
         raise HTTPException(status_code=503, detail="Delivery charges are outside the allowed range. Contact the store before retrying.")
     free_delivery_offer = any(float(offer.get("value") or 0) <= subtotal for offer in store.offers.find({"kind": "free_delivery", "active": True}, {"_id": 0, "value": 1}))
     free_delivery_quantity_offer = False
-    for offer in store.offers.find({"kind": "buy_multiple", "active": True}, {"_id": 0, "productId": 1, "quantity": 1, "reward": 1, "tiers": 1}):
-        quantity = quantities_by_id.get(offer.get("productId", ""), 0)
-        tiers = [tier for tier in offer.get("tiers", []) if isinstance(tier, dict) and tier.get("freeDelivery") and int(tier.get("quantity") or 0) <= quantity]
-        legacy_free_delivery = not offer.get("tiers") and offer.get("reward") in ("free_delivery", "both") and quantity >= max(1, int(offer.get("quantity") or 1))
-        if tiers or legacy_free_delivery:
+    for offer in store.offers.find({"kind": "buy_multiple", "active": True}, {"_id": 0, "productId": 1, "productIds": 1, "quantity": 1, "reward": 1, "tiers": 1}):
+        target_ids = list(dict.fromkeys(offer.get("productIds") or ([offer.get("productId")] if offer.get("productId") else [])))
+        if any(
+            any(tier.get("freeDelivery") and quantities_by_id.get(product_id, 0) >= int(tier.get("quantity") or 0) for tier in offer.get("tiers", []) if isinstance(tier, dict))
+            or (not offer.get("tiers") and offer.get("reward") in ("free_delivery", "both") and quantities_by_id.get(product_id, 0) >= max(1, int(offer.get("quantity") or 1)))
+            for product_id in target_ids
+        ):
             free_delivery_quantity_offer = True
             break
     if free_delivery_offer or free_delivery_quantity_offer:
@@ -615,6 +616,13 @@ def save_offer(input: OfferInput, authorization: str | None = Header(default=Non
     _admin_from_auth(authorization)
     if input.kind not in ("special_price", "quantity_discount", "buy_multiple", "buy_x_get_y_free", "bundle", "free_delivery"):
         raise HTTPException(status_code=422, detail="Unknown offer type.")
+    if input.kind != "free_delivery":
+        input.productIds = list(dict.fromkeys(input.productIds or ([input.productId] if input.productId else [])))
+        if input.kind == "bundle" and len(input.productIds) < 2:
+            raise HTTPException(status_code=422, detail="Choose at least two different products for the bundle.")
+        if input.kind != "bundle" and not input.productIds:
+            raise HTTPException(status_code=422, detail="Choose at least one active product for the offer.")
+        input.productId = input.productIds[0] if input.productIds else ""
     if input.kind in ("quantity_discount", "buy_multiple") and input.discountKind not in ("percent", "amount"):
         raise HTTPException(status_code=422, detail="Discount must be a percentage or fixed amount.")
     if input.kind == "buy_multiple" and not input.tiers and input.quantity < 2:
@@ -631,7 +639,7 @@ def save_offer(input: OfferInput, authorization: str | None = Header(default=Non
                 raise HTTPException(status_code=422, detail="One of the quantity tiers is invalid.")
             if quantity < 2 or quantity > 1000 or quantity in seen_quantities:
                 raise HTTPException(status_code=422, detail="Quantity tiers must use unique quantities between 2 and 1,000.")
-            if mode not in ("price", "discount") or value < 0 or (mode == "discount" and value <= 0):
+            if mode not in ("price", "discount", "none") or value < 0 or (mode == "discount" and value <= 0) or (mode == "none" and not tier.get("freeDelivery")):
                 raise HTTPException(status_code=422, detail="Enter a valid set price or discount for every tier.")
             if mode == "discount" and (discount_kind not in ("percent", "amount") or discount_kind == "percent" and value > 100):
                 raise HTTPException(status_code=422, detail="A tier discount must be a valid amount or a percentage up to 100%.")
@@ -643,26 +651,25 @@ def save_offer(input: OfferInput, authorization: str | None = Header(default=Non
     if input.kind in ("quantity_discount", "buy_multiple") and (input.kind != "buy_multiple" or not input.tiers) and input.reward in ("discount", "both") and input.discountKind == "percent" and input.value > 100:
         raise HTTPException(status_code=422, detail="A percentage offer cannot exceed 100%.")
     if input.kind in ("special_price", "quantity_discount", "buy_multiple", "buy_x_get_y_free"):
-        if not input.productId:
-            raise HTTPException(status_code=422, detail="Choose an active product for the offer.")
-        if input.productId.startswith("shopbase-"):
-            source_id = input.productId.removeprefix("shopbase-")
-            product = db().products.find_one({"sourceId": source_id, "source": "shopbase"}, {"_id": 0, "price": 1, "suggestedRetailPrice": 1, "active": 1})
-            override = db().admin_products.find_one({"id": input.productId, "source": "shopbase"}, {"_id": 0, "price": 1, "compareAt": 1, "discountedPrice": 1, "active": 1}) or {}
-            price = _shopbase_effective_price(product, override)
-            active = bool(product and product.get("active", True) and override.get("active", True))
-        else:
-            product = db().admin_products.find_one({"id": input.productId, "source": "custom"}, {"_id": 0, "price": 1, "active": 1})
-            price = (product or {}).get("price") or 0
-            active = bool(product and product.get("active", True))
-        if not active:
-            raise HTTPException(status_code=422, detail="Choose an active product for the offer.")
-        if input.kind == "buy_multiple" and input.tiers and any(tier.get("mode") == "price" and float(tier.get("value") or 0) >= int(tier.get("quantity") or 1) * float(price) for tier in input.tiers):
-            raise HTTPException(status_code=422, detail="Each quantity set price must be lower than the products’ regular combined price.")
-        if input.kind == "special_price" and input.value >= float(price):
-            raise HTTPException(status_code=422, detail="The offer price must be lower than the product’s current price.")
+        for product_id in input.productIds:
+            if product_id.startswith("shopbase-"):
+                source_id = product_id.removeprefix("shopbase-")
+                product = db().products.find_one({"sourceId": source_id, "source": "shopbase"}, {"_id": 0, "price": 1, "suggestedRetailPrice": 1, "active": 1})
+                override = db().admin_products.find_one({"id": product_id, "source": "shopbase"}, {"_id": 0, "price": 1, "compareAt": 1, "discountedPrice": 1, "active": 1}) or {}
+                price = _shopbase_effective_price(product, override)
+                active = bool(product and product.get("active", True) and override.get("active", True))
+            else:
+                product = db().admin_products.find_one({"id": product_id, "source": "custom"}, {"_id": 0, "price": 1, "active": 1})
+                price = (product or {}).get("price") or 0
+                active = bool(product and product.get("active", True))
+            if not active:
+                raise HTTPException(status_code=422, detail="Choose active products for the offer.")
+            if input.kind == "buy_multiple" and input.tiers and any(tier.get("mode") == "price" and float(tier.get("value") or 0) >= int(tier.get("quantity") or 1) * float(price) for tier in input.tiers):
+                raise HTTPException(status_code=422, detail="Each quantity set price must be lower than every selected product’s regular combined price.")
+            if input.kind == "special_price" and input.value >= float(price):
+                raise HTTPException(status_code=422, detail="The offer price must be lower than every selected product’s current price.")
     if input.kind == "bundle":
-        product_ids = list(dict.fromkeys(input.productIds))
+        product_ids = input.productIds
         if len(product_ids) < 2:
             raise HTTPException(status_code=422, detail="Choose at least two different products for the bundle.")
         retail_total = 0.0
