@@ -100,8 +100,8 @@ function offerTierSummary(offer: OfferDeal, products: Product[] = []) {
   const highestPrice = prices.length ? Math.max(...prices) : 0
   const pricesDiffer = prices.some((price) => price !== prices[0])
   return [...offer.tiers].sort((a, b) => a.quantity - b.quantity).map((tier) => {
-    const savePercent = tier.mode === 'price' && highestPrice ? Math.round((1 - tier.value / (tier.quantity * highestPrice)) * 100) : 0
-    const savingNote = savePercent > 0 ? ` (save ${pricesDiffer ? 'up to ' : ''}${savePercent}%)` : ''
+    const saveAmount = tier.mode === 'price' && highestPrice ? Math.max(0, tier.quantity * highestPrice - tier.value) : 0
+    const savingNote = saveAmount > 0 ? ` (save ${pricesDiffer ? 'up to ' : ''}${money(saveAmount)})` : ''
     return `${tier.mode === 'price' ? `Buy any ${tier.quantity} for ${money(tier.value)}${savingNote}` : tier.mode === 'none' ? `Buy any ${tier.quantity} · Free delivery` : `Buy any ${tier.quantity}, save ${tier.discountKind === 'percent' ? `${tier.value}%` : money(tier.value)}`}${tier.freeDelivery && tier.mode !== 'none' ? ' + free delivery' : ''}`
   }).join('\n')
 }
