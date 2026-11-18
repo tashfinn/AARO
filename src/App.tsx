@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
 import {
   ArrowRight, ArrowUpRight, CalendarDays, Check, CheckCircle2,
-  ChevronDown, ChevronLeft, ChevronRight, CircleDollarSign, Clock3, Copy, Download, Eye,
+  ChevronDown, ChevronLeft, ChevronRight, CircleDollarSign, Clock3, Copy, Download, Eye, EyeOff,
   Heart, House, Image as ImageIcon, LayoutDashboard, LoaderCircle, Menu, Minus,
   Package, Pencil, Phone, Plus, RefreshCw, RotateCcw, Search, ShieldCheck, UserRound,
   ShoppingBag, ShoppingCart, SlidersHorizontal, Sparkles, Tags, TicketPercent, Trash2,
@@ -1583,6 +1583,8 @@ function SyncPanel({ lastSync, onLastSync, onSyncComplete, importNote, fileRef, 
   const [progressLoading, setProgressLoading] = useState(false)
   const [progressError, setProgressError] = useState('')
   const [syncNotice, setSyncNotice] = useState('')
+  const [exportingProducts, setExportingProducts] = useState(false)
+  const [exportMessage, setExportMessage] = useState('')
   const [intervalHours, setIntervalHours] = useState(24)
   const [startTime, setStartTime] = useState('00:00')
   const [scheduleSaving, setScheduleSaving] = useState(false)
@@ -1595,6 +1597,41 @@ function SyncPanel({ lastSync, onLastSync, onSyncComplete, importNote, fileRef, 
   const [hostedLoginBusy, setHostedLoginBusy] = useState(false)
   const [hostedLoginMessage, setHostedLoginMessage] = useState('')
   const hostedUsernameRef = useRef<HTMLInputElement>(null)
+  const exportAvailableProducts = async () => {
+    if (!apiBase || !token) { setExportMessage('Exporting products needs an active admin session.'); return }
+    setExportingProducts(true)
+    setExportMessage('')
+    try {
+      const response = await fetch(apiBase + '/api/admin/products', { cache: 'no-store', headers: { Authorization: 'Bearer ' + token } })
+      const result: unknown = await response.json()
+      if (!response.ok) throw new Error(typeof result === 'object' && result !== null && 'detail' in result ? String(result.detail) : 'Could not load the product catalog for export.')
+      if (!Array.isArray(result)) throw new Error('The product catalog response was not valid.')
+      const available = (result as Product[]).filter((product) => product.active !== false && Number(product.stock) > 0)
+      if (!available.length) { setExportMessage('No available products to export.'); return }
+      const headings = ['Product ID', 'Supplier ID', 'Product name', 'Category', 'Parent category', 'Selling price (BDT)', 'Original price (BDT)', 'Discounted price (BDT)', 'Retailer price (BDT)', 'Available quantity', 'Availability', 'Visibility', 'Source', 'Sizes', 'Options', 'Main image URL', 'Added at', 'Updated at']
+      const rows = available.map((product) => [
+        product.id, product.sourceId, product.title, product.category, product.parentCategory,
+        product.price, product.originalPrice, product.discountedPrice, product.retailerPrice,
+        product.stock, 'Available', product.active === false ? 'Hidden' : 'Active', product.source,
+        (product.sizes || []).join(' | '), (product.options || []).map((option) => `${option.name}: ${option.values.join(' | ')}`).join('; '),
+        product.image, product.addedAt, product.updatedAt,
+      ].map(csvCell).join(','))
+      const csv = '\uFEFF' + [headings.map(csvCell).join(','), ...rows].join('\r\n')
+      const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `aaro-available-products-${new Date().toISOString().slice(0, 10)}.csv`
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+      setExportMessage(`Exported ${available.length.toLocaleString()} available products. Open the CSV in Excel.`)
+    } catch (error) {
+      setExportMessage(error instanceof Error ? error.message : 'Could not export the product catalog.')
+    } finally {
+      setExportingProducts(false)
+    }
+  }
   const acceptProgress = (result: SyncProgress) => {
     setSyncProgress(result)
     if ((result.status === 'success' || result.status === 'success_with_skipped_details') && typeof result.finishedAt === 'string') {
@@ -1777,7 +1814,8 @@ function SyncPanel({ lastSync, onLastSync, onSyncComplete, importNote, fileRef, 
         <span><b>{imported.length ? imported.length.toLocaleString() + ' imported products' : 'ShopBase catalog not synced'}</b><small>{lastSync ? 'Last catalog update ' + dateTimeLabel(lastSync) + ' (Bangladesh time)' : imported.length ? 'Products are available from your connected catalog API.' : 'Save your ShopBase login below to allow the hosted runner to refresh expired sessions.'}</small></span>
         <span className={'status-pill ' + (imported.length ? 'status-green' : 'status-amber')}><i />{imported.length ? 'Connected' : 'Needs sync'}</span>
       </div>
-      <div className="sync-actions"><button className="secondary-button" onClick={startHostedCookieSync} disabled={progressLoading || progress?.status === 'running'}><RotateCcw size={16} /> Sync cookie automatically</button><button className="secondary-button" onClick={saveShopBaseCookie} disabled={progressLoading}>Sync cookie manually</button><button className="primary-button sync-now-button" onClick={startSyncNow} disabled={progressLoading || progress?.status === 'running'}><RotateCcw size={17} /> {progress?.status === 'running' ? 'Sync running…' : progressLoading ? 'Starting…' : 'Sync Now'}</button><button className="secondary-button" onClick={() => fileRef.current?.click()}><Upload size={17} /> Import supplier CSV</button><input ref={fileRef} type="file" accept=".csv,text/csv" hidden onChange={(event) => onImport(event.target.files?.[0])} /><button className="secondary-button" onClick={refreshProgress} disabled={progressLoading}><RotateCcw size={16} /> {progressLoading ? 'Checking progress…' : 'View sync progress'}</button></div>
+      <div className="sync-actions"><button className="secondary-button" onClick={startHostedCookieSync} disabled={progressLoading || progress?.status === 'running'}><RotateCcw size={16} /> Sync cookie automatically</button><button className="secondary-button" onClick={saveShopBaseCookie} disabled={progressLoading}>Sync cookie manually</button><button className="primary-button sync-now-button" onClick={startSyncNow} disabled={progressLoading || progress?.status === 'running'}><RotateCcw size={17} /> {progress?.status === 'running' ? 'Sync running…' : progressLoading ? 'Starting…' : 'Sync Now'}</button><button className="secondary-button" onClick={() => fileRef.current?.click()}><Upload size={17} /> Import supplier CSV</button><input ref={fileRef} type="file" accept=".csv,text/csv" hidden onChange={(event) => onImport(event.target.files?.[0])} /><button className="secondary-button" onClick={exportAvailableProducts} disabled={exportingProducts}><Download size={17} /> {exportingProducts ? 'Preparing export…' : 'Export available products (CSV)'}</button><button className="secondary-button" onClick={refreshProgress} disabled={progressLoading}><RotateCcw size={16} /> {progressLoading ? 'Checking progress…' : 'View sync progress'}</button></div>
+      {exportMessage && <div className="import-result sync-progress-message" role="status">{exportMessage}</div>}
       <section className="sync-agent-card" id="hosted-login-setup">
         <div className="sync-agent-heading"><b>Hosted automatic sign-in</b><span className={'status-pill ' + (hostedLoginConfigured ? 'status-green' : 'status-amber')}><i />{hostedLoginConfigured ? 'Configured' : 'Setup needed'}</span></div>
         <p>When the saved cookie expires, GitHub Actions signs in to ShopBase, gets a fresh session, and continues the sync. This runs in the cloud; your PC does not need to be on.</p>
