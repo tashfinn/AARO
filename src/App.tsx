@@ -303,6 +303,7 @@ export default function App() {
   const [selectedThana, setSelectedThana] = useState('')
   const deliveryZone = getDeliveryZone(selectedDistrict, selectedThana)
   const [productRouteId, setProductRouteId] = useState<string | null>(productIdFromPath)
+  const productReturnState = useRef<{ page: StorePage; category: string; categorySourceId: string; parentCategoryId: string; submittedQuery: string; minPrice: number; maxPrice: number; priceSort: 'recommended' | 'low-high' | 'high-low'; scrollY: number } | null>(null)
   const selectedProduct = useMemo(() => state.products.find((product) => product.id === productRouteId) || null, [productRouteId, state.products])
   const [wishlist, setWishlist] = useState<string[]>(() => { try { const value: unknown = JSON.parse(localStorage.getItem(WISHLIST_KEY) || '[]'); return Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : [] } catch { return [] } })
   const [user, setUser] = useState<string | null>(() => localStorage.getItem(USER_KEY))
@@ -750,12 +751,17 @@ export default function App() {
     setCartOpen(true)
   }
   function openProduct(product: Product) {
+    productReturnState.current = { page, category, categorySourceId: selectedCategorySourceId, parentCategoryId: selectedParentCategoryId, submittedQuery, minPrice, maxPrice, priceSort, scrollY: window.scrollY }
     setAdmin(false); setProductRouteId(product.id); setShowSearch(false); setQuery(''); setSubmittedQuery(''); setCategoryMenuOpen(false)
     history.pushState({ productId: product.id, aaroProduct: true }, '', productPath(product)); window.scrollTo({ top: 0, behavior: 'smooth' })
   }
   function closeProduct() {
+    const returnState = productReturnState.current
     if (history.state?.aaroProduct) history.back()
-    else { history.replaceState({}, '', '/'); setProductRouteId(null); window.scrollTo({ top: 0, behavior: 'smooth' }) }
+    else { history.replaceState({}, '', '/'); setProductRouteId(null) }
+    if (!returnState) return
+    setPage(returnState.page); setCategory(returnState.category); setSelectedCategorySourceId(returnState.categorySourceId); setSelectedParentCategoryId(returnState.parentCategoryId); setSubmittedQuery(returnState.submittedQuery); setMinPrice(returnState.minPrice); setMaxPrice(returnState.maxPrice); setPriceSort(returnState.priceSort)
+    window.setTimeout(() => requestAnimationFrame(() => requestAnimationFrame(() => window.scrollTo({ top: returnState.scrollY, behavior: 'instant' as ScrollBehavior }))), 80)
   }
   function submitSearch() {
     setSubmittedQuery(query.trim()); setPage('shop'); setCategory('All'); setShowSearch(false); window.scrollTo({ top: 0, behavior: 'smooth' })
