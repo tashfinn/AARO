@@ -34,6 +34,58 @@ try:
 except (OSError, KeyError, TypeError, json.JSONDecodeError):
     BANGLADESH_AREAS = {}
 
+def _offer_tier_allocations(offer: dict[str, Any], quantity: int) -> list[tuple[dict[str, Any], int]]:
+    remaining = quantity
+    allocations: list[tuple[dict[str, Any], int]] = []
+    tiers = sorted((tier for tier in offer.get("tiers", []) if isinstance(tier, dict)), key=lambda item: int(item.get("quantity") or 0), reverse=True)
+    for tier in tiers:
+        tier_quantity = max(1, int(tier.get("quantity") or 1))
+        groups = remaining // tier_quantity
+        if groups:
+            remaining -= groups * tier_quantity
+            allocations.append((tier, groups))
+    return allocations
+
+def _offer_units_retail(lines: list[dict[str, Any]], quantity: int, cheapest_first: bool = False) -> float:
+    candidates = [{"quantity": int(line.get("quantity") or 0), "price": max(0.0, float(line.get("price") or 0))} for line in lines]
+    if cheapest_first:
+        candidates.sort(key=lambda line: line["price"])
+    remaining = max(0, quantity)
+    retail = 0.0
+    for line in candidates:
+        count = min(remaining, line["quantity"])
+        retail += count * line["price"]
+        remaining -= count
+        if not remaining:
+            break
+    return retail
+
+def _offer_tier_savings(offer: dict[str, Any], lines: list[dict[str, Any]]) -> float:
+    candidates = [{"quantity": int(line.get("quantity") or 0), "price": max(0.0, float(line.get("price") or 0))} for line in lines]
+    total_quantity = sum(line["quantity"] for line in candidates)
+    savings = 0.0
+    for tier, groups in _offer_tier_allocations(offer, total_quantity):
+        units = groups * max(1, int(tier.get("quantity") or 1))
+        eligible_retail = 0.0
+        for line in candidates:
+            count = min(units, line["quantity"])
+            eligible_retail += count * line["price"]
+            line["quantity"] -= count
+            units -= count
+            if not units:
+                break
+        value = max(0.0, float(tier.get("value") or 0))
+        if tier.get("mode") == "price":
+            saving = max(0.0, eligible_retail - groups * value)
+        elif tier.get("mode") == "none":
+            saving = 0.0
+        elif tier.get("discountKind") == "percent":
+            saving = eligible_retail * min(value, 100.0) / 100
+        else:
+            saving = groups * value
+        savings += min(eligible_retail, saving)
+    return savings
+
 class CustomerCredentials(BaseModel):
     identifier: str = Field(min_length=3, max_length=254)
     password: str = Field(min_length=10, max_length=256)
@@ -507,45 +559,28 @@ def create_order(input: OrderInput, authorization: str | None = Header(default=N
 
     for offer in store.offers.find({"active": True, "kind": {"$in": ["special_price", "quantity_discount", "buy_multiple", "buy_x_get_y_free"]}}, {"_id": 0}):
         target_ids = list(dict.fromkeys(offer.get("productIds") or ([offer.get("productId")] if offer.get("productId") else [])))
-        for product_id in target_ids:
-            quantity = quantities_by_id.get(product_id, 0)
-            product = products_by_id.get(product_id)
-            if not quantity or not product:
-                continue
-            unit_price = max(0.0, float(product.get("price") or 0))
-            offer_quantity = max(1, int(offer.get("quantity") or 1))
-            if offer.get("kind") == "special_price":
-                offer_discount += max(0.0, unit_price - min(unit_price, float(offer.get("value") or 0))) * quantity
-            elif offer.get("kind") == "buy_multiple" and offer.get("tiers"):
-                remaining = quantity
-                tiers = sorted((tier for tier in offer.get("tiers", []) if isinstance(tier, dict)), key=lambda item: int(item.get("quantity") or 0), reverse=True)
-                for tier in tiers:
-                    tier_quantity = max(1, int(tier.get("quantity") or 1))
-                    groups = remaining // tier_quantity
-                    if not groups:
-                        continue
-                    remaining -= groups * tier_quantity
-                    eligible_retail = groups * tier_quantity * unit_price
-                    value = max(0.0, float(tier.get("value") or 0))
-                    if tier.get("mode") == "price":
-                        saving = groups * max(0.0, tier_quantity * unit_price - value)
-                    elif tier.get("mode") == "none":
-                        saving = 0.0
-                    elif tier.get("discountKind") == "percent":
-                        saving = eligible_retail * min(value, 100.0) / 100
-                    else:
-                        saving = groups * value
-                    offer_discount += min(eligible_retail, saving)
-            elif offer.get("kind") in ("quantity_discount", "buy_multiple"):
-                groups = quantity // offer_quantity
-                eligible_quantity = groups * offer_quantity
-                reward = offer.get("reward", "discount")
-                if offer.get("kind") == "quantity_discount" or reward in ("discount", "both"):
-                    saving = eligible_quantity * unit_price * float(offer.get("value") or 0) / 100 if offer.get("discountKind") == "percent" else groups * float(offer.get("value") or 0)
-                    offer_discount += min(eligible_quantity * unit_price, saving)
-            elif offer.get("kind") == "buy_x_get_y_free":
-                free_quantity = max(1, int(offer.get("freeQuantity") or 1))
-                offer_discount += (quantity // (offer_quantity + free_quantity)) * free_quantity * unit_price
+        offer_lines = [item for item in priced_items if item["productId"] in target_ids]
+        quantity = sum(item["quantity"] for item in offer_lines)
+        if not quantity:
+            continue
+        if offer.get("kind") == "special_price":
+            offer_discount += sum(max(0.0, item["price"] - min(item["price"], float(offer.get("value") or 0))) * item["quantity"] for item in offer_lines)
+            continue
+        offer_quantity = max(1, int(offer.get("quantity") or 1))
+        if offer.get("kind") == "buy_multiple" and offer.get("tiers"):
+            offer_discount += _offer_tier_savings(offer, offer_lines)
+        elif offer.get("kind") in ("quantity_discount", "buy_multiple"):
+            groups = quantity // offer_quantity
+            eligible_quantity = groups * offer_quantity
+            eligible_retail = _offer_units_retail(offer_lines, eligible_quantity)
+            reward = offer.get("reward", "discount")
+            if eligible_quantity and (offer.get("kind") == "quantity_discount" or reward in ("discount", "both")):
+                saving = eligible_retail * float(offer.get("value") or 0) / 100 if offer.get("discountKind") == "percent" else groups * float(offer.get("value") or 0)
+                offer_discount += min(eligible_retail, saving)
+        elif offer.get("kind") == "buy_x_get_y_free":
+            free_quantity = max(1, int(offer.get("freeQuantity") or 1))
+            free_count = (quantity // (offer_quantity + free_quantity)) * free_quantity
+            offer_discount += _offer_units_retail(offer_lines, free_count, cheapest_first=True)
 
     for offer in store.offers.find({"kind": "bundle", "active": True}, {"_id": 0}):
         product_ids = list(dict.fromkeys(item for item in offer.get("productIds", []) if isinstance(item, str)))
@@ -574,10 +609,10 @@ def create_order(input: OrderInput, authorization: str | None = Header(default=N
     free_delivery_quantity_offer = False
     for offer in store.offers.find({"kind": "buy_multiple", "active": True}, {"_id": 0, "productId": 1, "productIds": 1, "quantity": 1, "reward": 1, "tiers": 1}):
         target_ids = list(dict.fromkeys(offer.get("productIds") or ([offer.get("productId")] if offer.get("productId") else [])))
-        if any(
-            any(tier.get("freeDelivery") and quantities_by_id.get(product_id, 0) >= int(tier.get("quantity") or 0) for tier in offer.get("tiers", []) if isinstance(tier, dict))
-            or (not offer.get("tiers") and offer.get("reward") in ("free_delivery", "both") and quantities_by_id.get(product_id, 0) >= max(1, int(offer.get("quantity") or 1)))
-            for product_id in target_ids
+        quantity = sum(quantities_by_id.get(product_id, 0) for product_id in target_ids)
+        if (
+            any(tier.get("freeDelivery") for tier, _groups in _offer_tier_allocations(offer, quantity))
+            if offer.get("tiers") else offer.get("reward") in ("free_delivery", "both") and quantity >= max(1, int(offer.get("quantity") or 1))
         ):
             free_delivery_quantity_offer = True
             break
