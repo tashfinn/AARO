@@ -346,7 +346,7 @@ def run():
   runs.update_one({"runId":runid},{"$set":{"status":"failed","phase":"failed","error":str(e)[:500],"startedAt":started,"finishedAt":now(),"updatedAt":now(),"seen":seen,"productsProcessed":seen,"categoriesProcessed":categories_processed,"productsDiscovered":products_discovered,"created":created,"changed":changed,"unchanged":unchanged,"skippedDetails":len(failed_details)}},upsert=True); raise
  finally: client.close()
 
-def check_one(source_id):
+def check_one(source_id, check_id=""):
  if not URI: raise SyncError("MONGODB_URI is missing.")
  client=MongoClient(URI,serverSelectionTimeoutMS=10000); db=client[DB]
  try:
@@ -364,11 +364,15 @@ def check_one(source_id):
   stock=1 if available else 0; status="available" if available else "out_of_stock"; stamp=now()
   db.products.update_one({"sourceId":source_id,"source":"shopbase"},{"$set":{"stock":stock,"active":bool(stock),"sourceStatus":status,"availabilityCheckedAt":stamp,"updatedAt":stamp}})
   db.admin_products.update_one({"id":f"shopbase-{source_id}","source":"shopbase"},{"$set":{"stock":stock,"active":bool(stock),"sourceStatus":status,"availabilityCheckedAt":stamp,"updatedAt":stamp}})
+  if check_id: db.availability_checks.update_one({"checkId":check_id},{"$set":{"status":"complete","available":bool(stock),"checkedAt":stamp}})
   print(f"Availability for {source_id}: {status} at {stamp}")
+ except Exception as error:
+  if check_id: db.availability_checks.update_one({"checkId":check_id},{"$set":{"status":"failed","error":str(error)[:300],"checkedAt":now()}})
+  raise
  finally: client.close()
 if __name__=="__main__":
  try:
-  if len(sys.argv)==3 and sys.argv[1]=="--check-product-id": check_one(sys.argv[2])
+  if len(sys.argv)==5 and sys.argv[1]=="--check-product-id" and sys.argv[3]=="--check-id": check_one(sys.argv[2],sys.argv[4])
   else: run()
  except Exception as e: print(f"Catalog sync failed: {e}",file=sys.stderr); raise SystemExit(1)
 

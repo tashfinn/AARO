@@ -15,6 +15,11 @@ on:
         required: false
         type: string
         default: ''
+      check_id:
+        description: 'Internal availability check request ID'
+        required: false
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -68,6 +73,7 @@ jobs:
       SHOPBASE_DETAIL_REFRESH_DAYS: '7'
       SHOPBASE_FORCE_DETAIL_REFRESH: ${{ github.event_name == 'workflow_dispatch' && inputs.refresh_details }}
       SHOPBASE_CHECK_PRODUCT_ID: ${{ github.event_name == 'workflow_dispatch' && inputs.check_product_id || '' }}
+      SHOPBASE_CHECK_ID: ${{ github.event_name == 'workflow_dispatch' && inputs.check_id || '' }}
       CLOUDINARY_CLOUD_NAME: ${{ secrets.CLOUDINARY_CLOUD_NAME }}
       CLOUDINARY_API_KEY: ${{ secrets.CLOUDINARY_API_KEY }}
       CLOUDINARY_API_SECRET: ${{ secrets.CLOUDINARY_API_SECRET }}
@@ -98,5 +104,5 @@ jobs:
         run: python sync_shopbase.py
       - name: Check one product availability
         if: env.SHOPBASE_CHECK_PRODUCT_ID != ''
-        run: python sync_shopbase.py --check-product-id "$SHOPBASE_CHECK_PRODUCT_ID"
+        run: python sync_shopbase.py --check-product-id "$SHOPBASE_CHECK_PRODUCT_ID" --check-id "$SHOPBASE_CHECK_ID"
 

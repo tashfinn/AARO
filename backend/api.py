@@ -1102,17 +1102,29 @@ def check_one_product_availability(product_id: str, authorization: str | None = 
     if not db().products.find_one({"sourceId": source_id, "source": "shopbase"}, {"_id": 1}):
         raise HTTPException(status_code=404, detail="This ShopBase product is not in the saved catalog.")
     token, repository, workflow = _github_sync_settings()
+    check_id = str(uuid.uuid4())
+    db().availability_checks.insert_one({"checkId": check_id, "productId": product_id, "sourceId": source_id, "status": "queued", "createdAt": datetime.now(timezone.utc).isoformat()})
     response = requests.post(
         f"https://api.github.com/repos/{repository}/actions/workflows/{workflow}/dispatches",
         headers=_github_headers(token),
-        json={"ref": "main", "inputs": {"refresh_details": "false", "check_product_id": source_id}},
+        json={"ref": "main", "inputs": {"refresh_details": "false", "check_product_id": source_id, "check_id": check_id}},
         timeout=20,
     )
     if response.status_code in (401, 403):
+        db().availability_checks.update_one({"checkId": check_id}, {"$set": {"status": "failed", "error": "GitHub rejected the workflow request. Check the Actions permission on the saved GitHub token."}})
         raise HTTPException(status_code=502, detail="GitHub rejected the workflow request. Check the Actions permission on the saved GitHub token.")
     if response.status_code != 204:
+        db().availability_checks.update_one({"checkId": check_id}, {"$set": {"status": "failed", "error": f"GitHub could not start the check (HTTP {response.status_code})."}})
         raise HTTPException(status_code=502, detail=f"GitHub could not start the single-product check (HTTP {response.status_code}).")
-    return {"ok": True, "sourceId": source_id, "message": "Availability check queued for this product only. The catalog will not be synced."}
+    return {"ok": True, "checkId": check_id, "sourceId": source_id}
+
+@app.get("/api/admin/products/{product_id}/availability-check/{check_id}")
+def get_one_product_availability(product_id: str, check_id: str, authorization: str | None = Header(default=None)):
+    _admin_from_auth(authorization)
+    result = db().availability_checks.find_one({"checkId": check_id, "productId": product_id}, {"_id": 0})
+    if not result:
+        raise HTTPException(status_code=404, detail="Availability check not found.")
+    return result
 
 @app.post("/api/admin/products/import")
 def import_admin_products(input: AdminProductImport, authorization: str | None = Header(default=None)):

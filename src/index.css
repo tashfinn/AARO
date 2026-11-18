@@ -3559,6 +3559,16 @@ input:focus, select:focus, textarea:focus { outline: none !important; box-shadow
 .availability-check-spinner { animation: loading-orbit-spin .8s linear infinite; }
 .availability-check-notice { margin: 10px 0; padding: 11px 14px; border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary); background: var(--surface-raised); font-size: 13px; }
 .theme-dark .availability-check-button { color: #c6ff3d !important; }
+.brand-mark-image { width: 36px; height: 36px; object-fit: contain; border-radius: 10px; }
+.admin-profile .avatar img, .admin-top-actions .avatar img { display: block; width: 100%; height: 100%; object-fit: contain; padding: 3px; border-radius: inherit; background: #fff; }
+.hero-slide-editor-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.hero-slide-editor-heading .secondary-button { display: inline-flex; align-items: center; gap: 7px; width: auto; min-height: 36px; }
+.add-hero-slide { display: inline-flex; align-items: center; gap: 8px; margin: 4px 0 20px; }
+.hero-art .hero-carousel-card { border: 1px solid rgba(255,255,255,.26); box-shadow: 0 16px 44px rgba(7,16,12,.2); }
+.hero-art .hero-carousel-active { box-shadow: 0 22px 56px rgba(7,16,12,.28), inset 0 0 0 1px rgba(255,255,255,.12); }
+.hero-art .hero-carousel-dots { padding: 8px 11px; border: 1px solid rgba(255,255,255,.24); border-radius: 999px; background: rgba(20,34,29,.42); backdrop-filter: blur(16px) saturate(140%); -webkit-backdrop-filter: blur(16px) saturate(140%); }
+.hero-art .hero-slide-cta { border: 1px solid rgba(255,255,255,.35); box-shadow: 0 8px 24px rgba(10,18,14,.2); }
+@media (max-width: 600px) { .hero-slide-editor-heading { align-items: flex-start; } .hero-slide-editor-heading .secondary-button { min-height: 32px; padding-inline: 9px; font-size: 12px; } }
 .theme-dark .category-loading-card i, .theme-dark .category-loading-card span, .theme-dark .product-loading-card span, .theme-dark .product-loading-card i, .theme-dark .product-loading-card small, .theme-dark .product-loading-heading i { background: rgba(220,238,225,.12); }
 .theme-dark .product-loading-heading b { color: #e9eee9; }
 @media(max-width:700px) { .category-loading-grid { gap: 9px; } .category-loading-card { flex-basis: 43%; height: 128px; } .product-loading-grid { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; } .product-loading-card { min-height: 245px; } }
