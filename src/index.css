@@ -3835,3 +3835,4 @@ input:focus, select:focus, textarea:focus { outline: none !important; box-shadow
     flex-basis: 190px;
   }
 }
+.checkout-delivery-rate .delivery-estimate { display: block; margin-top: 4px; color: var(--text-secondary); font-size: 12px; line-height: 1.4; }
