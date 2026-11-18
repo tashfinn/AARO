@@ -586,6 +586,8 @@ img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .settings-two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .settings-two label { margin-bottom: 8px; }
 .form-help { margin: 7px 0 13px; color: #9ba69e; font-size: 8px; line-height: 1.55; }
+.form-error { margin: 0; color: #b42318; font-size: 13px; line-height: 1.45; }
+.theme-dark .form-error { color: #ff9c92; }
 .mini-hero { height: 220px; display: flex; flex-direction: column; align-items: flex-start; justify-content: end; padding: 17px; background-size: cover; background-position: center; color: white; }
 .mini-hero > span { font-size: 6px; letter-spacing: .15em; }
 .mini-hero > b { max-width: 225px; margin-top: 6px; font: 600 18px/1.15 var(--font-display); }
