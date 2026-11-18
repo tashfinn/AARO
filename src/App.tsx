@@ -105,6 +105,10 @@ function mergeCategoryGroups(saved: CategoryGroup[], live: CategoryGroup[]): Cat
 }
 
 function slugify(value: string) { return value.normalize('NFKC').trim().toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '') || 'item' }
+const categoryEnglishSlugs: Record<string, string> = {
+  'বেসিক টি-শার্ট': 'basic-t-shirt', 'প্রিন্টেড টি-শার্ট': 'printed-t-shirt', 'পলো শার্ট': 'polo-shirt', 'সলিড হুডি': 'solid-hoodie', 'কন্ট্রাস্ট হুডি': 'contrast-hoodie', 'পাফার জ্যাকেট': 'puffer-jacket', 'ভার্সিটি জ্যাকেট': 'varsity-jacket', 'ডেনিম শার্ট': 'denim-shirt', 'ডেনিম জ্যাকেট': 'denim-jacket', 'ফুল স্লিভ টি-শার্ট': 'full-sleeve-t-shirt', 'প্রিন্ট শার্ট': 'printed-shirt', 'সলিড শার্ট': 'solid-shirt', 'চেক শার্ট': 'check-shirt', 'গাউন & কুর্তি': 'gown-and-kurti', 'রেডিমেড থ্রিপিস': 'ready-made-three-piece', 'আনস্টিচড থ্রিপিস': 'unstitched-three-piece', 'শাড়ি': 'saree', 'হিজাব & নিকাব': 'hijab-and-niqab', 'বোরকা': 'burqa', 'ছাতা': 'umbrellas', 'গ্যাজেটস': 'gadgets', 'ঘড়ি': 'watches', 'হেডফোন': 'headphones', 'ফ্যান': 'fans', 'পার্স ব্যাগ': 'purse-bags', 'মেয়েদের ব্যাগ': 'womens-bags', 'ছেলেদের ব্যাগ': 'mens-bags'
+}
+function categoryPathSlug(name: string, fallback = '') { return categoryEnglishSlugs[name] || (/^[\x00-\x7F]+$/.test(name) ? slugify(name) : fallback || 'category') }
 function originalPriceOf(product: Product) { return product.originalPrice ?? product.compareAt ?? product.price }
 function salePercentOf(product: Product) {
   const original = originalPriceOf(product)
@@ -119,7 +123,7 @@ function storePath(page: StorePage, category = 'All', groups: CategoryGroup[] = 
   if (page !== 'category' || category === 'All') return '/'
   const parent = groups.find((group) => group.id === parentId)
   const child = parent?.children.find((item) => item.sourceId === sourceId || item.name === category)
-  return parent ? `/category/${slugify(parent.name)}${child ? `/${slugify(child.name)}` : ''}` : `/category/${slugify(category)}`
+  return parent ? `/category/${slugify(parent.name)}${child ? `/${categoryPathSlug(child.name, child.sourceId ? `category-${child.sourceId}` : '')}` : ''}` : `/category/${categoryPathSlug(category)}`
 }
 function productPath(product: Product) {
   return `/product/${slugify(product.title)}`
@@ -444,7 +448,7 @@ export default function App() {
       else if (['trending', 'offers', 'combos', 'wishlist', 'terms'].includes(parts[0] || '')) setPage(parts[0] as StorePage)
       else if (parts[0] === 'category') {
         const parent = categoryGroups.find((group) => slugify(group.name) === parts[1])
-        const child = parent?.children.find((item) => slugify(item.name) === parts[2])
+        const child = parent?.children.find((item) => slugify(item.name) === parts[2] || categoryPathSlug(item.name, item.sourceId ? `category-${item.sourceId}` : '') === parts[2])
         setPage('category')
         setSelectedParentCategoryId(parent?.id || '')
         setSelectedCategorySourceId(child?.sourceId || '')
