@@ -107,7 +107,7 @@ function offerTierSummary(offer: OfferDeal, products: Product[] = []) {
 }
 function offerDealSummary(offer: OfferDeal, products: Product[] = []) {
   if (offer.kind === 'special_price') return `Special price ${money(offer.value)}`
-  if (offer.kind === 'quantity_discount') return `Buy ${offer.quantity}, save ${offer.discountKind === 'percent' ? `${offer.value}%` : money(offer.value)}`
+  if (offer.kind === 'quantity_discount') return offer.quantity === 1 && offer.discountKind === 'percent' ? `${offer.value}% off each selected product` : `Buy ${offer.quantity}, save ${offer.discountKind === 'percent' ? `${offer.value}%` : money(offer.value)}`
   if (offer.kind === 'buy_multiple') return offerTierSummary(offer, products) || `Buy ${offer.quantity}${['discount', 'both'].includes(offer.reward || 'discount') ? `, save ${offer.discountKind === 'percent' ? `${offer.value}%` : money(offer.value)}` : ''}${['free_delivery', 'both'].includes(offer.reward || '') ? ' + free delivery' : ''}`
   if (offer.kind === 'buy_x_get_y_free') return `Buy ${offer.quantity}, get ${offer.freeQuantity} free`
   if (offer.kind === 'bundle') return `Bundle price ${money(offer.value)}`
@@ -1695,7 +1695,7 @@ function AdminOffers({ state, products, onNewCoupon, onNewOffer, onEditOffer, to
   const productFor = (id: string) => products.find((product) => product.id === id)
   const offerLabel = (offer: OfferDeal) => {
     if (offer.kind === 'special_price') return `Special price ${money(offer.value)}`
-    if (offer.kind === 'quantity_discount') return `Buy ${offer.quantity}, save ${offer.discountKind === 'percent' ? `${offer.value}%` : money(offer.value)}`
+    if (offer.kind === 'quantity_discount') return offer.quantity === 1 && offer.discountKind === 'percent' ? `${offer.value}% off each selected product` : `Buy ${offer.quantity}, save ${offer.discountKind === 'percent' ? `${offer.value}%` : money(offer.value)}`
     if (offer.kind === 'buy_multiple') return offerTierSummary(offer, products.filter((product) => (offer.productIds?.length ? offer.productIds : [offer.productId]).includes(product.id))) || `Buy ${offer.quantity}${['discount', 'both'].includes(offer.reward || 'discount') ? `, save ${offer.discountKind === 'percent' ? `${offer.value}%` : money(offer.value)}` : ''}${['free_delivery', 'both'].includes(offer.reward || '') ? ' + free delivery' : ''}`
     if (offer.kind === 'buy_x_get_y_free') return `Buy ${offer.quantity}, get ${offer.freeQuantity} free`
     if (offer.kind === 'bundle') return `Bundle of ${(offer.productIds || []).length} products for ${money(offer.value)}`
