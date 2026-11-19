@@ -3426,7 +3426,7 @@ a:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
 .hero-art .hero-carousel-image-0 { top: 50%; }
 .hero-art .hero-carousel-dots { position: absolute; z-index: 8; right: 4%; bottom: 4%; left: auto; transform: none; }
 @media (max-width: 900px) { .hero-art .hero-carousel-dots { right: 4%; bottom: 4%; } }
-@media (max-width: 600px) { .hero-art .hero-carousel-dots { right: 4%; bottom: 4%; } }
+@media (max-width: 600px) { .hero-art .hero-carousel-dots { right: 12%; bottom: 4%; gap: 5px; padding: 6px 9px; } .hero-art .hero-carousel-dots button { width: 7px; height: 7px; } .hero-art .hero-carousel-dots button.active { width: 18px; } }
 .hero-art .hero-carousel-card.hero-carousel-image-1 .hero-carousel-photo { object-position: right center; }
 .hero-art .hero-carousel-card.hero-carousel-image-2 .hero-carousel-photo { object-position: left center; }
 .hero-art .hero-carousel-card:not(.hero-carousel-image-0) .hero-carousel-copy { visibility: hidden !important; opacity: 0 !important; pointer-events: none !important; }
