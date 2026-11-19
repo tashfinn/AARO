@@ -1129,11 +1129,14 @@ def save_admin_product(input: AdminProductInput, authorization: str | None = Hea
         source = db().products.find_one({"sourceId": product["sourceId"], "source": "shopbase"}, {"_id": 0, "price": 1, "suggestedRetailPrice": 1})
         if not source:
             raise HTTPException(status_code=404, detail="The ShopBase product is no longer in the catalog.")
-        original_price = float(source.get("suggestedRetailPrice") or source.get("price") or 0)
+        # Supplier price is the default, but admins may set a durable selling
+        # price override for imported products from the catalog editor.
+        original_price = float(product.get("originalPrice") if product.get("originalPrice") is not None else (source.get("suggestedRetailPrice") or source.get("price") or 0))
         discounted_price = product.get("discountedPrice")
         if discounted_price is not None and float(discounted_price) >= original_price:
-            raise HTTPException(status_code=422, detail="Discounted selling price must be lower than the synced original price.")
-        product.pop("originalPrice", None)
+            raise HTTPException(status_code=422, detail="Discounted selling price must be lower than the original price.")
+        product["originalPrice"] = original_price
+        product["discountedPrice"] = float(discounted_price) if discounted_price is not None else None
         product["price"] = float(discounted_price) if discounted_price is not None else original_price
         product["compareAt"] = original_price if discounted_price is not None else None
     else:
@@ -1323,8 +1326,11 @@ def public_product(product, include_details=False):
     return product
 
 def _apply_shopbase_override(product: dict[str, Any], override: dict[str, Any], *, retailer_price: Any = None) -> dict[str, Any]:
-    """Apply admin presentation overrides while keeping supplier prices current."""
-    original_price = float(product.get("price") or 0)
+    """Apply admin overrides while refreshing supplier data not overridden by admin."""
+    try:
+        original_price = float(override.get("originalPrice") if override.get("originalPrice") is not None else (product.get("originalPrice") or product.get("price") or 0))
+    except (TypeError, ValueError):
+        original_price = float(product.get("originalPrice") or product.get("price") or 0)
     for key in ("title", "category", "image", "description", "stock", "active", "trending", "offer", "badge", "sizes", "sizeChart", "details", "attributes", "options", "categorySourceId", "parentCategory", "parentCategoryId"):
         if key in override:
             product[key] = override[key]
