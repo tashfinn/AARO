@@ -3513,6 +3513,15 @@ input:focus, select:focus, textarea:focus { outline: none !important; box-shadow
 /* Keep the full campaign image visible on narrow screens. */
 @media (max-width: 600px) { .hero-art .hero-carousel-card.hero-carousel-image-0 .hero-carousel-photo { object-fit: cover; object-position: center; } }
 
+/* Desktop campaign uploads are prepared at 16:7; keep the active frame at that ratio. */
+@media (min-width: 601px) {
+  .hero-art { height: auto; aspect-ratio: 16 / 7; }
+  .hero-art .hero-carousel-card.hero-carousel-image-0,
+  .hero-art .hero-carousel-card.hero-carousel-image-1,
+  .hero-art .hero-carousel-card.hero-carousel-image-2 { width: 88%; height: 88%; aspect-ratio: 16 / 7; }
+  .hero-art .hero-carousel-card.hero-carousel-image-0 { top: 50%; transform: translate(-50%, -50%); }
+}
+
 /* Refinements for the storefront and account flows */
 @keyframes searchSuggestionEnter { from { opacity: 0; transform: translateY(-7px); } to { opacity: 1; transform: translateY(0); } }
 .search-suggestions { animation: searchSuggestionEnter .2s ease-out both; transform-origin: top center; }
