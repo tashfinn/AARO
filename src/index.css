@@ -3420,6 +3420,7 @@ a:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
 .hero-art .hero-carousel-card.hero-carousel-image-0 { left: 50%; right: auto; z-index: 5; width: 88%; height: 100%; transform: translate(-50%, -50%); transform-origin: center; box-shadow: 0 18px 42px rgba(13,24,19,.24); }
 .hero-art .hero-carousel-card.hero-carousel-image-1 { left: auto; right: 0; z-index: 4; transform: translateY(-50%) scale(.9); transform-origin: right center; cursor: pointer; }
 .hero-art .hero-carousel-card.hero-carousel-image-2 { left: 0; right: auto; z-index: 4; transform: translateY(-50%) scale(.9); transform-origin: left center; cursor: pointer; }
+.hero-art .hero-carousel-card.hero-carousel-image-3 { visibility: hidden; opacity: 0; pointer-events: none; }
 .hero-art .hero-carousel-card.hero-carousel-image-1 .hero-carousel-photo { object-position: right center; }
 .hero-art .hero-carousel-card.hero-carousel-image-2 .hero-carousel-photo { object-position: left center; }
 .hero-art .hero-carousel-card:not(.hero-carousel-image-0) .hero-carousel-copy { visibility: hidden !important; opacity: 0 !important; pointer-events: none !important; }
