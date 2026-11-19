@@ -3421,6 +3421,12 @@ a:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
 .hero-art .hero-carousel-card.hero-carousel-image-1 { left: auto; right: 0; z-index: 4; transform: translateY(-50%) scale(.9); transform-origin: right center; cursor: pointer; }
 .hero-art .hero-carousel-card.hero-carousel-image-2 { left: 0; right: auto; z-index: 4; transform: translateY(-50%) scale(.9); transform-origin: left center; cursor: pointer; }
 .hero-art .hero-carousel-card.hero-carousel-image-3 { visibility: hidden; opacity: 0; pointer-events: none; }
+.hero-art { position: relative; }
+.hero-art .hero-carousel-card { top: 50%; transition-property: left, right, transform, opacity, filter; transition-duration: .72s; transition-timing-function: cubic-bezier(.22,.72,.2,1); }
+.hero-art .hero-carousel-image-0 { top: 50%; }
+.hero-art .hero-carousel-dots { position: absolute; z-index: 8; right: calc(6% + 16px); bottom: 18px; left: auto; transform: none; }
+@media (max-width: 900px) { .hero-art .hero-carousel-dots { right: calc(7% + 14px); bottom: 16px; } }
+@media (max-width: 600px) { .hero-art .hero-carousel-dots { right: calc(4% + 12px); bottom: 14px; } }
 .hero-art .hero-carousel-card.hero-carousel-image-1 .hero-carousel-photo { object-position: right center; }
 .hero-art .hero-carousel-card.hero-carousel-image-2 .hero-carousel-photo { object-position: left center; }
 .hero-art .hero-carousel-card:not(.hero-carousel-image-0) .hero-carousel-copy { visibility: hidden !important; opacity: 0 !important; pointer-events: none !important; }
@@ -3943,3 +3949,11 @@ input:focus, select:focus, textarea:focus { outline: none !important; box-shadow
   .hero-carousel-copy p { max-width: 100%; margin: 0 0 12px; font-size: 12px; line-height: 1.35; }
   .hero-slide-cta { min-height: 42px; margin-top: 6px; padding-inline: 14px; gap: 9px; font-size: 14px; }
 }
+
+/* Keep carousel controls anchored to the banner and rotate neighboring slides on a level axis. */
+.hero-art { position: relative; }
+.hero-art .hero-carousel-card { top: 50%; transition-property: left, right, transform, opacity, filter; transition-duration: .72s; transition-timing-function: cubic-bezier(.22,.72,.2,1); }
+.hero-art .hero-carousel-image-0 { top: 50%; }
+.hero-art .hero-carousel-dots { position: absolute; z-index: 8; right: calc(6% + 16px); bottom: 18px; left: auto; transform: none; }
+@media (max-width: 900px) { .hero-art .hero-carousel-dots { right: calc(7% + 14px); bottom: 16px; } }
+@media (max-width: 600px) { .hero-art .hero-carousel-dots { right: calc(4% + 12px); bottom: 14px; } }
