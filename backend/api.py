@@ -672,8 +672,8 @@ def save_offer(input: OfferInput, authorization: str | None = Header(default=Non
                 discount_kind = tier.get("discountKind", "percent")
             except (TypeError, ValueError):
                 raise HTTPException(status_code=422, detail="One of the quantity tiers is invalid.")
-            if quantity < 2 or quantity > 1000 or quantity in seen_quantities:
-                raise HTTPException(status_code=422, detail="Quantity tiers must use unique quantities between 2 and 1,000.")
+            if quantity < 1 or quantity in seen_quantities:
+                raise HTTPException(status_code=422, detail="Quantity tiers must use unique quantities of 1 or more.")
             if mode not in ("price", "discount", "none") or value < 0 or (mode == "discount" and value <= 0) or (mode == "none" and not tier.get("freeDelivery")):
                 raise HTTPException(status_code=422, detail="Enter a valid set price or discount for every tier.")
             if mode == "discount" and (discount_kind not in ("percent", "amount") or discount_kind == "percent" and value > 100):
