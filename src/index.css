@@ -3896,3 +3896,11 @@ input:focus, select:focus, textarea:focus { outline: none !important; box-shadow
 .discounted-subtotal-row b { color: var(--accent-strong); }
 .free-delivery-saving span, .free-delivery-saving b { color: var(--accent-strong); font-weight: 700; }
 .checkout-cart-restoring { min-height: 42vh; align-content: center; }
+
+/* Keep line breaks entered in hero banner supporting text. */
+.hero-carousel-copy .hero-description-line, .mini-carousel-copy .hero-description-line { display: block; }
+.hero-carousel-copy p { white-space: pre-line; }
+.hero-slide-cta { border: 1px solid rgba(255,255,255,.62); background: linear-gradient(135deg, #ffc16a, #f19a3e); box-shadow: 0 8px 22px rgba(11,25,19,.3); }
+.hero-slide-cta svg { transition: transform .2s ease; }
+.hero-slide-cta:hover { background: linear-gradient(135deg, #ffd28e, #f5a94f); box-shadow: 0 11px 26px rgba(11,25,19,.36); }
+.hero-slide-cta:hover svg { transform: translateX(3px); }
