@@ -3904,3 +3904,9 @@ input:focus, select:focus, textarea:focus { outline: none !important; box-shadow
 .hero-slide-cta svg { transition: transform .2s ease; }
 .hero-slide-cta:hover { background: linear-gradient(135deg, #ffd28e, #f5a94f); box-shadow: 0 11px 26px rgba(11,25,19,.36); }
 .hero-slide-cta:hover svg { transform: translateX(3px); }
+@media (max-width: 600px) {
+  .hero-carousel-copy { padding: 17px; }
+  .hero-carousel-copy h1 { max-width: 100%; margin: 0 0 8px; font-size: clamp(25px, 7vw, 31px); line-height: 1; letter-spacing: -.04em; }
+  .hero-carousel-copy p { max-width: 100%; margin: 0 0 12px; font-size: 12px; line-height: 1.35; }
+  .hero-slide-cta { min-height: 42px; margin-top: 6px; padding-inline: 14px; gap: 9px; font-size: 14px; }
+}
