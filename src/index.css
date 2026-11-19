@@ -3959,4 +3959,5 @@ input:focus, select:focus, textarea:focus { outline: none !important; box-shadow
 @media (max-width: 600px) { .hero-art .hero-carousel-dots { right: calc(4% + 12px); bottom: 14px; } }
 .hero.page-width { display: flex; flex-direction: column; }
 .hero.page-width > .hero-carousel-dots { position: relative; inset: auto; z-index: 8; display: flex; justify-content: center; align-self: center; gap: 9px; min-height: 34px; margin: 10px 0 0; padding: 8px 12px; border: 1px solid rgba(255,255,255,.34); border-radius: 999px; background: rgba(20,34,29,.58); backdrop-filter: blur(16px) saturate(145%); -webkit-backdrop-filter: blur(16px) saturate(145%); box-shadow: 0 5px 16px rgba(0,0,0,.12); }
+@media (min-width: 601px) { .hero.page-width > .hero-carousel-dots { margin-top: -54px; } }
 @media (max-width: 600px) { .hero.page-width > .hero-carousel-dots { gap: 6px; min-height: 28px; margin-top: 8px; padding: 6px 9px; } .hero.page-width > .hero-carousel-dots button { width: 7px; height: 7px; } .hero.page-width > .hero-carousel-dots button.active { width: 18px; } }
