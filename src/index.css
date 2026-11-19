@@ -201,7 +201,7 @@ img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .offer-copy { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; padding: 38px clamp(30px,6vw,82px); background: #dce8df; color: #23443d; }
 .offer-copy .section-kicker { color: #718b7e; }
 .offer-copy h2 { margin: 14px 0 12px; font: 700 clamp(27px,3vw,39px)/1.1 var(--font-display); letter-spacing: -.05em; }
-.offer-copy p { max-width: 305px; margin: 0 0 22px; color: #6e8176; font-size: 11px; line-height: 1.8; }
+.offer-copy p { max-width: 305px; margin: 0 0 22px; color: #6e8176; font-size: 11px; line-height: 1.8; white-space: pre-line; }
 .offer-copy .dark-button { min-height: 40px; font-size: 10px; }
 .offer-copy > small { margin-top: 14px; color: #83938a; font-size: 8px; }
 .combo-section { padding-top: 76px; }
