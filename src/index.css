@@ -4115,6 +4115,22 @@ svg.availability-check-spinner,
   visibility: hidden;
   pointer-events: none;
 }
+.hero-art .hero-side-hit {
+  position: absolute;
+  z-index: 7;
+  top: 0;
+  bottom: 0;
+  width: 6%;
+  min-width: 24px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.hero-art .hero-side-hit-prev { left: 0; }
+.hero-art .hero-side-hit-next { right: 0; }
+.hero-art .hero-side-hit:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
 @media (max-width: 600px) {
   .hero-art .hero-carousel-card,
   .hero-art .hero-carousel-card.hero-carousel-image-0,
@@ -4125,6 +4141,7 @@ svg.availability-check-spinner,
   }
   .hero-art .hero-carousel-card.hero-carousel-image-1 { transform: translate3d(0, -50%, -45px) scale(.9); }
   .hero-art .hero-carousel-card.hero-carousel-image-2 { transform: translate3d(-100%, -50%, -45px) scale(.9); }
+  .hero-art .hero-side-hit { width: 4%; min-width: 16px; }
 }
 
 /* Loading UI must keep moving for the full time its loading state is visible. */
