@@ -1245,13 +1245,23 @@ export default function App() {
       const mode = String(form.get(`tierMode-${index}`) || 'discount') as OfferTier['mode']
       tiers.push({ quantity, mode, value: Number(form.get(`tierValue-${index}`)) || 0, discountKind: String(form.get(`tierDiscountKind-${index}`) || 'percent') as OfferTier['discountKind'], freeDelivery: mode === 'none' || form.get(`tierFreeDelivery-${index}`) === 'on' })
     }
-    const nextOffer: OfferDeal = { title: String(form.get('title') || '').trim(), id: editingOffer?.id || `offer-${Date.now()}`, productId: productIds[0] || '', ...(kind !== 'free_delivery' ? { productIds, thumbnailProductIds: form.getAll('thumbnailProductIds').map(String).slice(0, 3) } : {}), ...(kind === 'buy_multiple' && tiers.length ? { tiers } : {}), kind, value: Number(form.get('value')) || 0, discountKind: String(form.get('discountKind') || 'percent') as OfferDeal['discountKind'], quantity: Number(form.get('quantity')) || 1, freeQuantity: Number(form.get('freeQuantity')) || 1, ...(kind === 'buy_multiple' ? { reward: String(form.get('reward') || 'discount') as OfferDeal['reward'] } : {}), active: editingOffer?.active ?? true }
+    const editingIndex = editingOffer ? state.offers.findIndex((offer) => offer.id === editingOffer.id) : -1
+    const nextSortOrder = editingOffer
+      ? editingOffer.sortOrder ?? Math.max(0, editingIndex)
+      : Math.max(-1, ...state.offers.map((offer, index) => offer.sortOrder ?? index)) + 1
+    const nextOffer: OfferDeal = { title: String(form.get('title') || '').trim(), id: editingOffer?.id || `offer-${Date.now()}`, productId: productIds[0] || '', ...(kind !== 'free_delivery' ? { productIds, thumbnailProductIds: form.getAll('thumbnailProductIds').map(String).slice(0, 3) } : {}), ...(kind === 'buy_multiple' && tiers.length ? { tiers } : {}), kind, value: Number(form.get('value')) || 0, discountKind: String(form.get('discountKind') || 'percent') as OfferDeal['discountKind'], quantity: Number(form.get('quantity')) || 1, freeQuantity: Number(form.get('freeQuantity')) || 1, ...(kind === 'buy_multiple' ? { reward: String(form.get('reward') || 'discount') as OfferDeal['reward'] } : {}), active: editingOffer?.active ?? true, sortOrder: nextSortOrder }
     if (kind !== 'free_delivery' && new Set(productIds).size < (kind === 'bundle' ? 2 : 1)) { notify(kind === 'bundle' ? 'Choose at least two different products for the bundle.' : 'Choose at least one product for this offer.'); return }
     if (kind === 'free_delivery' && nextOffer.value < 0) { notify('Enter a valid minimum order amount.'); return }
     if (kind === 'buy_multiple' && tiers.length && (tiers.some((tier) => tier.quantity < 1 || tier.value < 0 || tier.mode === 'discount' && tier.value <= 0 || tier.mode === 'discount' && tier.discountKind === 'percent' && tier.value > 100 || tier.mode === 'price' && productIds.some((id) => { const product = state.products.find((item) => item.id === id); return product && tier.value >= tier.quantity * product.price }) || tier.mode === 'none' && !tier.freeDelivery) || new Set(tiers.map((tier) => tier.quantity)).size !== tiers.length)) { notify('Check each quantity tier: use unique quantities and valid set prices or discounts.'); return }
     if ((nextOffer.kind === 'quantity_discount' || nextOffer.kind === 'buy_multiple' && ['discount', 'both'].includes(nextOffer.reward || '')) && nextOffer.discountKind === 'percent' && nextOffer.value > 100) { notify('A percentage offer cannot exceed 100%.'); return }
     if (API_BASE && adminToken) { const response = await fetch(`${API_BASE}/api/admin/offers`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` }, body: JSON.stringify(nextOffer) }); if (!response.ok) { const result = await response.json().catch(() => ({})); notify(result.detail || 'Offer could not be saved.'); return } }
-    updateState((current) => ({ ...current, offers: [...current.offers.filter((offer) => offer.id !== nextOffer.id), nextOffer] }))
+    updateState((current) => {
+      const existingIndex = current.offers.findIndex((offer) => offer.id === nextOffer.id)
+      if (existingIndex === -1) return { ...current, offers: [...current.offers, nextOffer] }
+      const offers = [...current.offers]
+      offers[existingIndex] = nextOffer
+      return { ...current, offers }
+    })
     setOfferFormOpen(false); setEditingOffer(null); notify(editingOffer ? 'Offer updated' : 'Offer saved')
   }
   async function toggleOffer(id: string) { const offer = state.offers.find((item) => item.id === id); if (!offer) return; const updated = { ...offer, active: !offer.active }; if (API_BASE && adminToken) { const response = await fetch(`${API_BASE}/api/admin/offers`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` }, body: JSON.stringify(updated) }); if (!response.ok) { notify('Offer could not be updated.'); return } }; updateState((current) => ({ ...current, offers: current.offers.map((item) => item.id === id ? updated : item) })) }
