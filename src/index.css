@@ -4152,9 +4152,16 @@ svg.availability-check-spinner,
 }
 .hero-art .hero-carousel-card:not(.hero-carousel-image-0) {
   overflow: hidden;
-  clip-path: inset(0 round 18px);
+  clip-path: inset(0 round 30px);
   transform-style: flat;
-  border-radius: 18px !important;
+  border-radius: 30px !important;
+}
+.hero-art .hero-carousel-card:not(.hero-carousel-image-0) .hero-photo-frame,
+.hero-art .hero-carousel-card:not(.hero-carousel-image-0) picture,
+.hero-art .hero-carousel-card:not(.hero-carousel-image-0) .hero-carousel-photo {
+  overflow: hidden;
+  clip-path: inset(0 round 30px);
+  border-radius: 30px !important;
 }
 @media (max-width: 600px) {
   .hero-art .hero-carousel-card,
