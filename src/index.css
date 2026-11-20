@@ -3997,6 +3997,9 @@ input:focus, select:focus, textarea:focus { outline: none !important; box-shadow
 @media (max-width: 600px) { .hero-art.hero-catalog-loading::after { padding-top: 76px; background-size: 100% 84%,220% 100%; } }
 .hero-art.hero-catalog-loading .hero-carousel-track { visibility: visible; }
 .hero-art.hero-catalog-loading .hero-carousel-card { visibility: visible; border-radius: inherit; background: #20352a; box-shadow: none; }
+.hero-art.hero-catalog-loading .hero-carousel-image-0 { border-radius: 18px; }
+.hero-art.hero-catalog-loading .hero-carousel-image-1,
+.hero-art.hero-catalog-loading .hero-carousel-image-2 { border-radius: 16px; }
 .hero-art.hero-catalog-loading .hero-carousel-image-1,
 .hero-art.hero-catalog-loading .hero-carousel-image-2 { background: #1d3026; }
 .hero-art.hero-catalog-loading .hero-carousel-card picture,
