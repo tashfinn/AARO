@@ -3982,3 +3982,6 @@ input:focus, select:focus, textarea:focus { outline: none !important; box-shadow
 
 .hero-art.hero-catalog-loading::after { content: 'Loading featured collections'; position: absolute; inset: 0; z-index: 7; display: grid; place-items: center; color: rgba(255,255,255,.9); font-size: 15px; font-weight: 650; letter-spacing: .03em; background: linear-gradient(110deg,#17231e 20%,#26372d 38%,#17231e 58%); background-size: 220% 100%; animation: hero-skeleton-shimmer 1.5s ease-in-out infinite; }
 .hero-art.hero-catalog-loading .hero-carousel-track, .hero-art.hero-catalog-loading .hero-carousel-dots { visibility: hidden; }
+
+.hero-carousel-copy h1 .hero-title-line { display: block; }
+.mini-carousel-copy b .hero-title-line { display: block; }
