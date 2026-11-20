@@ -12,6 +12,7 @@ type ShareTier = { quantity?: number; mode?: string; value?: number; discountKin
 type ShareOffer = {
   id?: string
   title?: string
+  shareImage?: string
   kind?: string
   value?: number
   discountKind?: string
@@ -23,7 +24,7 @@ type ShareOffer = {
   tiers?: ShareTier[]
 }
 
-type ShareMetadata = { title: string; description: string; image: string; type: 'product' | 'website' }
+type ShareMetadata = { title: string; description: string; image: string; type: 'product' | 'website'; imageOverride?: boolean }
 
 const defaultMetadata: ShareMetadata = {
   title: 'AARO — Everyday, a little better',
@@ -101,7 +102,7 @@ async function getMetadata(type: string, id: string, base: string): Promise<Shar
     const imageProduct = previewProducts[Math.min(1, previewProducts.length - 1)] || previewProducts[0]
     const productNames = previewProducts.map((product) => product?.title).filter(Boolean).slice(0, 2).join(' and ')
     const description = [offerText(offer), productNames].filter(Boolean).join(' · ')
-    return { title: `${type === 'offers' ? 'Offers for you' : offer.title || 'Special offer'} | AARO`, description: description.slice(0, 300), image: imageProduct?.image || defaultMetadata.image, type: 'website' }
+    return { title: `${type === 'offers' ? 'Offers for you' : offer.title || 'Special offer'} | AARO`, description: description.slice(0, 300), image: type === 'offers' ? defaultMetadata.image : offer.shareImage || imageProduct?.image || defaultMetadata.image, type: 'website', imageOverride: type === 'offer' && Boolean(offer.shareImage?.trim()) }
   }
 
   return null
@@ -119,14 +120,18 @@ export async function GET(request: Request) {
   const url = new URL(request.url)
   const origin = url.origin
   const apiBase = (process.env.AARO_API_URL || process.env.VITE_API_URL || '').replace(/\/$/, '')
-  const metadata = apiBase ? await getMetadata(url.searchParams.get('type') || '', url.searchParams.get('id') || '', apiBase) : null
+  const type = url.searchParams.get('type') || ''
+  const metadata = apiBase ? await getMetadata(type, url.searchParams.get('id') || '', apiBase) : null
+  const previewSettings = apiBase ? await apiJson<{ socialShareImage?: string }>(apiBase, '/api/storefront-preview') : null
   const canonicalPath = url.searchParams.get('canonicalPath') || '/'
   let canonicalUrl = new URL('/', origin)
   try {
     const candidate = new URL(canonicalPath, origin)
     if (candidate.origin === origin && candidate.pathname.startsWith('/')) canonicalUrl = candidate
   } catch { /* Keep the share URL on this site's origin. */ }
-  const response = new Response(pageHtml(metadata || defaultMetadata, canonicalUrl.href), {
+  const pageMetadata = { ...(metadata || defaultMetadata) }
+  if (previewSettings?.socialShareImage?.trim() && !pageMetadata.imageOverride) pageMetadata.image = previewSettings.socialShareImage.trim()
+  const response = new Response(pageHtml(pageMetadata, canonicalUrl.href), {
     headers: {
       'content-type': 'text/html; charset=utf-8',
       'cache-control': 'public, s-maxage=300, stale-while-revalidate=3600',

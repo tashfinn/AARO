@@ -2,6 +2,11 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "rewrites": [
     {
+      "source": "/",
+      "has": [{ "type": "header", "key": "user-agent", "value": { "re": "(?i)(facebookexternalhit|facebot|twitterbot|slackbot|discordbot|whatsapp|telegrambot|linkedinbot|pinterest)" } }],
+      "destination": "/api/link-preview?type=home&canonicalPath=/"
+    },
+    {
       "source": "/product/:slug/:id",
       "has": [{ "type": "header", "key": "user-agent", "value": { "re": "(?i)(facebookexternalhit|facebot|twitterbot|slackbot|discordbot|whatsapp|telegrambot|linkedinbot|pinterest)" } }],
       "destination": "/api/link-preview?type=product&slug=:slug&id=:id&canonicalPath=/product/:slug/:id"

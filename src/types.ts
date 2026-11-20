@@ -34,7 +34,7 @@ export type Product = {
 export type CategoryGroup = { id: string; name: string; showInStorefront?: boolean; children: { sourceId?: string; name: string; sortOrder?: number; showInStorefront?: boolean }[] }
 
 export type OfferTier = { quantity: number; mode: 'price' | 'discount' | 'none'; value: number; discountKind: 'percent' | 'amount'; freeDelivery: boolean }
-export type OfferDeal = { title: string; id: string; productId: string; productIds?: string[]; thumbnailProductIds?: string[]; sortOrder?: number; kind: 'special_price' | 'quantity_discount' | 'buy_multiple' | 'buy_x_get_y_free' | 'bundle' | 'free_delivery'; value: number; discountKind: 'percent' | 'amount'; quantity: number; freeQuantity: number; reward?: 'discount' | 'free_delivery' | 'both'; tiers?: OfferTier[]; active: boolean }
+export type OfferDeal = { title: string; id: string; productId: string; productIds?: string[]; thumbnailProductIds?: string[]; shareImage?: string; sortOrder?: number; kind: 'special_price' | 'quantity_discount' | 'buy_multiple' | 'buy_x_get_y_free' | 'bundle' | 'free_delivery'; value: number; discountKind: 'percent' | 'amount'; quantity: number; freeQuantity: number; reward?: 'discount' | 'free_delivery' | 'both'; tiers?: OfferTier[]; active: boolean }
 export type Coupon = { code: string; kind: 'percent' | 'amount'; value: number; active: boolean; minimum?: number }
 export type OrderStatus = 'Pending confirmation' | 'Confirmed' | 'Processing' | 'Shipped' | 'Delivered' | 'Cancelled'
 export type DeliveryZone = 'city' | 'sub_dhaka' | 'outside'
@@ -61,6 +61,7 @@ export type StoreContent = {
   offerTitle: string
   offerSubtitle: string
   offerImage: string
+  socialShareImage?: string
   announcement: string
   trendingIds: string[]
   offerIds: string[]

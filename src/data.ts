@@ -19,6 +19,7 @@ export const initialState: StoreState = {
     offerTitle: 'A little treat\nfor your cart.',
     offerSubtitle: 'Discover current offers across the AARO collection.',
     offerImage: 'https://images.unsplash.com/photo-1594633312681-425c7b97ccd1?auto=format&fit=crop&w=1200&q=84',
+    socialShareImage: '',
     announcement: 'Thoughtful finds for bright everyday living',
     trendingIds: [],
     offerIds: [],

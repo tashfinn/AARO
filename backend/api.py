@@ -195,6 +195,7 @@ class CouponValidationInput(BaseModel):
 
 class OfferInput(BaseModel):
     title: str = Field(default="", max_length=120)
+    shareImage: str = Field(default="", max_length=2048)
     id: str = Field(min_length=1, max_length=80)
     productId: str = Field(default="", max_length=120)
     productIds: list[str] = Field(default_factory=list)
@@ -1106,6 +1107,12 @@ def admin_storefront_settings(authorization: str | None = Header(default=None)):
     _admin_from_auth(authorization)
     settings = db().store_settings.find_one({"_id": "storefront"}) or {}
     return {key: settings[key] for key in ("content", "categoryGroups", "manualCategories", "manualCategoryVisibility") if key in settings}
+
+@app.get("/api/storefront-preview")
+def storefront_preview_settings():
+    settings = db().store_settings.find_one({"_id": "storefront"}, {"_id": 0, "content.socialShareImage": 1}) or {}
+    content = settings.get("content") if isinstance(settings.get("content"), dict) else {}
+    return {"socialShareImage": content.get("socialShareImage", "")}
 
 @app.patch("/api/admin/storefront")
 def update_admin_storefront(input: StorefrontSettingsInput, authorization: str | None = Header(default=None)):

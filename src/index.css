@@ -4063,57 +4063,64 @@ svg.availability-check-spinner,
 .hero-art.hero-catalog-loading::before { top: calc(50% - 54px); left: calc(50% - 26px); }
 @media (max-width: 600px) { .hero-art.hero-catalog-loading::after { font-size: clamp(20px, 6vw, 29px); } }
 
-/* Keep every carousel slide on the same frame; animate position only. */
+/* Keep the existing carousel layout, but animate card positions with transforms
+   so each frame does not trigger left/right layout recalculation. */
 .hero-art .hero-carousel-card {
   top: 50%;
-  left: 50%;
+  left: 12%;
   right: auto;
   width: 88%;
   height: 100%;
-  transition: left .72s cubic-bezier(.22,.72,.2,1), right .72s cubic-bezier(.22,.72,.2,1), transform .72s cubic-bezier(.22,.72,.2,1), opacity .3s ease, filter .3s ease;
+  transition: transform .72s cubic-bezier(.22,.72,.2,1), opacity .3s ease, visibility 0s linear .72s;
   will-change: transform, opacity;
+  backface-visibility: hidden;
 }
 .hero-art .hero-carousel-card.hero-carousel-image-0 {
   z-index: 5;
-  left: 50%;
+  left: 12%;
   right: auto;
   width: 88%;
   height: 100%;
-  transform: translate3d(-50%, -50%, 0) scale(1);
+  transform: translate3d(-6.818%, -50%, 0) scale(1);
+  transform-origin: center center;
   opacity: 1;
   filter: none;
+  visibility: visible;
+  transition-delay: 0s;
 }
 .hero-art .hero-carousel-card.hero-carousel-image-1 {
   z-index: 4;
-  left: auto;
-  right: 0;
+  left: 12%;
+  right: auto;
   width: 88%;
-  height: 88%;
-  transform: translateY(-50%) scale(.9);
-  transform-origin: right center;
+  height: 100%;
+  transform: translate3d(5%, -50%, 0) scale(.9, .792);
   opacity: .92;
   filter: saturate(.9) brightness(.88);
+  visibility: visible;
+  transition-delay: 0s;
   cursor: pointer;
 }
 .hero-art .hero-carousel-card.hero-carousel-image-2 {
   z-index: 4;
-  left: 0;
+  left: 12%;
   right: auto;
   width: 88%;
-  height: 88%;
-  transform: translateY(-50%) scale(.9);
-  transform-origin: left center;
+  height: 100%;
+  transform: translate3d(-18.636%, -50%, 0) scale(.9, .792);
   opacity: .92;
   filter: saturate(.9) brightness(.88);
+  visibility: visible;
+  transition-delay: 0s;
   cursor: pointer;
 }
 .hero-art .hero-carousel-card.hero-carousel-image-3 {
   z-index: 0;
-  left: 50%;
+  left: 12%;
   right: auto;
   width: 88%;
   height: 100%;
-  transform: translate3d(-50%, -50%, -120px) scale(.82);
+  transform: translate3d(-6.818%, -50%, -120px) scale(.82);
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
@@ -4140,10 +4147,15 @@ svg.availability-check-spinner,
   .hero-art .hero-carousel-card.hero-carousel-image-1,
   .hero-art .hero-carousel-card.hero-carousel-image-2,
   .hero-art .hero-carousel-card.hero-carousel-image-3 {
-    width: 92%;
+    left: 6%;
+    right: auto;
+    width: 94%;
+    height: 86%;
   }
-  .hero-art .hero-carousel-card.hero-carousel-image-1 { left: auto; right: 0; width: 94%; height: 86%; transform: translateY(-50%) scale(.92); transform-origin: right center; }
-  .hero-art .hero-carousel-card.hero-carousel-image-2 { left: 0; right: auto; width: 94%; height: 86%; transform: translateY(-50%) scale(.92); transform-origin: left center; }
+  .hero-art .hero-carousel-card.hero-carousel-image-0 { transform: translate3d(-2.128%, -50%, 0) scale(.97872, 1.16279); }
+  .hero-art .hero-carousel-card.hero-carousel-image-1 { left: 6%; right: auto; transform: translate3d(4%, -50%, 0) scale(.92); }
+  .hero-art .hero-carousel-card.hero-carousel-image-2 { left: 6%; right: auto; transform: translate3d(-10.383%, -50%, 0) scale(.92); }
+  .hero-art .hero-carousel-card.hero-carousel-image-3 { transform: translate3d(-2.128%, -50%, -120px) scale(.82); }
   .hero-art .hero-side-hit { width: 4%; min-width: 16px; }
 }
 .hero-art .hero-carousel-card,
