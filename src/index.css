@@ -3950,6 +3950,17 @@ input:focus, select:focus, textarea:focus { outline: none !important; box-shadow
   .hero-slide-cta { min-height: 42px; margin-top: 6px; padding-inline: 14px; gap: 9px; font-size: 14px; }
 }
 
+.offer-order-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.offer-order-actions .primary-button, .offer-order-actions .secondary-button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+.offer-order-move { min-width: 36px; min-height: 36px; font-size: 17px !important; font-weight: 700; }
+.offer-order-move:disabled { opacity: .38; cursor: not-allowed; }
+.offer-order-error { margin: 0 0 12px; padding: 10px 12px; border: 1px solid #d88c7d; border-radius: 8px; color: #9c3c2c; background: #fff3ef; }
+.theme-dark .offer-order-error { color: #ffb8a9; background: #351f1c; border-color: #78463e; }
+@media (max-width: 640px) {
+  .offer-list-panel > .panel-heading { align-items: flex-start; flex-direction: column; }
+  .offer-order-actions { justify-content: flex-start; width: 100%; }
+}
+
 /* Keep carousel controls anchored to the banner and rotate neighboring slides on a level axis. */
 .hero-art { position: relative; }
 .hero-art .hero-carousel-card { top: 50%; transition-property: left, right, transform, opacity, filter; transition-duration: .72s; transition-timing-function: cubic-bezier(.22,.72,.2,1); }

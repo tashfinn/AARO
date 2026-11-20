@@ -1714,15 +1714,55 @@ function AdminProducts({ products: allProducts, categoryGroups, loading, product
 }
 
 function AdminOffers({ state, products, apiBase, token, onNewCoupon, onNewOffer, onEditOffer, toggleCoupon, deleteCoupon, toggleOffer, deleteOffer, onEdit, updateState, notify }: { state: StoreState; products: Product[]; apiBase: string; token: string; onNewCoupon: () => void; onNewOffer: () => void; onEditOffer: (offer: OfferDeal) => void; toggleCoupon: (id: string) => void; deleteCoupon: (id: string) => void; toggleOffer: (id: string) => void; deleteOffer: (id: string) => void; onEdit: (product: Product) => void; updateState: (updater: (current: StoreState) => StoreState) => void; notify: (message: string) => void }) {
+  const [offerOrderIds, setOfferOrderIds] = useState(() => state.offers.map((offer) => offer.id))
+  const [savedOfferOrderIds, setSavedOfferOrderIds] = useState(() => state.offers.map((offer) => offer.id))
+  const [savingOfferOrder, setSavingOfferOrder] = useState(false)
+  const [offerOrderError, setOfferOrderError] = useState('')
+  const offerIdsSignature = state.offers.map((offer) => offer.id).join('|')
+  useEffect(() => {
+    const liveIds = state.offers.map((offer) => offer.id)
+    setOfferOrderIds((current) => [...current.filter((id) => liveIds.includes(id)), ...liveIds.filter((id) => !current.includes(id))])
+    setSavedOfferOrderIds((current) => [...current.filter((id) => liveIds.includes(id)), ...liveIds.filter((id) => !current.includes(id))])
+  }, [offerIdsSignature])
+  const offerOrderDirty = offerOrderIds.length !== savedOfferOrderIds.length || offerOrderIds.some((id, index) => id !== savedOfferOrderIds[index])
+  const orderedOffers = [...state.offers].sort((a, b) => {
+    const aRank = offerOrderIds.indexOf(a.id)
+    const bRank = offerOrderIds.indexOf(b.id)
+    return (aRank < 0 ? Number.MAX_SAFE_INTEGER : aRank) - (bRank < 0 ? Number.MAX_SAFE_INTEGER : bRank)
+  })
   const offerProducts = state.products.filter((product) => state.content.offerIds.includes(product.id) || product.offer)
   const productFor = (id: string) => products.find((product) => product.id === id)
-  const moveOffer = async (index: number, direction: -1 | 1) => {
-    const next = [...state.offers]; const target = index + direction
+  const moveOffer = (index: number, direction: -1 | 1) => {
+    const next = orderedOffers.map((offer) => offer.id); const target = index + direction
     if (target < 0 || target >= next.length) return
     ;[next[index], next[target]] = [next[target], next[index]]
-    const ranked = next.map((offer, rank) => ({ ...offer, sortOrder: rank }))
-    updateState((current) => ({ ...current, offers: ranked }))
-    if (apiBase && token) for (const offer of ranked) await fetch(`${apiBase}/api/admin/offers`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify(offer) })
+    setOfferOrderIds(next)
+    setOfferOrderError('')
+  }
+  const saveOfferOrder = async () => {
+    if (!offerOrderDirty || savingOfferOrder) return
+    const ranked = orderedOffers.map((offer, sortOrder) => ({ ...offer, sortOrder }))
+    setSavingOfferOrder(true)
+    setOfferOrderError('')
+    try {
+      if (apiBase && token) {
+        for (const offer of ranked) {
+          const response = await fetch(`${apiBase}/api/admin/offers`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify(offer) })
+          if (!response.ok) {
+            const result = await response.json().catch(() => ({}))
+            throw new Error(result.detail || 'Offer order could not be saved. Please try again.')
+          }
+        }
+      } else throw new Error('Offer order could not be saved because the admin service is unavailable.')
+      updateState((current) => ({ ...current, offers: ranked }))
+      setSavedOfferOrderIds(ranked.map((offer) => offer.id))
+      setOfferOrderIds(ranked.map((offer) => offer.id))
+      notify('Offer order saved.')
+    } catch (error) {
+      setOfferOrderError(error instanceof Error ? error.message : 'Offer order could not be saved. Please try again.')
+    } finally {
+      setSavingOfferOrder(false)
+    }
   }
   const offerLabel = (offer: OfferDeal) => {
     if (offer.kind === 'special_price') return `Special price ${money(offer.value)}`
@@ -1734,8 +1774,9 @@ function AdminOffers({ state, products, apiBase, token, onNewCoupon, onNewOffer,
   }
   return <>
     <div className="panel offers-feature"><div className="offers-feature-copy"><span className="section-kicker">CURRENT OFFER EDIT</span><h2>Offers customers can see.</h2><p>Create product deals customers can use automatically in their bag, or manage checkout coupons.</p><div className="offers-actions"><button className="primary-button" onClick={onNewOffer}><Plus size={17} /> Create offer</button><button className="secondary-button" onClick={onNewCoupon}><TicketPercent size={17} /> Create coupon</button></div></div><div className="offer-feature-art"><span>THE GOOD<br />DEAL EDIT</span><b>For a little<br />less.</b></div></div>
-    <section className="panel offer-list-panel"><div className="panel-heading"><div><h3>Product offers</h3><p>Deals are applied automatically to eligible items in the bag.</p></div></div>
-      {state.offers.length ? <div className="offer-product-list">{state.offers.map((offer, index) => { const product = productFor(offer.productId); const targetNames = [...new Set((offer.productIds?.length ? offer.productIds : offer.productId ? [offer.productId] : []).map((id) => productFor(id)?.title).filter((name): name is string => Boolean(name)))]; const productSummary = targetNames.length > 1 ? `${targetNames[0]} + ${targetNames.length - 1} more ${targetNames.length - 1 === 1 ? 'product' : 'products'}` : targetNames[0] || 'Selected products'; const description = offer.kind === 'free_delivery' ? offerLabel(offer) : `${productSummary} · ${offerLabel(offer)}`; return <div className="offer-product-row offer-deal-row" key={offer.id}>{product && <ImageView src={product.image} alt="" />}<span><b>{offer.title || product?.title || (offer.kind === 'free_delivery' ? 'Free delivery offer' : offer.kind === 'bundle' ? 'Product bundle' : 'Product offer')}</b><small>{description}</small></span><button aria-label={`Move ${offer.title} up`} title="Move offer up" disabled={index === 0} onClick={() => void moveOffer(index, -1)}>↑</button><button aria-label={`Move ${offer.title} down`} title="Move offer down" disabled={index === state.offers.length - 1} onClick={() => void moveOffer(index, 1)}>↓</button><button onClick={() => onEditOffer(offer)}><Pencil size={14} /> Edit</button><button onClick={() => toggleOffer(offer.id)}>{offer.active ? 'Active' : 'Paused'}</button><button onClick={() => deleteOffer(offer.id)}>Delete</button></div> })}</div> : <p className="empty-row">No offers yet. Create a product deal, bundle, or free-delivery offer.</p>}
+    <section className="panel offer-list-panel"><div className="panel-heading"><div><h3>Product offers</h3><p>Deals are applied automatically to eligible items in the bag. Move offers into the order you want, then save.</p></div><div className="offer-order-actions">{offerOrderDirty && <button type="button" className="secondary-button" onClick={() => { setOfferOrderIds(savedOfferOrderIds); setOfferOrderError('') }} disabled={savingOfferOrder}>Discard changes</button>}<button type="button" className="primary-button" onClick={() => void saveOfferOrder()} disabled={!offerOrderDirty || savingOfferOrder}>{savingOfferOrder && <LoaderCircle size={16} />}{savingOfferOrder ? 'Saving order…' : 'Save order'}</button></div></div>
+      {offerOrderError && <p className="offer-order-error" role="alert">{offerOrderError}</p>}
+      {orderedOffers.length ? <div className="offer-product-list">{orderedOffers.map((offer, index) => { const product = productFor(offer.productId); const targetNames = [...new Set((offer.productIds?.length ? offer.productIds : offer.productId ? [offer.productId] : []).map((id) => productFor(id)?.title).filter((name): name is string => Boolean(name)))]; const productSummary = targetNames.length > 1 ? `${targetNames[0]} + ${targetNames.length - 1} more ${targetNames.length - 1 === 1 ? 'product' : 'products'}` : targetNames[0] || 'Selected products'; const description = offer.kind === 'free_delivery' ? offerLabel(offer) : `${productSummary} · ${offerLabel(offer)}`; return <div className="offer-product-row offer-deal-row" key={offer.id}>{product && <ImageView src={product.image} alt="" />}<span><b>{offer.title || product?.title || (offer.kind === 'free_delivery' ? 'Free delivery offer' : offer.kind === 'bundle' ? 'Product bundle' : 'Product offer')}</b><small>{description}</small></span><button className="offer-order-move" aria-label={`Move ${offer.title} up`} title="Move offer up" disabled={index === 0 || savingOfferOrder} onClick={() => moveOffer(index, -1)}>↑</button><button className="offer-order-move" aria-label={`Move ${offer.title} down`} title="Move offer down" disabled={index === orderedOffers.length - 1 || savingOfferOrder} onClick={() => moveOffer(index, 1)}>↓</button><button onClick={() => onEditOffer(offer)}><Pencil size={14} /> Edit</button><button onClick={() => toggleOffer(offer.id)}>{offer.active ? 'Active' : 'Paused'}</button><button onClick={() => deleteOffer(offer.id)}>Delete</button></div> })}</div> : <p className="empty-row">No offers yet. Create a product deal, bundle, or free-delivery offer.</p>}
     </section>
     <section className="panel offer-list-panel"><div className="panel-heading"><div><h3>Featured offer products</h3><p>Products tagged for the storefront offer section</p></div></div>{offerProducts.length ? <div className="offer-product-list">{offerProducts.map((product) => <div className="offer-product-row" key={product.id}><ImageView src={product.image} alt="" /><span><b>{product.title}</b><small>{product.category} · {money(product.price)}{product.compareAt ? ` / ${money(product.compareAt)}` : ''}</small></span><button onClick={() => onEdit(product)}>Edit price</button><button onClick={() => { updateState((current) => ({ ...current, content: { ...current.content, offerIds: current.content.offerIds.filter((id) => id !== product.id) }, products: current.products.map((item) => item.id === product.id ? { ...item, offer: false } : item) })); notify('Removed from offer edit') }}>Remove</button></div>)}</div> : <p className="empty-row">No featured offers yet. Add a product offer or mark products for the offer section.</p>}</section>
     <section className="panel coupon-admin-panel"><div className="panel-heading"><div><h3>Coupon codes</h3><p>Discounts are checked against the bag subtotal.</p></div><button className="subtle-icon" onClick={onNewCoupon} aria-label="Add coupon"><Plus size={17} /></button></div><div className="coupon-admin-grid">{state.coupons.map((coupon) => <div className={`coupon-card ${coupon.active ? '' : 'inactive'}`} key={coupon.code}><div className="coupon-card-top"><span><TicketPercent size={16} /> DISCOUNT CODE</span><button onClick={() => toggleCoupon(coupon.code)}>{coupon.active ? 'Active' : 'Paused'} <ChevronDown size={13} /></button></div><strong>{coupon.code}</strong><p>{coupon.kind === 'percent' ? `${coupon.value}% off` : `${money(coupon.value)} off`} {coupon.minimum ? `on orders over ${money(coupon.minimum)}` : ''}</p><div className="coupon-card-actions"><button className="copy-code" onClick={() => { navigator.clipboard?.writeText(coupon.code); notify(`${coupon.code} copied`) }}><Copy size={14} /> Copy code</button><button className="delete-coupon" onClick={() => deleteCoupon(coupon.code)} aria-label={`Delete coupon ${coupon.code}`}><Trash2 size={15} /> Delete</button></div></div>)}</div>{!state.coupons.length && <p className="empty-row">Create your first coupon code.</p>}</section>
