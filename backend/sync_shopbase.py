@@ -17,6 +17,7 @@ DETAILS_VERSION=4
 DIGITS=str.maketrans("০১২৩৪৫৬৭৮৯٠١٢٣٤٥٦٧٨٩","01234567890123456789")
 class SyncError(RuntimeError): pass
 def now(): return datetime.now(timezone.utc).isoformat()
+def source_key(value): return str(value).strip() if value is not None else ""
 def number(s):
  s=re.sub(r"[^0-9]","",s.translate(DIGITS)); return int(s) if s else None
 def digest(*parts): return hashlib.sha256("\x1f".join(parts).encode()).hexdigest()
@@ -295,9 +296,12 @@ def run():
   report_progress(phase="updating_products",categoriesProcessed=len(cats),totalCategories=len(cats),productsDiscovered=products_discovered,totalProducts=products_discovered,productsProcessed=0,created=0,changed=0,unchanged=0,skippedDetails=0)
   previous_count=p.count_documents({"source":"shopbase"})
   if previous_count and len(listing)<int(previous_count*.7): raise SyncError("Catalog count dropped sharply; refusing a partial scan.")
-  old={x["sourceId"]:x for x in p.find({"source":"shopbase"},{"sourceId":1,"listFingerprint":1,"imageOverride":1,"sourceStatus":1,"sourceStockBeforeMissing":1,"stock":1,"active":1})}; batch=[]
+  # Product identity always comes from ShopBase's immutable product ID, never
+  # its editable title. Normalize legacy numeric IDs for lookup while keeping
+  # the original stored value in Mongo filters so it updates the same record.
+  old={source_key(x.get("sourceId")):x for x in p.find({"source":"shopbase"},{"sourceId":1,"listFingerprint":1,"imageOverride":1,"sourceStatus":1,"sourceStockBeforeMissing":1,"stock":1,"active":1}) if source_key(x.get("sourceId"))}; batch=[]
   for sid,row in listing.items():
-   prev=old.get(sid)
+   prev=old.get(source_key(sid))
    if prev:
     was_missing=prev.get("sourceStatus")=="missing"
     restored_stock=prev.get("sourceStockBeforeMissing",prev.get("stock",0)) if was_missing else prev.get("stock",0)
@@ -306,7 +310,7 @@ def run():
     if prev.get("listFingerprint")!=row["listFingerprint"]: values["updatedAt"]=now()
     if was_missing: values.update({"stock":restored_stock,"active":restored_active,"sourceStatus":"available" if restored_stock else "out_of_stock"})
     unset={"sourceStockBeforeMissing":"","sourceActiveBeforeMissing":""} if was_missing else {}
-    p.update_one({"sourceId":sid,"source":"shopbase"},{"$set":values,**({"$unset":unset} if unset else {})})
+    p.update_one({"sourceId":prev.get("sourceId",sid),"source":"shopbase"},{"$set":values,**({"$unset":unset} if unset else {})})
     if was_missing:
      override=db.admin_products.find_one({"id":f"shopbase-{sid}","syncMissing":True},{"_id":0})
      if override:
