@@ -199,6 +199,7 @@ class OfferInput(BaseModel):
     productId: str = Field(default="", max_length=120)
     productIds: list[str] = Field(default_factory=list)
     thumbnailProductIds: list[str] = Field(default_factory=list, max_length=3)
+    sortOrder: int = Field(default=0, ge=0)
     kind: str
     value: float = Field(default=0, ge=0)
     discountKind: str = "percent"
@@ -647,7 +648,7 @@ def create_order(input: OrderInput, authorization: str | None = Header(default=N
 
 @app.get("/api/offers")
 def public_offers():
-    return list(db().offers.find({"active": True}, {"_id": 0}))
+    return sorted(list(db().offers.find({"active": True}, {"_id": 0})), key=lambda offer: offer.get("sortOrder", 0))
 
 @app.get("/api/admin/offers")
 def list_offers(authorization: str | None = Header(default=None)):
@@ -1460,3 +1461,5 @@ def product_details(source_id: str):
         raise
     except Exception:
         raise HTTPException(status_code=503, detail="Could not load product details.")
+
+
