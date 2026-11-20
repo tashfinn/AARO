@@ -14,7 +14,7 @@ declare global {
   }
 }
 
-const pixelId = import.meta.env.VITE_META_PIXEL_ID?.trim()
+const pixelId = import.meta.env.VITE_META_PIXEL_ID?.trim() || '1141460151918641'
 let initialized = false
 
 export function initMetaPixel() {
