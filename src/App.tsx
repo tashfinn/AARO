@@ -114,7 +114,13 @@ function offerDealSummary(offer: OfferDeal, products: Product[] = []) {
   return offer.value > 0 ? `Free delivery on orders over ${money(offer.value)}` : 'Free delivery on your order'
 }
 function applySingleItemOfferPrice(product: Product, offers: OfferDeal[]) {
-  const prices = offers.filter((offer) => offer.active && offer.kind === 'buy_multiple' && (offer.productIds?.length ? offer.productIds : [offer.productId]).includes(product.id)).flatMap((offer) => (offer.tiers || []).filter((tier) => tier.quantity === 1).map((tier) => tier.mode === 'price' ? tier.value : tier.mode === 'discount' ? tier.discountKind === 'percent' ? product.price * (1 - tier.value / 100) : product.price - tier.value : product.price)).filter((price) => price > 0 && price < product.price)
+  const eligibleOffers = offers.filter((offer) => offer.active && (offer.productIds?.length ? offer.productIds : [offer.productId]).includes(product.id))
+  const prices = eligibleOffers.flatMap((offer) => {
+    if (offer.kind === 'special_price') return [offer.value]
+    if (offer.kind === 'quantity_discount' && offer.quantity === 1) return [offer.discountKind === 'percent' ? product.price * (1 - offer.value / 100) : product.price - offer.value]
+    if (offer.kind === 'buy_multiple') return (offer.tiers || []).filter((tier) => tier.quantity === 1).map((tier) => tier.mode === 'price' ? tier.value : tier.mode === 'discount' ? tier.discountKind === 'percent' ? product.price * (1 - tier.value / 100) : product.price - tier.value : product.price)
+    return []
+  }).filter((price) => Number.isFinite(price) && price > 0 && price < product.price)
   if (!prices.length) return product
   const originalPrice = product.originalPrice ?? product.compareAt ?? product.price
   const price = Math.min(...prices)
