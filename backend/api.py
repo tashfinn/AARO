@@ -20,7 +20,14 @@ from nacl import encoding, public
 from category_groups import category_group_payload
 
 app = FastAPI(title="AARO catalog API", version="0.1.0")
-origins = [x.strip() for x in os.getenv("FRONTEND_ORIGINS", "http://localhost:5173,http://localhost:4173").split(",") if x.strip()]
+origins = list(dict.fromkeys([
+    *(x.strip() for x in os.getenv("FRONTEND_ORIGINS", "").split(",") if x.strip()),
+    "http://localhost:5173",
+    "http://localhost:4173",
+    # Keep both active Vercel names usable during the domain migration/redirect.
+    "https://aarostore.vercel.app",
+    "https://aaro-store.vercel.app",
+]))
 app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=False, allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"], allow_headers=["*"])
 _client = None
 PASSWORD_ROUNDS = 310_000
