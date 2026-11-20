@@ -4062,6 +4062,71 @@ svg.availability-check-spinner,
 .hero-art.hero-catalog-loading::before { top: calc(50% - 54px); left: calc(50% - 26px); }
 @media (max-width: 600px) { .hero-art.hero-catalog-loading::after { font-size: clamp(20px, 6vw, 29px); } }
 
+/* Keep every carousel slide on the same frame; animate position only. */
+.hero-art .hero-carousel-card {
+  top: 50%;
+  left: 50%;
+  right: auto;
+  width: 88%;
+  height: 100%;
+  transition: transform .64s cubic-bezier(.22,.72,.2,1), opacity .3s ease, filter .3s ease;
+  will-change: transform, opacity;
+}
+.hero-art .hero-carousel-card.hero-carousel-image-0 {
+  z-index: 5;
+  left: 50%;
+  right: auto;
+  width: 88%;
+  height: 100%;
+  transform: translate3d(-50%, -50%, 0) scale(1);
+  opacity: 1;
+  filter: none;
+}
+.hero-art .hero-carousel-card.hero-carousel-image-1 {
+  z-index: 4;
+  left: 50%;
+  right: auto;
+  width: 88%;
+  height: 100%;
+  transform: translate3d(0, -50%, -72px) scale(.9);
+  opacity: .92;
+  filter: saturate(.9) brightness(.88);
+  cursor: pointer;
+}
+.hero-art .hero-carousel-card.hero-carousel-image-2 {
+  z-index: 4;
+  left: 50%;
+  right: auto;
+  width: 88%;
+  height: 100%;
+  transform: translate3d(-100%, -50%, -72px) scale(.9);
+  opacity: .92;
+  filter: saturate(.9) brightness(.88);
+  cursor: pointer;
+}
+.hero-art .hero-carousel-card.hero-carousel-image-3 {
+  z-index: 0;
+  left: 50%;
+  right: auto;
+  width: 88%;
+  height: 100%;
+  transform: translate3d(-50%, -50%, -120px) scale(.82);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+@media (max-width: 600px) {
+  .hero-art .hero-carousel-card,
+  .hero-art .hero-carousel-card.hero-carousel-image-0,
+  .hero-art .hero-carousel-card.hero-carousel-image-1,
+  .hero-art .hero-carousel-card.hero-carousel-image-2,
+  .hero-art .hero-carousel-card.hero-carousel-image-3 {
+    width: 92%;
+  }
+  .hero-art .hero-carousel-card.hero-carousel-image-1 { transform: translate3d(0, -50%, -45px) scale(.9); }
+  .hero-art .hero-carousel-card.hero-carousel-image-2 { transform: translate3d(-100%, -50%, -45px) scale(.9); }
+}
+
 /* Loading UI must keep moving for the full time its loading state is visible. */
 svg.lucide-loader-circle,
 svg.availability-check-spinner,
