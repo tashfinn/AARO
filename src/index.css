@@ -4070,50 +4070,50 @@ svg.availability-check-spinner,
   right: auto;
   width: 88%;
   height: 100%;
-  transition: left .72s cubic-bezier(.22,.72,.2,1), right .72s cubic-bezier(.22,.72,.2,1), transform .72s cubic-bezier(.22,.72,.2,1), opacity .3s ease, filter .3s ease;
+  transform-origin: center center;
+  transition: transform .68s cubic-bezier(.2,.72,.2,1), opacity .4s ease, visibility 0s linear .68s;
   will-change: transform, opacity;
+  backface-visibility: hidden;
 }
 .hero-art .hero-carousel-card.hero-carousel-image-0 {
   z-index: 5;
-  left: 50%;
-  right: auto;
   width: 88%;
   height: 100%;
   transform: translate3d(-50%, -50%, 0) scale(1);
   opacity: 1;
   filter: none;
+  visibility: visible;
+  transition-delay: 0s;
 }
 .hero-art .hero-carousel-card.hero-carousel-image-1 {
   z-index: 4;
-  left: auto;
-  right: 0;
   width: 88%;
-  height: 88%;
-  transform: translateY(-50%) scale(.9);
+  height: 100%;
+  transform: translate3d(86.36%, -50%, 0) scale(.9);
   transform-origin: right center;
   opacity: .92;
   filter: saturate(.9) brightness(.88);
+  visibility: visible;
+  transition-delay: 0s;
   cursor: pointer;
 }
 .hero-art .hero-carousel-card.hero-carousel-image-2 {
   z-index: 4;
-  left: 0;
-  right: auto;
   width: 88%;
-  height: 88%;
-  transform: translateY(-50%) scale(.9);
+  height: 100%;
+  transform: translate3d(-86.36%, -50%, 0) scale(.9);
   transform-origin: left center;
   opacity: .92;
   filter: saturate(.9) brightness(.88);
+  visibility: visible;
+  transition-delay: 0s;
   cursor: pointer;
 }
 .hero-art .hero-carousel-card.hero-carousel-image-3 {
   z-index: 0;
-  left: 50%;
-  right: auto;
   width: 88%;
   height: 100%;
-  transform: translate3d(-50%, -50%, -120px) scale(.82);
+  transform: translate3d(-50%, -50%, -80px) scale(.82);
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
@@ -4141,9 +4141,10 @@ svg.availability-check-spinner,
   .hero-art .hero-carousel-card.hero-carousel-image-2,
   .hero-art .hero-carousel-card.hero-carousel-image-3 {
     width: 92%;
+    height: 100%;
   }
-  .hero-art .hero-carousel-card.hero-carousel-image-1 { left: auto; right: 0; width: 94%; height: 86%; transform: translateY(-50%) scale(.92); transform-origin: right center; }
-  .hero-art .hero-carousel-card.hero-carousel-image-2 { left: 0; right: auto; width: 94%; height: 86%; transform: translateY(-50%) scale(.92); transform-origin: left center; }
+  .hero-art .hero-carousel-card.hero-carousel-image-1 { transform: translate3d(82.61%, -50%, 0) scale(.92); transform-origin: right center; }
+  .hero-art .hero-carousel-card.hero-carousel-image-2 { transform: translate3d(-82.61%, -50%, 0) scale(.92); transform-origin: left center; }
   .hero-art .hero-side-hit { width: 4%; min-width: 16px; }
 }
 .hero-art .hero-carousel-card,
