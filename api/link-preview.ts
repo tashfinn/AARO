@@ -79,6 +79,11 @@ async function apiJson<T>(base: string, path: string): Promise<T | null> {
   }
 }
 
+function fetchProductPreview(base: string, productId: string) {
+  const publicId = productId.replace(/^shopbase-/, '')
+  return apiJson<ShareProduct>(base, `/api/products/${encodeURIComponent(publicId)}`)
+}
+
 async function getMetadata(type: string, id: string, base: string): Promise<ShareMetadata | null> {
   if (type === 'product' && id) {
     const product = await apiJson<ShareProduct>(base, `/api/products/${encodeURIComponent(id)}`)
@@ -92,7 +97,7 @@ async function getMetadata(type: string, id: string, base: string): Promise<Shar
     const offer = type === 'offers' ? offers?.[0] : offers?.find((item) => item.id === id)
     if (!offer) return null
     const ids = offer.thumbnailProductIds?.length ? offer.thumbnailProductIds : (offer.productIds?.length ? offer.productIds : offer.productId ? [offer.productId] : [])
-    const previewProducts = await Promise.all(ids.slice(0, 3).map((productId) => apiJson<ShareProduct>(base, `/api/products/${encodeURIComponent(productId)}`)))
+    const previewProducts = await Promise.all(ids.slice(0, 3).map((productId) => fetchProductPreview(base, productId)))
     const imageProduct = previewProducts[Math.min(1, previewProducts.length - 1)] || previewProducts[0]
     const productNames = previewProducts.map((product) => product?.title).filter(Boolean).slice(0, 2).join(' and ')
     const description = [offerText(offer), productNames].filter(Boolean).join(' · ')
@@ -105,7 +110,7 @@ async function getMetadata(type: string, id: string, base: string): Promise<Shar
 function pageHtml(metadata: ShareMetadata, canonicalUrl: string) {
   const title = escapeHtml(metadata.title)
   const description = escapeHtml(metadata.description)
-  const image = escapeHtml(metadata.image)
+  const image = escapeHtml(absoluteImage(metadata.image, new URL(canonicalUrl).origin))
   const canonical = escapeHtml(canonicalUrl)
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><meta name="description" content="${description}"><link rel="canonical" href="${canonical}"><meta property="og:type" content="${metadata.type}"><meta property="og:site_name" content="AARO"><meta property="og:url" content="${canonical}"><meta property="og:title" content="${title}"><meta property="og:description" content="${description}"><meta property="og:image" content="${image}"><meta property="og:image:alt" content="${title}"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="${title}"><meta name="twitter:description" content="${description}"><meta name="twitter:image" content="${image}"></head><body><main><h1>${title}</h1><p>${description}</p><a href="${canonical}">Open this page at AARO</a></main></body></html>`
 }
