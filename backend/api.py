@@ -1081,6 +1081,24 @@ def _category_groups_for_store(store):
             merged.append(saved)
     saved_ids = {group["id"] for group in saved_groups}
     merged.extend(group for group in live_groups if group["id"] not in saved_ids)
+    # ShopBase can expose a duplicate subcategory ID with the same visible
+    # name. Keep the populated source category and drop an empty duplicate.
+    product_counts = {str(row["_id"]): row["count"] for row in store.products.aggregate([
+        {"$match": {"source": "shopbase", "categorySourceId": {"$exists": True, "$ne": None}}},
+        {"$group": {"_id": {"$toString": "$categorySourceId"}, "count": {"$sum": 1}}},
+    ])}
+    for group in merged:
+        children = group.get("children", [])
+        by_name = {}
+        for child in children:
+            key = re.sub(r"[\s\u00a0\-–—_.,:;|]+", "", str(child.get("name", "")).casefold())
+            by_name.setdefault(key, []).append(child)
+        drop_ids = set()
+        for duplicates in by_name.values():
+            populated = [item for item in duplicates if product_counts.get(str(item.get("sourceId", "")), 0) > 0]
+            if len(duplicates) > 1 and populated:
+                drop_ids.update(str(item.get("sourceId")) for item in duplicates if item not in populated)
+        group["children"] = [item for item in children if str(item.get("sourceId")) not in drop_ids]
     return merged, True
 
 @app.get("/api/admin/storefront")
