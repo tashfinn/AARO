@@ -3987,6 +3987,14 @@ input:focus, select:focus, textarea:focus { outline: none !important; box-shadow
 .offer-thumbnail-choice span { overflow: hidden; font-size: 12px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
 .offer-thumbnail-choice i { color: var(--text-secondary); font-size: 11px; font-style: normal; }
 .offer-thumbnail-choice.selected i { color: var(--accent-strong); font-weight: 750; }
+.offer-thumbnail-order { display: grid; gap: 7px; }
+.offer-thumbnail-order-item { display: grid; grid-template-columns: 26px 44px minmax(0,1fr) 34px 34px; align-items: center; gap: 9px; min-width: 0; padding: 6px 8px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); }
+.offer-thumbnail-order-item > img { width: 44px; height: 48px; object-fit: cover; border-radius: 6px; }
+.offer-thumbnail-order-item > span:nth-of-type(2) { overflow: hidden; color: var(--text-primary); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.offer-thumbnail-order-item > button { width: 32px; height: 32px; border: 1px solid var(--border); border-radius: 7px; color: var(--text-primary); background: var(--surface-raised); }
+.offer-thumbnail-order-item > button:disabled { opacity: .35; cursor: not-allowed; }
+.offer-thumbnail-position { display: grid; width: 24px; height: 24px; place-items: center; border-radius: 50%; color: var(--on-accent); background: var(--accent); font-size: 12px; font-weight: 800; }
+.offer-thumbnail-choice input[type=checkbox] { accent-color: var(--accent); }
 @media (max-width: 600px) { .hero.page-width > .hero-carousel-dots { gap: 6px; min-height: 28px; margin-top: 8px; padding: 6px 9px; } .hero.page-width > .hero-carousel-dots button { width: 7px; height: 7px; } .hero.page-width > .hero-carousel-dots button.active { width: 18px; } }
 
 /* Keep every in-progress action visibly moving across storefront and admin. */
