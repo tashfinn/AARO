@@ -1424,7 +1424,7 @@ export default function App() {
   return <>
     {admin ? <div className={`admin-shell ${darkTheme ? 'theme-dark' : ''}`}>
       <aside className={`admin-sidebar ${mobileMenu ? 'admin-sidebar-open' : ''}`}>
-        <div className="admin-brand"><button className="admin-brand-home" onClick={() => window.location.assign('/')} aria-label="Go to AARO storefront"><img className="brand-mark-image" src="/images/aaro-favicon.png" alt="" /><span>AARO</span></button><IconButton label="Close menu" className="mobile-only" onClick={() => setMobileMenu(false)}><X size={18} /></IconButton></div>
+        <div className="admin-brand"><button className="admin-brand-home" onClick={() => { setAdminTab('overview'); setMobileMenu(false); window.scrollTo({ top: 0, behavior: 'smooth' }) }} aria-label="Go to admin overview"><img className="brand-mark-image" src="/images/aaro-favicon.png" alt="" /><span>AARO</span></button><IconButton label="Close menu" className="mobile-only" onClick={() => setMobileMenu(false)}><X size={18} /></IconButton></div>
         <div className={`admin-store-control ${storeMenuOpen ? 'is-open' : ''}`}>
           <button type="button" className={`admin-store-pill ${storeIsLive ? 'is-live' : 'is-closed'}`} onClick={() => setStoreMenuOpen((open) => !open)} aria-expanded={storeMenuOpen} aria-haspopup="menu"><span className="store-live-dot" />{storeIsLive ? 'Live store' : 'Store closed'}<ChevronDown size={15} /></button>
           {storeMenuOpen && <div className="store-status-menu" role="menu"><button type="button" role="menuitem" onClick={() => { setStoreMenuOpen(false); void toggleStoreStatus() }} disabled={storeStatusBusy}>{storeStatusBusy ? 'Saving…' : storeIsLive ? 'Close store' : 'Open store'}</button></div>}

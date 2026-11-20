@@ -2905,6 +2905,7 @@ a:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
 .theme-dark .admin-topbar .eyebrow, .theme-dark .date-chip { color: var(--text-muted); }
 .theme-dark .admin-profile, .theme-dark .sidebar-bottom { border-color: var(--border); }
 .theme-dark .admin-store-pill { color: var(--text-primary); background: var(--surface-raised); border-color: var(--border-strong); }
+.theme-dark .admin-store-pill .store-live-dot { box-shadow: none; }
 .theme-dark .store-status-menu { color: var(--text-primary); background: var(--surface-raised); border-color: var(--border); }
 .theme-dark .store-status-menu button { color: var(--text-primary); }
 .theme-dark .store-status-menu button:hover { background: var(--surface-raised); }
