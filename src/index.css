@@ -3069,6 +3069,8 @@ a:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
 .theme-dark .category-menu-group-active .category-menu-parent,
 .theme-dark .category-dropdown button:hover,
 .theme-dark .category-menu-child:hover { color: var(--text-primary) !important; background: var(--surface-raised); }
+.theme-dark .category-menu-group { border-bottom-color: var(--border); }
+.theme-dark .category-menu-subcategories { border-left-color: var(--border); }
 .theme-dark .product-meta .price, .theme-dark .price,
 .theme-dark .detail-price, .theme-dark .text-link,
 .theme-dark .breadcrumb button { color: var(--accent); }
