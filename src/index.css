@@ -4153,6 +4153,8 @@ svg.availability-check-spinner,
 .hero-art .hero-carousel-card:not(.hero-carousel-image-0) {
   overflow: hidden;
   clip-path: inset(0 round 18px);
+  transform-style: flat;
+  border-radius: 18px !important;
 }
 @media (max-width: 600px) {
   .hero-art .hero-carousel-card,
