@@ -538,7 +538,19 @@ export default function App() {
 
   useEffect(() => {
     const localState = { ...state, products: state.products.filter((product) => product.source !== 'shopbase') }
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(localState))
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(localState))
+    } catch (error) {
+      // Browser storage is only a small cache; large imported catalogs and
+      // uploaded data URLs must not prevent the storefront from rendering.
+      if (!(error instanceof DOMException) || !['QuotaExceededError', 'NS_ERROR_DOM_QUOTA_REACHED'].includes(error.name)) return
+      try {
+        const compactState = { ...localState, products: localState.products.map((product) => ({ ...product, image: product.image.startsWith('data:') ? '' : product.image, images: product.images?.filter((image) => !image.startsWith('data:')) })) }
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(compactState))
+      } catch {
+        try { localStorage.removeItem(STORAGE_KEY) } catch { /* Storage is unavailable; live API data remains usable. */ }
+      }
+    }
   }, [state])
   useEffect(() => { localStorage.setItem(WISHLIST_KEY, JSON.stringify(wishlist)) }, [wishlist])
   useEffect(() => { localStorage.setItem(CART_KEY, JSON.stringify(cart)) }, [cart])
