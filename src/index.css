@@ -4089,7 +4089,9 @@ svg.availability-check-spinner,
   right: auto;
   width: 88%;
   height: 100%;
-  transform: translate3d(0, -50%, -72px) scale(.9);
+  /* Keep the far edge of the next card inside the carousel so its rounded
+     outer corners remain visible in the side peek. */
+  transform: translate3d(-28%, -50%, -72px) scale(.9);
   opacity: .92;
   filter: saturate(.9) brightness(.88);
   cursor: pointer;
@@ -4100,7 +4102,8 @@ svg.availability-check-spinner,
   right: auto;
   width: 88%;
   height: 100%;
-  transform: translate3d(-100%, -50%, -72px) scale(.9);
+  /* Keep the far edge of the previous card inside the carousel as well. */
+  transform: translate3d(-52%, -50%, -72px) scale(.9);
   opacity: .92;
   filter: saturate(.9) brightness(.88);
   cursor: pointer;
@@ -4140,8 +4143,8 @@ svg.availability-check-spinner,
   .hero-art .hero-carousel-card.hero-carousel-image-3 {
     width: 92%;
   }
-  .hero-art .hero-carousel-card.hero-carousel-image-1 { transform: translate3d(0, -50%, -45px) scale(.9); }
-  .hero-art .hero-carousel-card.hero-carousel-image-2 { transform: translate3d(-100%, -50%, -45px) scale(.9); }
+  .hero-art .hero-carousel-card.hero-carousel-image-1 { transform: translate3d(-31%, -50%, -45px) scale(.9); }
+  .hero-art .hero-carousel-card.hero-carousel-image-2 { transform: translate3d(-49%, -50%, -45px) scale(.9); }
   .hero-art .hero-side-hit { width: 4%; min-width: 16px; }
 }
 .hero-art .hero-carousel-card,
