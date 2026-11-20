@@ -1367,7 +1367,7 @@ export default function App() {
   const selectedOfferProducts = activeProducts.filter((product) => state.content.offerIds.includes(product.id) || product.offer || dealProductIds.has(product.id))
   const discountedProducts = activeProducts.filter((product) => salePercentOf(product) > 0)
   const homeOfferProducts = (selectedOfferProducts.length ? selectedOfferProducts : discountedProducts).slice(0, 4)
-  const activeProductOffers = state.offers.filter((offer) => offer.active)
+  const activeProductOffers = state.offers.filter((offer) => offer.active).sort((a, b) => (a.sortOrder ?? state.offers.indexOf(a)) - (b.sortOrder ?? state.offers.indexOf(b)))
   const formalOfferProductIds = new Set(activeProductOffers.flatMap((offer) => offer.kind === 'free_delivery' ? [] : offer.productIds?.length ? offer.productIds : offer.productId ? [offer.productId] : []))
   const offerCollections: { id: string; title: string; description: string; products: Product[]; previewProducts: Product[]; offer: OfferDeal | null; coupon: Coupon | null; storewide: boolean }[] = [
     ...activeProductOffers.map((offer) => {

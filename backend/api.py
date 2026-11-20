@@ -653,7 +653,7 @@ def public_offers():
 @app.get("/api/admin/offers")
 def list_offers(authorization: str | None = Header(default=None)):
     _admin_from_auth(authorization)
-    return list(db().offers.find({}, {"_id": 0}))
+    return sorted(list(db().offers.find({}, {"_id": 0})), key=lambda offer: offer.get("sortOrder", 0))
 
 @app.post("/api/admin/offers")
 def save_offer(input: OfferInput, authorization: str | None = Header(default=None)):
