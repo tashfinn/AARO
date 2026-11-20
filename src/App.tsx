@@ -8,6 +8,7 @@ import {
   Truck, Upload, UsersRound, X, Moon, Sun, LogOut, Mail
 } from 'lucide-react'
 import { initialState } from './data'
+import { initMetaPixel, trackMetaEvent } from './metaPixel'
 import { manualCategoryGroups } from './data/category-groups'
 import type { CategoryGroup, Coupon, DeliveryZone, OfferDeal, OfferTier, Order, OrderStatus, Product, StoreContent, StoreState } from './types'
 import locationData from './data/bangladesh-locations.json'
@@ -777,6 +778,35 @@ export default function App() {
     return () => { current = false }
   }, [productRouteId])
   useEffect(() => {
+    if (admin || authRoute || window.location.pathname.startsWith('/admin')) return
+    initMetaPixel()
+    trackMetaEvent('PageView')
+  }, [admin, authRoute, page, category, submittedQuery, productRouteId, checkout, selectedOfferId])
+  useEffect(() => {
+    if (!selectedProduct || !productRouteId || admin) return
+    trackMetaEvent('ViewContent', {
+      content_ids: [selectedProduct.sourceId || selectedProduct.id],
+      content_type: 'product',
+      content_name: selectedProduct.title,
+      value: selectedProduct.price,
+      currency: 'BDT',
+    })
+  }, [selectedProduct?.id, productRouteId, admin])
+  useEffect(() => {
+    if (!submittedQuery.trim() || admin) return
+    trackMetaEvent('Search', { search_string: submittedQuery.trim() })
+  }, [submittedQuery, admin])
+  useEffect(() => {
+    if (!checkout || admin) return
+    trackMetaEvent('InitiateCheckout', {
+      content_ids: cartItems.map((line) => line.product.sourceId || line.product.id),
+      content_type: 'product',
+      num_items: cartItems.reduce((total, line) => total + line.quantity, 0),
+      value: subtotal,
+      currency: 'BDT',
+    })
+  }, [checkout, admin])
+  useEffect(() => {
     if (!selectedProduct || !API_BASE) return
     let current = true
     fetch(`${API_BASE}/api/products/${encodeURIComponent(selectedProduct.id)}/view`, { method: 'POST', keepalive: true })
@@ -992,6 +1022,14 @@ export default function App() {
     setSubmittedQuery(query.trim()); setPage('shop'); setCategory('All'); setShowSearch(false); window.scrollTo({ top: 0, behavior: 'smooth' })
   }
   function addToCart(product: Product, quantity = 1, size = '', options: Record<string, string> = {}) {
+    trackMetaEvent('AddToCart', {
+      content_ids: [product.sourceId || product.id],
+      content_type: 'product',
+      content_name: product.title,
+      num_items: quantity,
+      value: product.price * quantity,
+      currency: 'BDT',
+    })
     setCart((current) => {
       const nextLine: CartLine = { productId: product.id, quantity, productSnapshot: cartProductSnapshot(product), ...(size ? { size } : {}), ...(Object.keys(options).length ? { options } : {}) }
       const nextKey = cartLineKey(nextLine)
@@ -1069,6 +1107,13 @@ export default function App() {
       if (typeof result.id === 'string') orderNumber = result.id
       updateState((current) => ({ ...current, orders: [result as Order, ...current.orders] }))
     } catch (cause) { notify(cause instanceof Error ? cause.message : 'Could not save your order. Please try again.'); return }
+    trackMetaEvent('Purchase', {
+      content_ids: cartItems.map((line) => line.product.sourceId || line.product.id),
+      content_type: 'product',
+      num_items: cartItems.reduce((total, line) => total + line.quantity, 0),
+      value: newOrder.total,
+      currency: 'BDT',
+    })
     history.replaceState({}, '', '/')
     setCart([]); setCoupon(null); setCouponInput(''); setCheckout(false); setCartOpen(false); setSelectedDistrict(''); setSelectedThana(''); notify(`Order ${orderNumber} received.`)
   }
