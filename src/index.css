@@ -4061,3 +4061,20 @@ svg.availability-check-spinner,
 .hero-art.hero-catalog-loading::after { content: 'Loading featured offers'; inset: auto; top: 50%; left: 50%; z-index: 10; width: max-content; max-width: 90%; height: auto; padding: 0; transform: translate(-50%, 26px); color: rgba(255,255,255,.94); font-size: clamp(24px, 3vw, 40px); background: none; animation: none; }
 .hero-art.hero-catalog-loading::before { top: calc(50% - 54px); left: calc(50% - 26px); }
 @media (max-width: 600px) { .hero-art.hero-catalog-loading::after { font-size: clamp(20px, 6vw, 29px); } }
+
+/* Loading UI must keep moving for the full time its loading state is visible. */
+svg.lucide-loader-circle,
+svg.availability-check-spinner,
+.loading-orbit,
+.catalog-spinner,
+.category-loading-card,
+.product-loading-card,
+.offer-collection-skeleton-art,
+.offer-collection-skeleton-copy > *,
+.admin-product-loading-row > *,
+.hero-photo-loader,
+.hero-art.hero-catalog-loading::before,
+.hero-art.hero-catalog-loading::after {
+  animation-iteration-count: infinite !important;
+  animation-play-state: running !important;
+}
