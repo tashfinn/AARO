@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 from fastapi import FastAPI, HTTPException, Header
+from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from pymongo import MongoClient, UpdateOne
@@ -195,7 +196,7 @@ class CouponValidationInput(BaseModel):
 
 class OfferInput(BaseModel):
     title: str = Field(default="", max_length=120)
-    shareImage: str = Field(default="", max_length=2048)
+    shareImage: str = Field(default="", max_length=8_000_000)
     id: str = Field(min_length=1, max_length=80)
     productId: str = Field(default="", max_length=120)
     productIds: list[str] = Field(default_factory=list)
@@ -1113,6 +1114,26 @@ def storefront_preview_settings():
     settings = db().store_settings.find_one({"_id": "storefront"}, {"_id": 0, "content.socialShareImage": 1}) or {}
     content = settings.get("content") if isinstance(settings.get("content"), dict) else {}
     return {"socialShareImage": content.get("socialShareImage", "")}
+
+@app.get("/api/share-thumbnail/{kind}/{resource_id}")
+def share_thumbnail(kind: str, resource_id: str):
+    if kind == "home":
+        settings = db().store_settings.find_one({"_id": "storefront"}, {"_id": 0, "content.socialShareImage": 1}) or {}
+        content = settings.get("content") if isinstance(settings.get("content"), dict) else {}
+        value = content.get("socialShareImage", "")
+    elif kind == "offer":
+        offer = db().offers.find_one({"id": resource_id, "active": True}, {"_id": 0, "shareImage": 1}) or {}
+        value = offer.get("shareImage", "")
+    else:
+        raise HTTPException(status_code=404, detail="Thumbnail not found.")
+    match = re.fullmatch(r"data:(image/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)", value if isinstance(value, str) else "")
+    if not match:
+        raise HTTPException(status_code=404, detail="Thumbnail not found.")
+    try:
+        image = base64.b64decode(match.group(2), validate=True)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Thumbnail not found.")
+    return Response(image, media_type=match.group(1), headers={"Cache-Control": "public, max-age=300"})
 
 @app.patch("/api/admin/storefront")
 def update_admin_storefront(input: StorefrontSettingsInput, authorization: str | None = Header(default=None)):

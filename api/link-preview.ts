@@ -131,6 +131,12 @@ export async function GET(request: Request) {
   } catch { /* Keep the share URL on this site's origin. */ }
   const pageMetadata = { ...(metadata || defaultMetadata) }
   if (previewSettings?.socialShareImage?.trim() && !pageMetadata.imageOverride) pageMetadata.image = previewSettings.socialShareImage.trim()
+  if (pageMetadata.image.startsWith('data:image/') && apiBase) {
+    const thumbnailPath = type === 'offer' && pageMetadata.imageOverride
+      ? `/api/share-thumbnail/offer/${encodeURIComponent(url.searchParams.get('id') || '')}`
+      : '/api/share-thumbnail/home/home'
+    pageMetadata.image = new URL(thumbnailPath, `${apiBase}/`).href
+  }
   const response = new Response(pageHtml(pageMetadata, canonicalUrl.href), {
     headers: {
       'content-type': 'text/html; charset=utf-8',
