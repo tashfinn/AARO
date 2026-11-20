@@ -1,5 +1,26 @@
 {
+  "$schema": "https://openapi.vercel.sh/vercel.json",
   "rewrites": [
+    {
+      "source": "/product/:slug/:id",
+      "has": [{ "type": "header", "key": "user-agent", "value": { "re": "(?i)(facebookexternalhit|facebot|twitterbot|slackbot|discordbot|whatsapp|telegrambot|linkedinbot|pinterest)" } }],
+      "destination": "/api/link-preview?type=product&slug=:slug&id=:id&canonicalPath=/product/:slug/:id"
+    },
+    {
+      "source": "/offers/:offerId",
+      "has": [{ "type": "header", "key": "user-agent", "value": { "re": "(?i)(facebookexternalhit|facebot|twitterbot|slackbot|discordbot|whatsapp|telegrambot|linkedinbot|pinterest)" } }],
+      "destination": "/api/link-preview?type=offer&id=:offerId&canonicalPath=/offers/:offerId"
+    },
+    {
+      "source": "/offers",
+      "has": [{ "type": "header", "key": "user-agent", "value": { "re": "(?i)(facebookexternalhit|facebot|twitterbot|slackbot|discordbot|whatsapp|telegrambot|linkedinbot|pinterest)" } }],
+      "destination": "/api/link-preview?type=offers&canonicalPath=/offers"
+    },
+    {
+      "source": "/category/:parent/:child/:slug/:id",
+      "has": [{ "type": "header", "key": "user-agent", "value": { "re": "(?i)(facebookexternalhit|facebot|twitterbot|slackbot|discordbot|whatsapp|telegrambot|linkedinbot|pinterest)" } }],
+      "destination": "/api/link-preview?type=product&id=:id&canonicalPath=/category/:parent/:child/:slug/:id"
+    },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
