@@ -4143,6 +4143,20 @@ svg.availability-check-spinner,
   .hero-art .hero-carousel-card.hero-carousel-image-2 { transform: translate3d(-100%, -50%, -45px) scale(.9); }
   .hero-art .hero-side-hit { width: 4%; min-width: 16px; }
 }
+.hero-art .hero-carousel-card,
+.hero-art .hero-carousel-card .hero-photo-frame,
+.hero-art .hero-carousel-card picture,
+.hero-art .hero-carousel-card .hero-carousel-photo {
+  border-radius: 18px;
+}
+@media (max-width: 600px) {
+  .hero-art .hero-carousel-card,
+  .hero-art .hero-carousel-card .hero-photo-frame,
+  .hero-art .hero-carousel-card picture,
+  .hero-art .hero-carousel-card .hero-carousel-photo {
+    border-radius: 14px;
+  }
+}
 
 /* Loading UI must keep moving for the full time its loading state is visible. */
 svg.lucide-loader-circle,
