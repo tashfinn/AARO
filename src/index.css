@@ -3979,3 +3979,6 @@ input:focus, select:focus, textarea:focus { outline: none !important; box-shadow
 .hero-slide-order > button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
 .hero-slide-order > button:disabled { opacity: .4; cursor: not-allowed; }
 @media (max-width: 600px) { .hero-slide-order { flex-wrap: wrap; justify-content: flex-end; } }
+
+.hero-art.hero-catalog-loading::after { content: 'Loading featured collections'; position: absolute; inset: 0; z-index: 7; display: grid; place-items: center; color: rgba(255,255,255,.9); font-size: 15px; font-weight: 650; letter-spacing: .03em; background: linear-gradient(110deg,#17231e 20%,#26372d 38%,#17231e 58%); background-size: 220% 100%; animation: hero-skeleton-shimmer 1.5s ease-in-out infinite; }
+.hero-art.hero-catalog-loading .hero-carousel-track, .hero-art.hero-catalog-loading .hero-carousel-dots { visibility: hidden; }
