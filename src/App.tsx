@@ -77,7 +77,9 @@ function consumeOfferUnits(lines: { quantity: number; product: Product }[], unit
   return retail
 }
 function offerTierSavings(offer: OfferDeal, lines: { quantity: number; product: Product }[]) {
-  const candidates = lines.map(({ quantity, product }) => ({ quantity, price: product.price }))
+  // Tier savings are calculated against the undiscounted unit price. Cart
+  // products may already carry the one-item tier price for display.
+  const candidates = lines.map(({ quantity, product }) => ({ quantity, price: regularProductPrice(product) }))
   const totalQuantity = candidates.reduce((sum, line) => sum + line.quantity, 0)
   let savings = 0
   for (const { tier, groups } of offerTierAllocations(offer, totalQuantity)) {
@@ -923,7 +925,10 @@ export default function App() {
     })
     return [...productsById.values()].filter((product) => `${product.title} ${product.category} ${product.description}`.toLowerCase().includes(needle)).slice(0, 5)
   }, [activeProducts, query, state.offers, state.products])
-  const cartItems = useMemo(() => cart.map((line) => ({ ...line, product: activeProducts.find((item) => item.id === line.productId) || line.productSnapshot })).filter((line): line is CartLine & { product: Product } => Boolean(line.product)), [activeProducts, cart])
+  const cartItems = useMemo(() => cart.map((line) => {
+    const product = activeProducts.find((item) => item.id === line.productId) || line.productSnapshot
+    return { ...line, product: product ? applySingleItemOfferPrice(product, state.offers) : undefined }
+  }).filter((line): line is CartLine & { product: Product } => Boolean(line.product)), [activeProducts, cart, state.offers])
   const singleItemOfferSavings = (line: CartLine & { product: Product }) => {
     const offers = state.offers.filter((offer) => offer.active && (offer.productIds?.length ? offer.productIds : [offer.productId]).includes(line.productId))
     const hasSingleItemOffer = offers.some((offer) => offer.kind === 'special_price' || offer.kind === 'percentage_each' || offer.kind === 'quantity_discount' && offer.quantity === 1 || offer.kind === 'buy_multiple' && offer.tiers?.some((tier) => tier.quantity === 1))
@@ -936,8 +941,8 @@ export default function App() {
     const eligibleLines = cartItems.filter((line) => targetIds.includes(line.productId))
     const quantity = eligibleLines.reduce((total, line) => total + line.quantity, 0)
     if (!quantity) return sum
-    if (offer.kind === 'special_price' || offer.kind === 'percentage_each' || offer.kind === 'quantity_discount' && offer.quantity === 1 || offer.kind === 'buy_multiple' && offer.tiers?.some((tier) => tier.quantity === 1)) return sum + eligibleLines.reduce((saving, line) => saving + singleItemOfferSavings(line), 0)
     if (offer.kind === 'buy_multiple' && offer.tiers?.length) return sum + offerTierSavings(offer, eligibleLines)
+    if (offer.kind === 'special_price' || offer.kind === 'percentage_each' || offer.kind === 'quantity_discount' && offer.quantity === 1) return sum + eligibleLines.reduce((saving, line) => saving + singleItemOfferSavings(line), 0)
     if (offer.kind === 'quantity_discount' || offer.kind === 'buy_multiple') {
       const groups = Math.floor(quantity / Math.max(1, offer.quantity))
       const eligibleQuantity = groups * Math.max(1, offer.quantity)
@@ -1619,7 +1624,7 @@ function CartDrawer({ cartItems, subtotal, delivery, subDhakaDelivery, outsideDe
       <div className="drawer-head"><div><span className="section-kicker">AARO / YOUR BAG</span><h2>Your bag ({cartItems.reduce((sum, line) => sum + line.quantity, 0)})</h2></div><IconButton label="Close bag" onClick={() => requestClose()}><X size={20} /></IconButton></div>
       {cartItems.length ? <>
         <div className="free-delivery"><span><Truck size={16} /><span className="delivery-zones">Dhaka {money(delivery)} · Sub-Dhaka {money(subDhakaDelivery)} · Outside Dhaka {money(outsideDelivery)}</span></span><small>Choose the correct delivery zone at checkout.</small></div>
-        <div className="cart-lines">{cartItems.map((line) => { const { product, quantity, size, options } = line; const sizeOption=product.options?.find((option)=>/^size$/i.test(option.name)); const availableSizes=product.sizes?.length?product.sizes:sizeOption?.values||[]; return <div className="cart-line" key={cartLineKey(line)}><ImageView src={product.image} alt={product.title} /><div className="cart-line-copy"><span>{product.category}</span><b>{product.title}</b>{availableSizes.length ? <label className="cart-size-select">Size<select value={size || ''} onChange={(event) => onSize(line, event.target.value)}><option value="">Choose size</option>{availableSizes.map((option) => <option key={option} value={option}>{option}</option>)}</select></label> : null}{(product.options || []).filter((option) => !/^size$/i.test(option.name)).map((option) => <label className="cart-size-select" key={option.name}>{option.name}<select value={options?.[option.name] || ''} onChange={(event) => onOption(line, option.name, event.target.value)}><option value="">Choose {option.name.toLowerCase()}</option>{option.values.map((value) => <option key={value} value={value}>{value}</option>)}</select></label>)}<strong>{money(product.price)}</strong><div className="quantity-control"><button aria-label="Decrease quantity" onClick={() => onQuantity(line, quantity - 1)}><Minus size={13} /></button><span>{quantity}</span><button aria-label="Increase quantity" onClick={() => onQuantity(line, quantity + 1)}><Plus size={13} /></button></div></div><button className="remove-line" onClick={() => onQuantity(line, 0)} aria-label={`Remove ${product.title}`}><X size={16} /></button></div> })}</div>
+        <div className="cart-lines">{cartItems.map((line) => { const { product, quantity, size, options } = line; const sizeOption=product.options?.find((option)=>/^size$/i.test(option.name)); const availableSizes=product.sizes?.length?product.sizes:sizeOption?.values||[]; return <div className="cart-line" key={cartLineKey(line)}><ImageView src={product.image} alt={product.title} /><div className="cart-line-copy"><span>{product.category}</span><b>{product.title}</b>{availableSizes.length ? <label className="cart-size-select">Size<select value={size || ''} onChange={(event) => onSize(line, event.target.value)}><option value="">Choose size</option>{availableSizes.map((option) => <option key={option} value={option}>{option}</option>)}</select></label> : null}{(product.options || []).filter((option) => !/^size$/i.test(option.name)).map((option) => <label className="cart-size-select" key={option.name}>{option.name}<select value={options?.[option.name] || ''} onChange={(event) => onOption(line, option.name, event.target.value)}><option value="">Choose {option.name.toLowerCase()}</option>{option.values.map((value) => <option key={value} value={value}>{value}</option>)}</select></label>)}<strong>{money(product.price)}{product.compareAt && product.compareAt > product.price && <del>{money(product.compareAt)}</del>}</strong><div className="quantity-control"><button aria-label="Decrease quantity" onClick={() => onQuantity(line, quantity - 1)}><Minus size={13} /></button><span>{quantity}</span><button aria-label="Increase quantity" onClick={() => onQuantity(line, quantity + 1)}><Plus size={13} /></button></div></div><button className="remove-line" onClick={() => onQuantity(line, 0)} aria-label={`Remove ${product.title}`}><X size={16} /></button></div> })}</div>
         <div className="coupon-row"><TicketPercent size={17} /><input value={couponInput} onChange={(event) => setCouponInput(event.target.value.toUpperCase())} placeholder="Coupon code" /><button onClick={applyCoupon}>{coupon ? 'Applied' : 'Apply'}</button></div>
         {coupon && <div className="coupon-applied"><CheckCircle2 size={14} /> {coupon.code} is on this order <button onClick={() => { setCouponInput(''); clearCoupon() }}>Remove</button></div>}
         {cartItems.some(({ product, ...line }) => !hasRequiredProductChoices(product, line)) && <p className="cart-choice-alert" role="status">Choose a size and any required options for each item before checkout.</p>}

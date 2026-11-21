@@ -4232,7 +4232,13 @@ svg.availability-check-spinner,
 }
 
 /* Make the active product selling price easy to see. */
-.storefront .detail-price { gap: 12px; font-size: clamp(30px, 3vw, 40px); line-height: 1.15; flex-wrap: wrap; }
-.storefront .detail-price del { font-size: 20px; }
-.storefront .detail-price small { padding: 5px 8px; font-size: 11px; }
-@media (max-width: 600px) { .storefront .detail-price { font-size: 32px; } .storefront .detail-price del { font-size: 18px; } }
+.product-page .detail-copy .detail-price { gap: 12px; margin-top: 20px; font-size: clamp(36px, 3.6vw, 46px); font-weight: 800; line-height: 1.1; flex-wrap: wrap; }
+.product-page .detail-copy .detail-price del { font-size: 23px; }
+.product-page .detail-copy .detail-price small { padding: 6px 10px; font-size: 13px; }
+.cart-line-copy > strong { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; font-size: 16px; }
+.cart-line-copy > strong del { color: var(--text-secondary); font-size: 13px; font-weight: 400; }
+@media (max-width: 600px) {
+  .product-page .detail-copy .detail-price { gap: 9px; font-size: 36px; }
+  .product-page .detail-copy .detail-price del { font-size: 20px; }
+  .product-page .detail-copy .detail-price small { font-size: 12px; }
+}
