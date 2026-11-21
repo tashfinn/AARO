@@ -652,7 +652,11 @@ def create_order(input: OrderInput, authorization: str | None = Header(default=N
 
 @app.get("/api/offers")
 def public_offers():
-    return sorted(list(db().offers.find({"active": True}, {"_id": 0})), key=lambda offer: offer.get("sortOrder", 0))
+    # Share images are stored as base64 on the offer document. They are only
+    # needed by the dedicated link-preview endpoint; including them here makes
+    # every storefront visit download hundreds of KB of unrelated media.
+    offers = db().offers.find({"active": True}, {"_id": 0, "shareImage": 0})
+    return sorted(list(offers), key=lambda offer: offer.get("sortOrder", 0))
 
 @app.get("/api/admin/offers")
 def list_offers(authorization: str | None = Header(default=None)):
@@ -1057,7 +1061,7 @@ def _shopbase_effective_price(source: dict[str, Any] | None, override: dict[str,
     return discounted if discounted is not None and 0 <= discounted < original else original
 
 def _category_groups_for_store(store):
-    settings = store.store_settings.find_one({"_id": "storefront"}) or {}
+    settings = store.store_settings.find_one({"_id": "storefront"}, {"_id": 0, "categoryGroups": 1}) or {}
     categories = list(store.categories.find({"source": "shopbase", "type": {"$ne": "parent"}}, {"_id": 0, "sourceId": 1, "name": 1, "parentId": 1, "parentName": 1, "sortOrder": 1, "sourceOrder": 1}))
     if categories and all(item.get("sourceOrder") is not None for item in categories):
         categories.sort(key=lambda item: item["sourceOrder"])
@@ -1119,10 +1123,71 @@ def storefront_preview_settings():
 
 @app.get("/api/storefront-hero")
 def storefront_hero(response: Response):
-    settings = db().store_settings.find_one({"_id": "storefront"}, {"_id": 0, "content.heroSlides": 1}) or {}
+    # Project metadata in Mongo so inline banner images never travel in this
+    # JSON response. Each image is fetched separately and browser-cacheable.
+    settings = next(iter(db().store_settings.aggregate([
+        {"$match": {"_id": "storefront"}},
+        {"$project": {
+            "_id": 0,
+            "updatedAt": 1,
+            "heroSlides": {"$map": {
+                "input": {"$ifNull": ["$content.heroSlides", []]},
+                "as": "slide",
+                "in": {
+                    "title": "$$slide.title",
+                    "description": "$$slide.description",
+                    "cta": "$$slide.cta",
+                    "link": "$$slide.link",
+                    "image": {"$cond": [
+                        {"$regexMatch": {"input": {"$convert": {"input": "$$slide.image", "to": "string", "onNull": ""}}, "regex": "^data:image/"}},
+                        None,
+                        "$$slide.image",
+                    ]},
+                    "imageIsInline": {"$regexMatch": {"input": {"$convert": {"input": "$$slide.image", "to": "string", "onNull": ""}}, "regex": "^data:image/"}},
+                    "mobileImage": {"$cond": [
+                        {"$regexMatch": {"input": {"$convert": {"input": "$$slide.mobileImage", "to": "string", "onNull": ""}}, "regex": "^data:image/"}},
+                        None,
+                        {"$ifNull": ["$$slide.mobileImage", ""]},
+                    ]},
+                    "mobileImageIsInline": {"$regexMatch": {"input": {"$convert": {"input": "$$slide.mobileImage", "to": "string", "onNull": ""}}, "regex": "^data:image/"}},
+                },
+            }},
+        }},
+    ])), {})
+    slides = settings.get("heroSlides", []) if isinstance(settings, dict) else []
+    version = str(settings.get("updatedAt") or "0") if isinstance(settings, dict) else "0"
+    for index, slide in enumerate(slides):
+        if not isinstance(slide, dict):
+            continue
+        if slide.pop("imageIsInline", False):
+            slide["image"] = f"/api/storefront-hero-image/{index}?variant=desktop&v={version}"
+        if slide.pop("mobileImageIsInline", False):
+            slide["mobileImage"] = f"/api/storefront-hero-image/{index}?variant=mobile&v={version}"
+    response.headers["Cache-Control"] = "public, max-age=60, stale-while-revalidate=300"
+    return {"heroSlides": slides}
+
+@app.get("/api/storefront-hero-image/{index}")
+def storefront_hero_image(index: int, variant: Literal["desktop", "mobile"] = "desktop"):
+    if index < 0 or index >= 100:
+        raise HTTPException(status_code=404, detail="Banner image not found.")
+    settings = db().store_settings.find_one(
+        {"_id": "storefront"},
+        {"_id": 0, "content.heroSlides": {"$slice": [index, 1]}, "updatedAt": 1},
+    ) or {}
     content = settings.get("content") if isinstance(settings.get("content"), dict) else {}
-    response.headers["Cache-Control"] = "public, max-age=15, stale-while-revalidate=60"
-    return {"heroSlides": content.get("heroSlides", [])}
+    slides = content.get("heroSlides") if isinstance(content.get("heroSlides"), list) else []
+    if not slides or not isinstance(slides[0], dict):
+        raise HTTPException(status_code=404, detail="Banner image not found.")
+    value = slides[0].get("mobileImage" if variant == "mobile" else "image", "")
+    match = re.fullmatch(r"data:(image/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)", value if isinstance(value, str) else "")
+    if not match:
+        raise HTTPException(status_code=404, detail="Banner image not found.")
+    try:
+        image = base64.b64decode(match.group(2), validate=True)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Banner image not found.")
+    etag = hashlib.sha256(image).hexdigest()
+    return Response(image, media_type=match.group(1), headers={"Cache-Control": "public, max-age=3600, stale-while-revalidate=86400", "ETag": f'"{etag}"'})
 
 @app.get("/api/share-thumbnail/{kind}/{resource_id}")
 def share_thumbnail(kind: str, resource_id: str):
@@ -1465,7 +1530,27 @@ def catalog(response: Response):
         if categories and all(item.get("sourceOrder") is not None for item in categories):
             categories.sort(key=lambda item: item["sourceOrder"])
         groups, _ = _category_groups_for_store(store)
-        settings = store.store_settings.find_one({"_id": "storefront"}) or {}
+        # Avoid reading/returning the storefront's base64 hero and social
+        # thumbnails as part of the full product catalog payload.
+        settings = store.store_settings.find_one({"_id": "storefront"}, {
+            "_id": 0,
+            "categoryGroups": 1,
+            "manualCategories": 1,
+            "manualCategoryVisibility": 1,
+            "content.heroTitle": 1,
+            "content.heroSubtitle": 1,
+            "content.heroCta": 1,
+            "content.offerTitle": 1,
+            "content.offerSubtitle": 1,
+            "content.announcement": 1,
+            "content.trendingIds": 1,
+            "content.offerIds": 1,
+            "content.combos": 1,
+            "content.categoryImages": 1,
+            "content.deliveryInDhaka": 1,
+            "content.deliverySubDhaka": 1,
+            "content.deliveryOutsideDhaka": 1,
+        }) or {}
         all_manual_categories = settings.get("manualCategories", [])
         manual_visibility = settings.get("manualCategoryVisibility", {}) if isinstance(settings.get("manualCategoryVisibility", {}), dict) else {}
         manual_categories = [name for name in all_manual_categories if manual_visibility.get(name, True) is not False]
