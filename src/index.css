@@ -3546,10 +3546,9 @@ input:focus, select:focus, textarea:focus { outline: none !important; box-shadow
 .product-choice-notice { margin: 11px 0 0; color: #a3482d; font-size: 14px; font-weight: 700; }
 .hero-carousel-card picture { position: absolute; inset: 0; display: block; overflow: hidden; border-radius: inherit; }
 .hero-carousel-card picture .hero-carousel-photo { display: block; width: 100%; height: 100%; }
-.hero-photo-frame { position: absolute; inset: 0; overflow: hidden; background: linear-gradient(125deg,#18241e,#29362d 48%,#18241e); }
+.hero-photo-frame { position: absolute; inset: 0; overflow: hidden; background: transparent; }
 .hero-photo-frame picture, .hero-photo-frame .hero-carousel-photo { display: block; width: 100%; height: 100%; }
-.hero-photo-frame .hero-carousel-photo { object-fit: cover; opacity: 0; transition: opacity .55s ease; }
-.hero-photo-frame.is-loaded .hero-carousel-photo { opacity: 1; }
+.hero-photo-frame .hero-carousel-photo { object-fit: cover; opacity: 1; transition: none; }
 .hero-photo-loader { position: absolute; inset: 0; overflow: hidden; background: linear-gradient(110deg,#17231e 20%,#26372d 38%,#17231e 58%); background-size: 220% 100%; animation: hero-skeleton-shimmer 1.55s ease-in-out infinite; }
 .hero-photo-loader span { position: absolute; left: 7%; bottom: 13%; width: min(46%,380px); height: 19%; border-radius: 10px; background: rgba(226,239,227,.08); filter: blur(1px); }
 .hero-photo-loader i { position: absolute; left: 7%; bottom: 8%; width: 110px; height: 14px; border-radius: 10px; background: rgba(226,239,227,.12); }
@@ -4063,64 +4062,57 @@ svg.availability-check-spinner,
 .hero-art.hero-catalog-loading::before { top: calc(50% - 54px); left: calc(50% - 26px); }
 @media (max-width: 600px) { .hero-art.hero-catalog-loading::after { font-size: clamp(20px, 6vw, 29px); } }
 
-/* Keep the existing carousel layout, but animate card positions with transforms
-   so each frame does not trigger left/right layout recalculation. */
+/* Keep every carousel slide on the same frame; animate position only. */
 .hero-art .hero-carousel-card {
   top: 50%;
-  left: 12%;
+  left: 50%;
   right: auto;
   width: 88%;
   height: 100%;
-  transition: transform .72s cubic-bezier(.22,.72,.2,1), opacity .3s ease, visibility 0s linear .72s;
+  transition: left .72s cubic-bezier(.22,.72,.2,1), right .72s cubic-bezier(.22,.72,.2,1), transform .72s cubic-bezier(.22,.72,.2,1), opacity .3s ease, filter .3s ease;
   will-change: transform, opacity;
-  backface-visibility: hidden;
 }
 .hero-art .hero-carousel-card.hero-carousel-image-0 {
   z-index: 5;
-  left: 12%;
+  left: 50%;
   right: auto;
   width: 88%;
   height: 100%;
-  transform: translate3d(-6.818%, -50%, 0) scale(1);
-  transform-origin: center center;
+  transform: translate3d(-50%, -50%, 0) scale(1);
   opacity: 1;
   filter: none;
-  visibility: visible;
-  transition-delay: 0s;
 }
 .hero-art .hero-carousel-card.hero-carousel-image-1 {
   z-index: 4;
-  left: 12%;
-  right: auto;
+  left: auto;
+  right: 0;
   width: 88%;
-  height: 100%;
-  transform: translate3d(5%, -50%, 0) scale(.9, .792);
+  height: 88%;
+  transform: translateY(-50%) scale(.9);
+  transform-origin: right center;
   opacity: .92;
   filter: saturate(.9) brightness(.88);
-  visibility: visible;
-  transition-delay: 0s;
   cursor: pointer;
 }
 .hero-art .hero-carousel-card.hero-carousel-image-2 {
   z-index: 4;
-  left: 12%;
+  left: 0;
   right: auto;
   width: 88%;
-  height: 100%;
-  transform: translate3d(-18.636%, -50%, 0) scale(.9, .792);
+  height: 88%;
+  transform: translateY(-50%) scale(.9);
+  transform-origin: left center;
   opacity: .92;
   filter: saturate(.9) brightness(.88);
-  visibility: visible;
-  transition-delay: 0s;
   cursor: pointer;
 }
 .hero-art .hero-carousel-card.hero-carousel-image-3 {
   z-index: 0;
-  left: 12%;
+  left: 50%;
   right: auto;
   width: 88%;
   height: 100%;
-  transform: translate3d(-6.818%, -50%, -120px) scale(.82);
+  transform: translate3d(-50%, -50%, -120px) scale(.82);
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
@@ -4142,22 +4134,15 @@ svg.availability-check-spinner,
 .hero-art .hero-side-hit-next { right: 0; }
 .hero-art .hero-side-hit:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
 @media (max-width: 600px) {
-  .hero-art { perspective: none; }
-  .hero-carousel-track { perspective: none; transform-style: flat; }
   .hero-art .hero-carousel-card,
   .hero-art .hero-carousel-card.hero-carousel-image-0,
   .hero-art .hero-carousel-card.hero-carousel-image-1,
   .hero-art .hero-carousel-card.hero-carousel-image-2,
   .hero-art .hero-carousel-card.hero-carousel-image-3 {
-    left: 6%;
-    right: auto;
-    width: 94%;
-    height: 86%;
+    width: 92%;
   }
-  .hero-art .hero-carousel-card.hero-carousel-image-0 { transform: translate3d(-2.128%, -50%, 0) scale(.97872, 1.16279); }
-  .hero-art .hero-carousel-card.hero-carousel-image-1 { left: 6%; right: auto; transform: translate3d(4%, -50%, 0) scale(.92); }
-  .hero-art .hero-carousel-card.hero-carousel-image-2 { left: 6%; right: auto; transform: translate3d(-10.383%, -50%, 0) scale(.92); }
-  .hero-art .hero-carousel-card.hero-carousel-image-3 { transform: translate3d(-2.128%, -50%, -120px) scale(.82); }
+  .hero-art .hero-carousel-card.hero-carousel-image-1 { left: auto; right: 0; width: 94%; height: 86%; transform: translateY(-50%) scale(.92); transform-origin: right center; }
+  .hero-art .hero-carousel-card.hero-carousel-image-2 { left: 0; right: auto; width: 94%; height: 86%; transform: translateY(-50%) scale(.92); transform-origin: left center; }
   .hero-art .hero-side-hit { width: 4%; min-width: 16px; }
 }
 .hero-art .hero-carousel-card,
@@ -4170,89 +4155,31 @@ svg.availability-check-spinner,
   overflow: hidden;
   border-radius: 18px;
 }
-/* Each slide is its own rounded clipping surface. Keep 3D perspective on the
-   track, but flatten the transformed slide itself so overflow clipping works
-   in Chromium for the partially visible side banners too. */
-.hero-art .hero-carousel-card {
-  overflow: hidden;
-  border-radius: 26px;
-  transform-style: flat;
-  clip-path: inset(0 round 26px);
-  -webkit-mask-image: -webkit-radial-gradient(white, black);
-}
-.hero-art .hero-carousel-card .hero-photo-frame,
-.hero-art .hero-carousel-card picture,
-.hero-art .hero-carousel-card .hero-carousel-photo {
-  overflow: hidden;
-  border-radius: inherit !important;
-}
-.hero-art .hero-carousel-card { border-radius: 28px !important; overflow: hidden !important; clip-path: inset(0 round 28px) !important; background: transparent !important; }
-.hero-art .hero-carousel-card .hero-photo-frame { background: transparent !important; }
-.hero-art .hero-carousel-card picture { overflow: hidden !important; border-radius: 28px !important; }
-.hero-art .hero-carousel-card .hero-carousel-photo,
-.hero-art .hero-carousel-card .hero-photo-frame .hero-carousel-photo { opacity: 1 !important; transition: none !important; }
-.hero-art .hero-carousel-active .hero-carousel-photo {
-  object-fit: cover;
-  background: transparent;
-}
-.hero-art .hero-carousel-card.hero-carousel-image-0 {
-  width: 92%;
-  height: 92%;
-  aspect-ratio: 16 / 7;
-}
-@media (min-width: 901px) {
-  .hero.page-width { width: min(1720px, calc(100% - 40px)) !important; }
-}
 @media (max-width: 600px) {
-  .hero-art { height: clamp(360px, 110vw, 470px); }
-  .hero-art .hero-carousel-card { border-radius: 20px !important; clip-path: inset(0 round 20px) !important; }
   .hero-art .hero-carousel-card,
   .hero-art .hero-carousel-card .hero-photo-frame,
   .hero-art .hero-carousel-card picture,
   .hero-art .hero-carousel-card .hero-carousel-photo {
-    border-radius: 20px !important;
+    border-radius: 14px;
   }
-  .hero-art .hero-carousel-card picture { overflow: hidden !important; }
 }
 
-/* Mobile cards use proportional transforms (not independent X/Y scaling),
-   and deliberate opposing offsets so both preview cards peek evenly. */
+/* Clip each slide at the card boundary while retaining the original carousel geometry. */
+.hero-art .hero-carousel-card {
+  overflow: hidden;
+  transform-style: flat;
+  clip-path: inset(0 round 18px);
+}
+.hero-art .hero-carousel-card .hero-photo-frame,
+.hero-art .hero-carousel-card picture {
+  overflow: hidden;
+  border-radius: inherit;
+  clip-path: inset(0 round 18px);
+}
 @media (max-width: 600px) {
-  .hero-art .hero-carousel-card,
-  .hero-art .hero-carousel-card.hero-carousel-image-0,
-  .hero-art .hero-carousel-card.hero-carousel-image-1,
-  .hero-art .hero-carousel-card.hero-carousel-image-2,
-  .hero-art .hero-carousel-card.hero-carousel-image-3 {
-    top: 50%;
-    left: 6%;
-    width: 88%;
-    height: auto;
-    aspect-ratio: 4 / 5;
-    border-radius: 20px !important;
-    clip-path: inset(0 round 20px) !important;
-    transform-origin: center;
-    transition: transform .55s cubic-bezier(.2,.7,.2,1), opacity .25s ease, visibility 0s linear .55s;
-  }
-  .hero-art .hero-carousel-card.hero-carousel-image-0 {
-    aspect-ratio: 4 / 5;
-    transform: translate3d(0,-50%,0);
-  }
-  .hero-art .hero-carousel-card.hero-carousel-image-1 {
-    left: 16.4%;
-    transform: translateY(-50%) scale(.9);
-  }
-  .hero-art .hero-carousel-card.hero-carousel-image-2 {
-    left: -4.4%;
-    transform: translateY(-50%) scale(.9);
-  }
-  .hero-art .hero-carousel-card.hero-carousel-image-3 {
-    transform: translate3d(0,-50%,0) scale(.84);
-  }
+  .hero-art .hero-carousel-card { clip-path: inset(0 round 14px); }
   .hero-art .hero-carousel-card .hero-photo-frame,
-  .hero-art .hero-carousel-card picture,
-  .hero-art .hero-carousel-card .hero-carousel-photo { border-radius: inherit !important; }
-  .hero-art .hero-carousel-photo { object-fit: cover; }
-  .hero-art .hero-carousel-active .hero-carousel-photo { object-fit: cover; }
+  .hero-art .hero-carousel-card picture { clip-path: inset(0 round 14px); }
 }
 
 /* Loading UI must keep moving for the full time its loading state is visible. */
