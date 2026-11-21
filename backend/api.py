@@ -1619,6 +1619,10 @@ def get_admin_product(product_id: str, authorization: str | None = Header(defaul
     return result
 
 def public_product(product, include_details=False):
+    # MongoDB's ObjectId is not JSON serializable. Most catalog queries
+    # project it out already; strip it here as a final guard for every public
+    # feed, including explicit-ID feeds such as homepage trends and offers.
+    product.pop("_id", None)
     product["id"] = f"shopbase-{product.get('sourceId', '')}" if product.get("source") == "shopbase" else str(product.get("id", ""))
     if product.get("source") == "shopbase":
         # The current supplier retail price is always the original price.
@@ -1941,9 +1945,15 @@ def catalog_priority(
         source_ids = [item.removeprefix("shopbase-") for item in selected_ids if item.startswith("shopbase-")]
         custom_ids = [item for item in selected_ids if not item.startswith("shopbase-")]
         id_query: dict[str, Any] = {"$or": ([{"sourceId": {"$in": source_ids}}] if source_ids else []) + ([{"id": {"$in": custom_ids}}] if custom_ids else [])}
-        docs = list(store.products.find({**query, **id_query}).limit(limit)) if source_ids else []
-        custom_docs = list(store.admin_products.find({"source": "custom", "active": True, "id": {"$in": custom_ids}}).limit(limit)) if custom_ids else []
-        overrides = {item["id"]: item for item in store.admin_products.find({"source": "shopbase", "id": {"$in": [f"shopbase-{source_id}" for source_id in source_ids]}}, {"_id": 0})} if source_ids else {}
+        # Keep priority feeds small and JSON-safe. Returning whole Mongo
+        # documents here leaked ObjectIds into the response and made every
+        # explicit-ID feed (home, trends and offer detail) fail serialization.
+        source_fields = {"_id": 0, "sourceId": 1, "source": 1, "active": 1, "title": 1, "category": 1, "categorySourceId": 1, "parentCategory": 1, "parentCategoryId": 1, "price": 1, "suggestedRetailPrice": 1, "compareAt": 1, "image": 1, "stock": 1, "rating": 1, "reviews": 1, "trending": 1, "offer": 1, "badge": 1}
+        custom_fields = {"_id": 0, "id": 1, "sourceId": 1, "source": 1, "active": 1, "title": 1, "category": 1, "categorySourceId": 1, "parentCategory": 1, "parentCategoryId": 1, "price": 1, "originalPrice": 1, "discountedPrice": 1, "compareAt": 1, "image": 1, "stock": 1, "description": 1, "rating": 1, "reviews": 1, "trending": 1, "offer": 1, "badge": 1}
+        override_fields = {"_id": 0, "id": 1, "active": 1, "title": 1, "category": 1, "categorySourceId": 1, "parentCategory": 1, "parentCategoryId": 1, "image": 1, "images": {"$slice": 1}, "stock": 1, "description": 1, "trending": 1, "offer": 1, "badge": 1, "originalPrice": 1, "discountedPrice": 1, "compareAt": 1, "price": 1}
+        docs = list(store.products.find({**query, **id_query}, source_fields).limit(limit)) if source_ids else []
+        custom_docs = list(store.admin_products.find({"source": "custom", "active": True, "id": {"$in": custom_ids}}, custom_fields).limit(limit)) if custom_ids else []
+        overrides = {item["id"]: item for item in store.admin_products.find({"source": "shopbase", "id": {"$in": [f"shopbase-{source_id}" for source_id in source_ids]}}, override_fields)} if source_ids else {}
         products_by_id: dict[str, dict[str, Any]] = {}
         for item in docs:
             product = public_product(item)
