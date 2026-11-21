@@ -127,6 +127,9 @@ function applySingleItemOfferPrice(product: Product, offers: OfferDeal[]) {
   const price = Math.min(...prices)
   return { ...product, originalPrice, discountedPrice: price, compareAt: originalPrice, price }
 }
+function regularProductPrice(product: Product) {
+  return Math.max(product.originalPrice ?? product.compareAt ?? product.price, product.price)
+}
 async function compressImageFile(file: File, maxWidth = 1400, maxHeight = 1000, quality = 0.78) {
   const bitmap = await createImageBitmap(file)
   const scale = Math.min(1, maxWidth / bitmap.width, maxHeight / bitmap.height)
@@ -920,13 +923,19 @@ export default function App() {
     return [...productsById.values()].filter((product) => `${product.title} ${product.category} ${product.description}`.toLowerCase().includes(needle)).slice(0, 5)
   }, [activeProducts, query, state.offers, state.products])
   const cartItems = useMemo(() => cart.map((line) => ({ ...line, product: activeProducts.find((item) => item.id === line.productId) || line.productSnapshot })).filter((line): line is CartLine & { product: Product } => Boolean(line.product)), [activeProducts, cart])
-  const subtotal = cartItems.reduce((sum, line) => sum + line.product.price * line.quantity, 0)
+  const singleItemOfferSavings = (line: CartLine & { product: Product }) => {
+    const offers = state.offers.filter((offer) => offer.active && (offer.productIds?.length ? offer.productIds : [offer.productId]).includes(line.productId))
+    const hasSingleItemOffer = offers.some((offer) => offer.kind === 'special_price' || offer.kind === 'percentage_each' || offer.kind === 'quantity_discount' && offer.quantity === 1 || offer.kind === 'buy_multiple' && offer.tiers?.some((tier) => tier.quantity === 1))
+    return hasSingleItemOffer ? Math.max(0, regularProductPrice(line.product) - line.product.price) * line.quantity : 0
+  }
+  const singleItemSavingsTotal = cartItems.reduce((sum, line) => sum + singleItemOfferSavings(line), 0)
+  const subtotal = cartItems.reduce((sum, line) => sum + line.product.price * line.quantity, 0) + singleItemSavingsTotal
   const offerSavings = state.offers.filter((offer) => offer.active && offer.kind !== 'bundle' && offer.kind !== 'free_delivery').reduce((sum, offer) => {
     const targetIds = [...new Set(offer.productIds?.length ? offer.productIds : offer.productId ? [offer.productId] : [])]
     const eligibleLines = cartItems.filter((line) => targetIds.includes(line.productId))
     const quantity = eligibleLines.reduce((total, line) => total + line.quantity, 0)
     if (!quantity) return sum
-    if (offer.kind === 'special_price') return sum + eligibleLines.reduce((saving, line) => saving + Math.max(0, line.product.price - Math.min(line.product.price, offer.value)) * line.quantity, 0)
+    if (offer.kind === 'special_price' || offer.kind === 'percentage_each' || offer.kind === 'quantity_discount' && offer.quantity === 1 || offer.kind === 'buy_multiple' && offer.tiers?.some((tier) => tier.quantity === 1)) return sum + eligibleLines.reduce((saving, line) => saving + singleItemOfferSavings(line), 0)
     if (offer.kind === 'buy_multiple' && offer.tiers?.length) return sum + offerTierSavings(offer, eligibleLines)
     if (offer.kind === 'quantity_discount' || offer.kind === 'buy_multiple') {
       const groups = Math.floor(quantity / Math.max(1, offer.quantity))
