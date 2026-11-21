@@ -262,7 +262,6 @@ def ensure_storefront_query_indexes():
             partialFilterExpression={"source": "shopbase"},
             name="sourceId_1",
         )
-        store.products.create_index([("source", 1), ("active", 1)], name="catalog_shopbase_active")
         store.admin_products.create_index([("source", 1)], name="catalog_admin_source")
         store.product_views.create_index([("productId", 1)], name="catalog_views_product")
     except Exception:
@@ -1469,14 +1468,9 @@ def catalog(response: Response):
         overrides = {item["id"]: item for item in store.admin_products.find({"source": "shopbase"}, override_fields)}
         products = []
         product_counts = {}
-        # Ignore old inventory in MongoDB itself instead of downloading it and
-        # filtering it after the database cursor is exhausted. Missing `active`
-        # fields are treated as active for older catalog records.
-        for item in store.products.find({
-            "source": "shopbase",
-            "sourceId": {"$exists": True},
-            "active": {"$ne": False},
-        }, fields).limit(20000):
+        # ShopBase products have a partial unique index on sourceId. Requiring
+        # that indexed field avoids scanning unrelated documents in products.
+        for item in store.products.find({"source": "shopbase", "sourceId": {"$exists": True}}, fields).limit(20000):
             category_source_id = item.get("categorySourceId")
             if category_source_id is not None:
                 key = str(category_source_id)
