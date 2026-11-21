@@ -1117,6 +1117,13 @@ def storefront_preview_settings():
     content = settings.get("content") if isinstance(settings.get("content"), dict) else {}
     return {"socialShareImage": content.get("socialShareImage", "")}
 
+@app.get("/api/storefront-hero")
+def storefront_hero(response: Response):
+    settings = db().store_settings.find_one({"_id": "storefront"}, {"_id": 0, "content.heroSlides": 1}) or {}
+    content = settings.get("content") if isinstance(settings.get("content"), dict) else {}
+    response.headers["Cache-Control"] = "public, max-age=15, stale-while-revalidate=60"
+    return {"heroSlides": content.get("heroSlides", [])}
+
 @app.get("/api/share-thumbnail/{kind}/{resource_id}")
 def share_thumbnail(kind: str, resource_id: str):
     if kind == "home":
@@ -1432,7 +1439,7 @@ def health():
         raise HTTPException(status_code=503, detail="Catalog database is unavailable.")
 
 @app.get("/api/catalog")
-def catalog():
+def catalog(response: Response):
     try:
         store = db()
         fields = {"_id": 0, "sourceId": 1, "title": 1, "category": 1, "categorySourceId": 1, "parentCategory": 1, "parentCategoryId": 1, "price": 1, "suggestedRetailPrice": 1, "compareAt": 1, "image": 1, "stock": 1, "active": 1, "source": 1, "trending": 1, "offer": 1, "badge": 1}
@@ -1468,6 +1475,7 @@ def catalog():
         products = [item for item in products if (str(item.get("categorySourceId")) in visible_sources if item.get("categorySourceId") else str(item.get("category", "")).casefold() in visible_names)]
         latest = store.sync_runs.find_one({"status": {"$in": ["success", "success_with_skipped_details"]}}, {"_id": 0}, sort=[("finishedAt", -1)])
         visible_shopbase_categories = [item["name"] for item in categories if str(item.get("sourceId", "")) in visible_sources]
+        response.headers["Cache-Control"] = "public, max-age=30, stale-while-revalidate=120"
         return {"products": products, "categories": list(dict.fromkeys(visible_shopbase_categories + manual_categories)), "categoryGroups": groups, "categoryGroupsManaged": isinstance(settings.get("categoryGroups"), list), "manualCategories": all_manual_categories, "manualCategoryVisibility": manual_visibility, "manualCategoriesManaged": isinstance(settings.get("manualCategories"), list), "content": settings.get("content"), "lastSync": (latest or {}).get("finishedAt"), "productViewCounts": view_counts}
     except HTTPException:
         raise
