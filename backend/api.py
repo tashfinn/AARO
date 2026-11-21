@@ -14,6 +14,7 @@ from typing import Any, Literal
 from fastapi import FastAPI, HTTPException, Header
 from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from pydantic import BaseModel, Field
 from pymongo import MongoClient, UpdateOne
 import requests
@@ -30,6 +31,7 @@ origins = list(dict.fromkeys([
     "https://aaro-store.vercel.app",
 ]))
 app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=False, allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"], allow_headers=["*"])
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 _client = None
 PASSWORD_ROUNDS = 310_000
 try:
@@ -1433,8 +1435,9 @@ def health():
 def catalog():
     try:
         store = db()
-        fields = {"_id": 0, "sourceId": 1, "title": 1, "category": 1, "categorySourceId": 1, "parentCategory": 1, "parentCategoryId": 1, "price": 1, "suggestedRetailPrice": 1, "compareAt": 1, "image": 1, "stock": 1, "active": 1, "source": 1, "updatedAt": 1, "trending": 1, "offer": 1, "badge": 1, "rating": 1, "reviews": 1, "sizes": 1, "options": 1}
-        overrides = {item["id"]: item for item in store.admin_products.find({"source": "shopbase"}, {"_id": 0})}
+        fields = {"_id": 0, "sourceId": 1, "title": 1, "category": 1, "categorySourceId": 1, "parentCategory": 1, "parentCategoryId": 1, "price": 1, "suggestedRetailPrice": 1, "compareAt": 1, "image": 1, "stock": 1, "active": 1, "source": 1, "trending": 1, "offer": 1, "badge": 1}
+        override_fields = {"_id": 0, "id": 1, "active": 1, "title": 1, "category": 1, "image": 1, "images": {"$slice": 1}, "stock": 1, "trending": 1, "offer": 1, "badge": 1, "categorySourceId": 1, "parentCategory": 1, "parentCategoryId": 1, "originalPrice": 1, "discountedPrice": 1, "compareAt": 1, "price": 1}
+        overrides = {item["id"]: item for item in store.admin_products.find({"source": "shopbase"}, override_fields)}
         products = []
         for item in store.products.find({"source": "shopbase"}, fields).limit(20000):
             product_id = _catalog_product_id(item)
