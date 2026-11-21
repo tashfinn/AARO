@@ -1520,10 +1520,7 @@ def catalog(
         categories = list(store.categories.find({"source": "shopbase", "type": {"$ne": "parent"}}, {"_id": 0, "sourceId": 1, "name": 1, "parentId": 1, "parentName": 1, "sortOrder": 1, "sourceOrder": 1}))
         if categories and all(item.get("sourceOrder") is not None for item in categories):
             categories.sort(key=lambda item: item["sourceOrder"])
-        # Storefront hero photos can be large base64 uploads. The carousel has
-        # its own endpoint, so don't read those image bytes into the catalog
-        # request just to serve category metadata.
-        settings = store.store_settings.find_one({"_id": "storefront"}, {"content.heroSlides": 0}) or {}
+        settings = store.store_settings.find_one({"_id": "storefront"}) or {}
         groups, _ = _category_groups_for_store(store, settings=settings, categories=categories, product_counts={})
         all_manual_categories = settings.get("manualCategories", [])
         manual_visibility = settings.get("manualCategoryVisibility", {}) if isinstance(settings.get("manualCategoryVisibility", {}), dict) else {}
