@@ -336,10 +336,8 @@ function ImageView({ src, alt, className = '', loading = 'lazy' }: { src: string
 }
 
 function HeroCarouselPhoto({ src, mobileSrc, alt, loading }: { src: string; mobileSrc: string; alt: string; loading: 'lazy' | 'eager' }) {
-  const [loaded, setLoaded] = useState(false)
-  return <div className={`hero-photo-frame ${loaded ? 'is-loaded' : 'is-loading'}`}>
-    {!loaded && <div className="hero-photo-loader" aria-hidden="true"><span /><i /></div>}
-    <picture><source media="(max-width: 600px)" srcSet={mobileSrc || src} /><img src={src} alt={alt} loading={loading} fetchPriority={loading === 'eager' ? 'high' : 'auto'} decoding="async" className="hero-carousel-photo" onLoad={() => setLoaded(true)} onError={() => setLoaded(true)} /></picture>
+  return <div className="hero-photo-frame">
+    <picture><source media="(max-width: 600px)" srcSet={mobileSrc || src} /><img src={src} alt={alt} loading={loading} fetchPriority={loading === 'eager' ? 'high' : 'auto'} decoding="sync" className="hero-carousel-photo" /></picture>
   </div>
 }
 

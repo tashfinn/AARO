@@ -4184,8 +4184,13 @@ svg.availability-check-spinner,
 .hero-art .hero-carousel-card picture,
 .hero-art .hero-carousel-card .hero-carousel-photo {
   overflow: hidden;
-  border-radius: inherit;
+  border-radius: inherit !important;
 }
+.hero-art .hero-carousel-card { border-radius: 28px !important; overflow: hidden !important; clip-path: inset(0 round 28px) !important; background: transparent !important; }
+.hero-art .hero-carousel-card .hero-photo-frame { background: transparent !important; }
+.hero-art .hero-carousel-card picture { overflow: hidden !important; border-radius: 28px !important; }
+.hero-art .hero-carousel-card .hero-carousel-photo,
+.hero-art .hero-carousel-card .hero-photo-frame .hero-carousel-photo { opacity: 1 !important; transition: none !important; }
 .hero-art .hero-carousel-active .hero-carousel-photo {
   object-fit: cover;
   background: transparent;
@@ -4196,17 +4201,18 @@ svg.availability-check-spinner,
   aspect-ratio: 16 / 7;
 }
 @media (min-width: 901px) {
-  .hero.page-width { width: min(1600px, calc(100% - 48px)); }
+  .hero.page-width { width: min(1720px, calc(100% - 40px)) !important; }
 }
 @media (max-width: 600px) {
   .hero-art { height: clamp(360px, 110vw, 470px); }
-  .hero-art .hero-carousel-card { border-radius: 20px; clip-path: inset(0 round 20px); }
+  .hero-art .hero-carousel-card { border-radius: 20px !important; clip-path: inset(0 round 20px) !important; }
   .hero-art .hero-carousel-card,
   .hero-art .hero-carousel-card .hero-photo-frame,
   .hero-art .hero-carousel-card picture,
   .hero-art .hero-carousel-card .hero-carousel-photo {
-    border-radius: 20px;
+    border-radius: 20px !important;
   }
+  .hero-art .hero-carousel-card picture { overflow: hidden !important; }
 }
 
 /* Mobile cards use proportional transforms (not independent X/Y scaling),
@@ -4222,8 +4228,8 @@ svg.availability-check-spinner,
     width: 88%;
     height: auto;
     aspect-ratio: 4 / 5;
-    border-radius: 20px;
-    clip-path: inset(0 round 20px);
+    border-radius: 20px !important;
+    clip-path: inset(0 round 20px) !important;
     transform-origin: center;
     transition: transform .55s cubic-bezier(.2,.7,.2,1), opacity .25s ease, visibility 0s linear .55s;
   }
@@ -4244,7 +4250,7 @@ svg.availability-check-spinner,
   }
   .hero-art .hero-carousel-card .hero-photo-frame,
   .hero-art .hero-carousel-card picture,
-  .hero-art .hero-carousel-card .hero-carousel-photo { border-radius: inherit; }
+  .hero-art .hero-carousel-card .hero-carousel-photo { border-radius: inherit !important; }
   .hero-art .hero-carousel-photo { object-fit: cover; }
   .hero-art .hero-carousel-active .hero-carousel-photo { object-fit: cover; }
 }
