@@ -4142,6 +4142,8 @@ svg.availability-check-spinner,
 .hero-art .hero-side-hit-next { right: 0; }
 .hero-art .hero-side-hit:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
 @media (max-width: 600px) {
+  .hero-art { perspective: none; }
+  .hero-carousel-track { perspective: none; transform-style: flat; }
   .hero-art .hero-carousel-card,
   .hero-art .hero-carousel-card.hero-carousel-image-0,
   .hero-art .hero-carousel-card.hero-carousel-image-1,
@@ -4183,6 +4185,10 @@ svg.availability-check-spinner,
   overflow: hidden;
   border-radius: inherit;
 }
+.hero-art .hero-carousel-active .hero-carousel-photo {
+  object-fit: contain;
+  background: #18231f;
+}
 @media (max-width: 600px) {
   .hero-art .hero-carousel-card { border-radius: 14px; clip-path: inset(0 round 14px); }
   .hero-art .hero-carousel-card,
@@ -4214,18 +4220,19 @@ svg.availability-check-spinner,
     transform: translate3d(0,-50%,0);
   }
   .hero-art .hero-carousel-card.hero-carousel-image-1 {
-    transform: translate3d(14%,-50%,-70px) scale(.9);
+    transform: translate3d(16.8%,-50%,0) scale(.9);
   }
   .hero-art .hero-carousel-card.hero-carousel-image-2 {
-    transform: translate3d(-14%,-50%,-70px) scale(.9);
+    transform: translate3d(-6.8%,-50%,0) scale(.9);
   }
   .hero-art .hero-carousel-card.hero-carousel-image-3 {
-    transform: translate3d(0,-50%,-120px) scale(.84);
+    transform: translate3d(0,-50%,0) scale(.84);
   }
   .hero-art .hero-carousel-card .hero-photo-frame,
   .hero-art .hero-carousel-card picture,
   .hero-art .hero-carousel-card .hero-carousel-photo { border-radius: inherit; }
   .hero-art .hero-carousel-photo { object-fit: cover; }
+  .hero-art .hero-carousel-active .hero-carousel-photo { object-fit: contain; }
 }
 
 /* Loading UI must keep moving for the full time its loading state is visible. */
