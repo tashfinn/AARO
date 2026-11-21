@@ -4225,7 +4225,8 @@ svg.availability-check-spinner,
     transform: translate(-50%, -50%) !important;
   }
   .hero-art .hero-carousel-card.hero-carousel-image-0 .hero-carousel-photo {
-    object-fit: contain !important;
+    object-fit: cover !important;
     object-position: center !important;
+    transform: scale(1.035);
   }
 }
