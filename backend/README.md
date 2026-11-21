@@ -8,7 +8,11 @@ This is an HTML importer, not an official ShopBase API. It uses an authenticated
 
 ## Secrets and environment
 
-Configure the Render web service with `MONGODB_URI`, `MONGODB_DATABASE=aaro`, `FRONTEND_ORIGINS`, and the admin/account auth settings. Configure GitHub Actions repository secrets with `MONGODB_URI` and `SHOPBASE_SESSION_COOKIE`. Add the ShopBase phone number and password once from Admin → Product sync; the API encrypts them directly into Actions Secrets as `SHOPBASE_USERNAME` and `SHOPBASE_PASSWORD`. Optional Cloudinary secrets are `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, and `CLOUDINARY_API_SECRET`; image mirroring is off unless `CLOUDINARY_MIRROR_IMAGES=true` is explicitly set. The workflow also sets the request delay, markup, and detail-refresh interval.
+Configure the Render web service with `MONGODB_URI`, `MONGODB_DATABASE=aaro`, `FRONTEND_ORIGINS`, and the admin/account auth settings. Configure GitHub Actions repository secrets with `MONGODB_URI` and `SHOPBASE_SESSION_COOKIE`. Add the ShopBase phone number and password once from Admin → Product sync; the API encrypts them directly into Actions Secrets as `SHOPBASE_USERNAME` and `SHOPBASE_PASSWORD`. Optional Cloudinary credentials are `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, and `CLOUDINARY_API_SECRET`. These credentials enable storefront image migration and automatic mirroring on storefront saves. Product-image mirroring remains off unless `CLOUDINARY_MIRROR_IMAGES=true` is explicitly set. The workflow also sets the request delay, markup, and detail-refresh interval.
+
+## Storefront image CDN
+
+Set the three Cloudinary credentials on the Render API service, deploy the API, then open Admin → Storefront and choose **Move existing images to Cloudinary** once. The migration uploads inline storefront images (hero slides, category images, and share thumbnails) and saves the resulting CDN URLs back to MongoDB. Future storefront saves mirror newly uploaded inline images automatically. The migration reports a configuration error if any credential is missing and leaves existing MongoDB image data untouched on failure.
 
 Treat the ShopBase cookie like a password. Keep it in GitHub secrets, never in the storefront or repository. The importer uses the supplier's suggested price when available and otherwise applies the configured markup. Wholesale cost is excluded from public API responses.
 

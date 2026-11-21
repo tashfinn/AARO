@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 from fastapi import FastAPI, HTTPException, Header, Query
-from fastapi.responses import Response
+from fastapi.responses import Response, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from pydantic import BaseModel, Field
@@ -265,6 +265,75 @@ def _password_matches(password: str, encoded: str) -> bool:
         return hmac.compare_digest(actual, expected)
     except (ValueError, TypeError):
         return False
+
+def _cloudinary_credentials() -> tuple[str, str, str] | None:
+    cloud, key, secret = (os.getenv(name, "").strip() for name in ("CLOUDINARY_CLOUD_NAME", "CLOUDINARY_API_KEY", "CLOUDINARY_API_SECRET"))
+    return (cloud, key, secret) if cloud and key and secret else None
+
+def _cloudinary_upload_data_uri(value: str, public_id: str, credentials: tuple[str, str, str]) -> str:
+    match = re.fullmatch(r"data:(image/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)", value)
+    if not match:
+        raise ValueError("Unsupported inline image format.")
+    try:
+        image = base64.b64decode(match.group(2), validate=True)
+    except ValueError as error:
+        raise ValueError("Invalid inline image data.") from error
+    cloud, key, secret = credentials
+    response = requests.post(
+        f"https://api.cloudinary.com/v1_1/{cloud}/image/upload",
+        data={"public_id": public_id, "overwrite": "true", "invalidate": "true"},
+        files={"file": (f"{public_id.rsplit('/', 1)[-1]}.{match.group(1).split('/')[-1]}", image, match.group(1))},
+        auth=(key, secret),
+        timeout=(10, 60),
+    )
+    if not response.ok:
+        logging.error("Cloudinary upload failed with HTTP %s: %s", response.status_code, response.text[:500])
+        raise RuntimeError("Cloudinary could not store an image.")
+    secure_url = response.json().get("secure_url")
+    if not isinstance(secure_url, str) or not secure_url.startswith(f"https://res.cloudinary.com/{cloud}/"):
+        raise RuntimeError("Cloudinary returned an invalid image URL.")
+    return secure_url.replace("/image/upload/", "/image/upload/f_auto,q_auto,w_2400,c_limit/")
+
+def _mirror_inline_media(value: Any, path: str, credentials: tuple[str, str, str] | None, *, required: bool = False) -> tuple[Any, int]:
+    if isinstance(value, str) and value.startswith("data:image/"):
+        if credentials is None:
+            if required:
+                raise HTTPException(status_code=503, detail="Cloudinary is not configured. Set CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET on the API service.")
+            return value, 0
+        public_id = f"aaro/storefront/{hashlib.sha256(path.encode('utf-8')).hexdigest()[:24]}"
+        try:
+            return _cloudinary_upload_data_uri(value, public_id, credentials), 1
+        except (requests.RequestException, ValueError, RuntimeError) as error:
+            logging.warning("Could not mirror storefront image at %s: %s", path, error)
+            if required:
+                raise HTTPException(status_code=502, detail="Cloudinary could not store every storefront image. No storefront settings were changed.") from error
+            return value, 0
+    if isinstance(value, list):
+        items = []
+        count = 0
+        for index, item in enumerate(value):
+            updated, uploaded = _mirror_inline_media(item, f"{path}/{index}", credentials, required=required)
+            items.append(updated)
+            count += uploaded
+        return items, count
+    if isinstance(value, dict):
+        result = {}
+        count = 0
+        for key, item in value.items():
+            updated, uploaded = _mirror_inline_media(item, f"{path}/{key}", credentials, required=required)
+            result[key] = updated
+            count += uploaded
+        return result, count
+    return value, 0
+
+def _count_inline_images(value: Any) -> int:
+    if isinstance(value, str):
+        return int(value.startswith("data:image/"))
+    if isinstance(value, list):
+        return sum(_count_inline_images(item) for item in value)
+    if isinstance(value, dict):
+        return sum(_count_inline_images(item) for item in value.values())
+    return 0
 
 def _b64(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).decode().rstrip("=")
@@ -1115,6 +1184,21 @@ def admin_storefront_settings(authorization: str | None = Header(default=None)):
     settings = db().store_settings.find_one({"_id": "storefront"}) or {}
     return {key: settings[key] for key in ("content", "categoryGroups", "manualCategories", "manualCategoryVisibility") if key in settings}
 
+@app.post("/api/admin/storefront-media/migrate")
+def migrate_storefront_media(authorization: str | None = Header(default=None)):
+    _admin_from_auth(authorization)
+    credentials = _cloudinary_credentials()
+    settings = db().store_settings.find_one({"_id": "storefront"}, {"_id": 0, "content": 1}) or {}
+    content = settings.get("content") if isinstance(settings.get("content"), dict) else {}
+    updated, uploaded = _mirror_inline_media(content, "content", credentials, required=True)
+    if uploaded:
+        db().store_settings.update_one(
+            {"_id": "storefront"},
+            {"$set": {"content": updated, "updatedAt": datetime.now(timezone.utc).isoformat()}},
+        )
+    remaining = _count_inline_images(updated)
+    return {"content": updated, "uploaded": uploaded, "remainingInlineImages": remaining}
+
 @app.get("/api/storefront-preview")
 def storefront_preview_settings():
     settings = db().store_settings.find_one({"_id": "storefront"}, {"_id": 0, "content.socialShareImage": 1}) or {}
@@ -1200,6 +1284,8 @@ def share_thumbnail(kind: str, resource_id: str):
         value = offer.get("shareImage", "")
     else:
         raise HTTPException(status_code=404, detail="Thumbnail not found.")
+    if isinstance(value, str) and value.startswith("https://res.cloudinary.com/"):
+        return RedirectResponse(value, status_code=307, headers={"Cache-Control": "public, max-age=86400"})
     match = re.fullmatch(r"data:(image/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)", value if isinstance(value, str) else "")
     if not match:
         raise HTTPException(status_code=404, detail="Thumbnail not found.")
@@ -1214,9 +1300,10 @@ def update_admin_storefront(input: StorefrontSettingsInput, authorization: str |
     _admin_from_auth(authorization)
     values: dict[str, Any] = {}
     if input.content is not None:
-        if len(json.dumps(input.content, ensure_ascii=False)) > 8_000_000:
+        content, _ = _mirror_inline_media(input.content, "content", _cloudinary_credentials())
+        if len(json.dumps(content, ensure_ascii=False)) > 8_000_000:
             raise HTTPException(status_code=422, detail="Storefront settings are too large to save.")
-        values["content"] = input.content
+        values["content"] = content
     if input.categoryGroups is not None:
         groups: list[dict[str, Any]] = []
         for group in input.categoryGroups[:100]:
@@ -1292,9 +1379,39 @@ def save_admin_product(input: AdminProductInput, authorization: str | None = Hea
     return product
 
 @app.get("/api/admin/products")
-def list_admin_products(authorization: str | None = Header(default=None)):
+def list_admin_products(authorization: str | None = Header(default=None), offset: int | None = Query(default=None, ge=0), limit: int = Query(default=100, ge=1, le=400)):
     _admin_from_auth(authorization)
     store = db()
+    if offset is not None:
+        shopbase_query = {"source": "shopbase"}
+        custom_query = {"source": "custom"}
+        shopbase_count = store.products.count_documents(shopbase_query)
+        custom_count = store.admin_products.count_documents(custom_query)
+        shopbase_offset = min(offset, shopbase_count)
+        shopbase_take = min(limit, max(0, shopbase_count - shopbase_offset))
+        fields = {"_id": 1, "sourceId": 1, "title": 1, "category": 1, "categorySourceId": 1, "parentCategory": 1, "parentCategoryId": 1, "price": 1, "suggestedRetailPrice": 1, "wholesalePrice": 1, "compareAt": 1, "image": 1, "stock": 1, "active": 1, "source": 1, "addedAt": 1, "updatedAt": 1, "trending": 1, "offer": 1, "badge": 1, "rating": 1, "reviews": 1, "sizes": 1, "options": 1}
+        shopbase_items = list(store.products.find(shopbase_query, fields).sort("_id", 1).skip(shopbase_offset).limit(shopbase_take))
+        ids = [_catalog_product_id(item) for item in shopbase_items]
+        override_fields = {"_id": 0, "id": 1, "title": 1, "category": 1, "categorySourceId": 1, "parentCategory": 1, "parentCategoryId": 1, "price": 1, "originalPrice": 1, "discountedPrice": 1, "compareAt": 1, "image": 1, "images": {"$slice": 1}, "stock": 1, "active": 1, "trending": 1, "offer": 1, "badge": 1, "sizes": 1, "options": 1, "updatedAt": 1}
+        overrides = {item["id"]: item for item in store.admin_products.find({"source": "shopbase", "id": {"$in": ids}}, override_fields)} if ids else {}
+        products = []
+        for item in shopbase_items:
+            product = public_product(item)
+            product.pop("_id", None)
+            product["addedAt"] = item.get("addedAt") or (item.get("_id").generation_time.isoformat() if getattr(item.get("_id"), "generation_time", None) else None)
+            override = overrides.get(product["id"])
+            products.append(_apply_shopbase_override(product, override, retailer_price=item.get("wholesalePrice")) if override else {**product, **({"retailerPrice": item["wholesalePrice"]} if item.get("wholesalePrice") is not None else {})})
+        custom_offset = max(0, offset - shopbase_count)
+        custom_take = max(0, limit - len(shopbase_items))
+        custom_fields = {"_id": 1, "id": 1, "sourceId": 1, "title": 1, "category": 1, "categorySourceId": 1, "parentCategory": 1, "parentCategoryId": 1, "price": 1, "originalPrice": 1, "discountedPrice": 1, "compareAt": 1, "image": 1, "images": {"$slice": 1}, "stock": 1, "active": 1, "source": 1, "addedAt": 1, "updatedAt": 1, "trending": 1, "offer": 1, "badge": 1, "rating": 1, "reviews": 1, "sizes": 1, "options": 1}
+        custom_items = list(store.admin_products.find(custom_query, custom_fields).sort([("title", 1), ("_id", 1)]).skip(custom_offset).limit(custom_take))
+        for item in custom_items:
+            item["addedAt"] = item.get("addedAt") or (item.get("_id").generation_time.isoformat() if getattr(item.get("_id"), "generation_time", None) else None)
+            item.pop("_id", None)
+            products.append(item)
+        next_offset = offset + len(shopbase_items) + len(custom_items)
+        products.sort(key=lambda item: str(item.get("title", "")).casefold())
+        return {"products": products, "hasMore": next_offset < shopbase_count + custom_count, "nextOffset": next_offset, "total": shopbase_count + custom_count}
     fields = {"_id": 1, "sourceId": 1, "title": 1, "category": 1, "categorySourceId": 1, "parentCategory": 1, "parentCategoryId": 1, "price": 1, "suggestedRetailPrice": 1, "wholesalePrice": 1, "compareAt": 1, "image": 1, "stock": 1, "active": 1, "source": 1, "addedAt": 1, "updatedAt": 1, "trending": 1, "offer": 1, "badge": 1, "rating": 1, "reviews": 1, "sizes": 1, "options": 1}
     overrides = {item["id"]: item for item in store.admin_products.find({"source": "shopbase"}, {"_id": 0})}
     products = []
