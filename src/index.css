@@ -4064,9 +4064,16 @@ svg.availability-check-spinner,
 
 /* Widen only the desktop viewport so the 16:7 banner art stays fully visible. */
 @media (min-width: 901px) {
-  .hero.page-width { width: min(1600px, calc(100% - 48px)); }
-  .hero-art { height: clamp(600px, 54vw, 780px); }
-  .hero-art .hero-carousel-card.hero-carousel-image-0 { width: 92%; }
+  .hero.page-width { width: min(1440px, calc(100% - 64px)); }
+  .hero-art { height: auto; aspect-ratio: 16 / 7; }
+  .hero-art .hero-carousel-card.hero-carousel-image-0 {
+    top: 50%;
+    width: 88%;
+    height: auto;
+    aspect-ratio: 16 / 7;
+    transform: translate(-50%, -50%);
+  }
+  .hero.page-width > .hero-carousel-dots { margin-top: -30px; }
 }
 
 /* Keep every carousel slide on the same frame; animate position only. */
