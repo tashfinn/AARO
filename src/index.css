@@ -4178,6 +4178,7 @@ svg.availability-check-spinner,
   border-radius: 18px;
   transform-style: flat;
   clip-path: inset(0 round 18px);
+  -webkit-mask-image: -webkit-radial-gradient(white, black);
 }
 .hero-art .hero-carousel-card .hero-photo-frame,
 .hero-art .hero-carousel-card picture,
@@ -4186,11 +4187,16 @@ svg.availability-check-spinner,
   border-radius: inherit;
 }
 .hero-art .hero-carousel-active .hero-carousel-photo {
-  object-fit: contain;
-  background: #18231f;
+  object-fit: cover;
+  background: transparent;
+}
+.hero-art .hero-carousel-card.hero-carousel-image-0 {
+  height: 88%;
+  aspect-ratio: 16 / 7;
 }
 @media (max-width: 600px) {
-  .hero-art .hero-carousel-card { border-radius: 14px; clip-path: inset(0 round 14px); }
+  .hero-art { height: clamp(360px, 110vw, 470px); }
+  .hero-art .hero-carousel-card { border-radius: 16px; clip-path: inset(0 round 16px); }
   .hero-art .hero-carousel-card,
   .hero-art .hero-carousel-card .hero-photo-frame,
   .hero-art .hero-carousel-card picture,
@@ -4210,20 +4216,24 @@ svg.availability-check-spinner,
     top: 50%;
     left: 6%;
     width: 88%;
-    height: 88%;
-    border-radius: 14px;
-    clip-path: inset(0 round 14px);
+    height: auto;
+    aspect-ratio: 4 / 5;
+    border-radius: 16px;
+    clip-path: inset(0 round 16px);
     transform-origin: center;
     transition: transform .55s cubic-bezier(.2,.7,.2,1), opacity .25s ease, visibility 0s linear .55s;
   }
   .hero-art .hero-carousel-card.hero-carousel-image-0 {
+    aspect-ratio: 4 / 5;
     transform: translate3d(0,-50%,0);
   }
   .hero-art .hero-carousel-card.hero-carousel-image-1 {
-    transform: translate3d(16.8%,-50%,0) scale(.9);
+    left: 16.4%;
+    transform: translateY(-50%) scale(.9);
   }
   .hero-art .hero-carousel-card.hero-carousel-image-2 {
-    transform: translate3d(-6.8%,-50%,0) scale(.9);
+    left: -4.4%;
+    transform: translateY(-50%) scale(.9);
   }
   .hero-art .hero-carousel-card.hero-carousel-image-3 {
     transform: translate3d(0,-50%,0) scale(.84);
@@ -4232,7 +4242,7 @@ svg.availability-check-spinner,
   .hero-art .hero-carousel-card picture,
   .hero-art .hero-carousel-card .hero-carousel-photo { border-radius: inherit; }
   .hero-art .hero-carousel-photo { object-fit: cover; }
-  .hero-art .hero-carousel-active .hero-carousel-photo { object-fit: contain; }
+  .hero-art .hero-carousel-active .hero-carousel-photo { object-fit: cover; }
 }
 
 /* Loading UI must keep moving for the full time its loading state is visible. */
