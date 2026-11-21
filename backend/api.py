@@ -249,26 +249,6 @@ def db():
         _client = MongoClient(uri, serverSelectionTimeoutMS=5000)
     return _client[os.getenv("MONGODB_DATABASE", "aaro")]
 
-@app.on_event("startup")
-def ensure_storefront_query_indexes():
-    """Keep public catalog lookups bounded as the product/view collections grow."""
-    try:
-        store = db()
-        # The product sync already creates the partial sourceId index; ensure it
-        # exists for deployments whose database predates that sync behavior.
-        store.products.create_index(
-            [("sourceId", 1)],
-            unique=True,
-            partialFilterExpression={"source": "shopbase"},
-            name="sourceId_1",
-        )
-        store.admin_products.create_index([("source", 1)], name="catalog_admin_source")
-        store.product_views.create_index([("productId", 1)], name="catalog_views_product")
-    except Exception:
-        # Index setup must not prevent the API from starting; the request path
-        # still remains correct if MongoDB temporarily refuses index changes.
-        logging.exception("Could not ensure storefront query indexes")
-
 def _password_hash(password: str, salt: bytes | None = None) -> str:
     salt = salt or secrets.token_bytes(16)
     digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, PASSWORD_ROUNDS)
@@ -1076,9 +1056,9 @@ def _shopbase_effective_price(source: dict[str, Any] | None, override: dict[str,
         discounted = None
     return discounted if discounted is not None and 0 <= discounted < original else original
 
-def _category_groups_for_store(store, *, settings=None, categories=None, product_counts=None):
-    settings = settings if settings is not None else (store.store_settings.find_one({"_id": "storefront"}) or {})
-    categories = categories if categories is not None else list(store.categories.find({"source": "shopbase", "type": {"$ne": "parent"}}, {"_id": 0, "sourceId": 1, "name": 1, "parentId": 1, "parentName": 1, "sortOrder": 1, "sourceOrder": 1}))
+def _category_groups_for_store(store):
+    settings = store.store_settings.find_one({"_id": "storefront"}) or {}
+    categories = list(store.categories.find({"source": "shopbase", "type": {"$ne": "parent"}}, {"_id": 0, "sourceId": 1, "name": 1, "parentId": 1, "parentName": 1, "sortOrder": 1, "sourceOrder": 1}))
     if categories and all(item.get("sourceOrder") is not None for item in categories):
         categories.sort(key=lambda item: item["sourceOrder"])
     live_groups = category_group_payload(categories)
@@ -1107,11 +1087,10 @@ def _category_groups_for_store(store, *, settings=None, categories=None, product
     merged.extend(group for group in live_groups if group["id"] not in saved_ids)
     # ShopBase can expose a duplicate subcategory ID with the same visible
     # name. Keep the populated source category and drop an empty duplicate.
-    if product_counts is None:
-        product_counts = {str(row["_id"]): row["count"] for row in store.products.aggregate([
-            {"$match": {"source": "shopbase", "categorySourceId": {"$exists": True, "$ne": None}}},
-            {"$group": {"_id": {"$toString": "$categorySourceId"}, "count": {"$sum": 1}}},
-        ])}
+    product_counts = {str(row["_id"]): row["count"] for row in store.products.aggregate([
+        {"$match": {"source": "shopbase", "categorySourceId": {"$exists": True, "$ne": None}}},
+        {"$group": {"_id": {"$toString": "$categorySourceId"}, "count": {"$sum": 1}}},
+    ])}
     for group in merged:
         children = group.get("children", [])
         by_name = {}
@@ -1467,14 +1446,7 @@ def catalog(response: Response):
         override_fields = {"_id": 0, "id": 1, "active": 1, "title": 1, "category": 1, "image": 1, "images": {"$slice": 1}, "stock": 1, "trending": 1, "offer": 1, "badge": 1, "categorySourceId": 1, "parentCategory": 1, "parentCategoryId": 1, "originalPrice": 1, "discountedPrice": 1, "compareAt": 1, "price": 1}
         overrides = {item["id"]: item for item in store.admin_products.find({"source": "shopbase"}, override_fields)}
         products = []
-        product_counts = {}
-        # ShopBase products have a partial unique index on sourceId. Requiring
-        # that indexed field avoids scanning unrelated documents in products.
-        for item in store.products.find({"source": "shopbase", "sourceId": {"$exists": True}}, fields).limit(20000):
-            category_source_id = item.get("categorySourceId")
-            if category_source_id is not None:
-                key = str(category_source_id)
-                product_counts[key] = product_counts.get(key, 0) + 1
+        for item in store.products.find({"source": "shopbase"}, fields).limit(20000):
             product_id = _catalog_product_id(item)
             override = overrides.get(product_id)
             if override and override.get("active") is False:
@@ -1486,21 +1458,14 @@ def catalog(response: Response):
         products.extend(public_product(item) for item in store.admin_products.find({"source": "custom", "active": True}, {"_id": 0}).limit(20000))
         products = [product for product in products if product.get("active", True)]
         products.sort(key=lambda item: str(item.get("title", "")).casefold())
-        product_ids = [item["id"] for item in products if item.get("id")]
-        view_counts = {
-            item["productId"]: int(item.get("views", 0))
-            for item in store.product_views.find(
-                {"productId": {"$in": product_ids}},
-                {"_id": 0, "productId": 1, "views": 1},
-            )
-        } if product_ids else {}
+        view_counts = {item["productId"]: int(item.get("views", 0)) for item in store.product_views.find({}, {"_id": 0, "productId": 1, "views": 1})}
         categories = list(store.categories.find({"source": "shopbase", "type": {"$ne": "parent"}}, {"_id": 0, "sourceId": 1, "name": 1, "parentId": 1, "parentName": 1, "sortOrder": 1, "sourceOrder": 1}))
         # The supplier's catalog order is the tie-breaker for same-named child
         # categories (e.g. Denim Jacket under two parent collections).
         if categories and all(item.get("sourceOrder") is not None for item in categories):
             categories.sort(key=lambda item: item["sourceOrder"])
+        groups, _ = _category_groups_for_store(store)
         settings = store.store_settings.find_one({"_id": "storefront"}) or {}
-        groups, _ = _category_groups_for_store(store, settings=settings, categories=categories, product_counts=product_counts)
         all_manual_categories = settings.get("manualCategories", [])
         manual_visibility = settings.get("manualCategoryVisibility", {}) if isinstance(settings.get("manualCategoryVisibility", {}), dict) else {}
         manual_categories = [name for name in all_manual_categories if manual_visibility.get(name, True) is not False]
