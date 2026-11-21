@@ -4073,7 +4073,7 @@ svg.availability-check-spinner,
     aspect-ratio: 16 / 7;
     transform: translate(-50%, -50%);
   }
-  .hero.page-width > .hero-carousel-dots { margin-top: -30px; }
+  .hero.page-width > .hero-carousel-dots { margin-top: -48px; }
 }
 
 /* Keep every carousel slide on the same frame; animate position only. */
