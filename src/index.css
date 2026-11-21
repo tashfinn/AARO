@@ -4175,9 +4175,9 @@ svg.availability-check-spinner,
    in Chromium for the partially visible side banners too. */
 .hero-art .hero-carousel-card {
   overflow: hidden;
-  border-radius: 18px;
+  border-radius: 26px;
   transform-style: flat;
-  clip-path: inset(0 round 18px);
+  clip-path: inset(0 round 26px);
   -webkit-mask-image: -webkit-radial-gradient(white, black);
 }
 .hero-art .hero-carousel-card .hero-photo-frame,
@@ -4191,17 +4191,21 @@ svg.availability-check-spinner,
   background: transparent;
 }
 .hero-art .hero-carousel-card.hero-carousel-image-0 {
-  height: 88%;
+  width: 92%;
+  height: 92%;
   aspect-ratio: 16 / 7;
+}
+@media (min-width: 901px) {
+  .hero.page-width { width: min(1600px, calc(100% - 48px)); }
 }
 @media (max-width: 600px) {
   .hero-art { height: clamp(360px, 110vw, 470px); }
-  .hero-art .hero-carousel-card { border-radius: 16px; clip-path: inset(0 round 16px); }
+  .hero-art .hero-carousel-card { border-radius: 20px; clip-path: inset(0 round 20px); }
   .hero-art .hero-carousel-card,
   .hero-art .hero-carousel-card .hero-photo-frame,
   .hero-art .hero-carousel-card picture,
   .hero-art .hero-carousel-card .hero-carousel-photo {
-    border-radius: 14px;
+    border-radius: 20px;
   }
 }
 
@@ -4218,8 +4222,8 @@ svg.availability-check-spinner,
     width: 88%;
     height: auto;
     aspect-ratio: 4 / 5;
-    border-radius: 16px;
-    clip-path: inset(0 round 16px);
+    border-radius: 20px;
+    clip-path: inset(0 round 20px);
     transform-origin: center;
     transition: transform .55s cubic-bezier(.2,.7,.2,1), opacity .25s ease, visibility 0s linear .55s;
   }
