@@ -4230,3 +4230,9 @@ svg.availability-check-spinner,
     transform: scale(1.035);
   }
 }
+
+/* Make the active product selling price easy to see. */
+.storefront .detail-price { gap: 12px; font-size: clamp(30px, 3vw, 40px); line-height: 1.15; flex-wrap: wrap; }
+.storefront .detail-price del { font-size: 20px; }
+.storefront .detail-price small { padding: 5px 8px; font-size: 11px; }
+@media (max-width: 600px) { .storefront .detail-price { font-size: 32px; } .storefront .detail-price del { font-size: 18px; } }
