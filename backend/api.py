@@ -1469,13 +1469,12 @@ def catalog(response: Response):
         overrides = {item["id"]: item for item in store.admin_products.find({"source": "shopbase"}, override_fields)}
         products = []
         product_counts = {}
-        # Ignore old inventory in MongoDB itself instead of downloading it and
-        # filtering it after the database cursor is exhausted. Missing `active`
-        # fields are treated as active for older catalog records.
+        # Ignore inactive/out-of-stock inventory in MongoDB itself instead of
+        # downloading it and filtering it after the database cursor is exhausted.
         for item in store.products.find({
             "source": "shopbase",
             "sourceId": {"$exists": True},
-            "active": {"$ne": False},
+            "active": True,
         }, fields).limit(20000):
             category_source_id = item.get("categorySourceId")
             if category_source_id is not None:
