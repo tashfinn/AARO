@@ -1517,7 +1517,6 @@ def catalog(
         if not include_meta:
             response.headers["Cache-Control"] = "public, max-age=30, stale-while-revalidate=120"
             return payload
-        view_counts = {item["productId"]: int(item.get("views", 0)) for item in store.product_views.find({}, {"_id": 0, "productId": 1, "views": 1}).sort("views", -1).limit(1000)}
         categories = list(store.categories.find({"source": "shopbase", "type": {"$ne": "parent"}}, {"_id": 0, "sourceId": 1, "name": 1, "parentId": 1, "parentName": 1, "sortOrder": 1, "sourceOrder": 1}))
         if categories and all(item.get("sourceOrder") is not None for item in categories):
             categories.sort(key=lambda item: item["sourceOrder"])
@@ -1529,8 +1528,14 @@ def catalog(
         visible_sources = {str(child.get("sourceId")) for group in groups if group.get("showInStorefront", True) is not False for child in group.get("children", []) if child.get("showInStorefront", True) is not False and child.get("sourceId")}
         visible_shopbase_categories = [item["name"] for item in categories if str(item.get("sourceId", "")) in visible_sources]
         latest = store.sync_runs.find_one({"status": {"$in": ["success", "success_with_skipped_details"]}}, {"_id": 0}, sort=[("finishedAt", -1)])
+        content = settings.get("content")
+        if isinstance(content, dict):
+            # Hero images and product view counts have dedicated endpoints.
+            # Sending them with the catalog made the first response several
+            # megabytes and blocked product rendering on mobile connections.
+            content = {key: value for key, value in content.items() if key != "heroSlides"}
         response.headers["Cache-Control"] = "public, max-age=30, stale-while-revalidate=120"
-        return {**payload, "categories": list(dict.fromkeys(visible_shopbase_categories + manual_categories)), "categoryGroups": groups, "categoryGroupsManaged": isinstance(settings.get("categoryGroups"), list), "manualCategories": all_manual_categories, "manualCategoryVisibility": manual_visibility, "manualCategoriesManaged": isinstance(settings.get("manualCategories"), list), "content": settings.get("content"), "lastSync": (latest or {}).get("finishedAt"), "productViewCounts": view_counts}
+        return {**payload, "categories": list(dict.fromkeys(visible_shopbase_categories + manual_categories)), "categoryGroups": groups, "categoryGroupsManaged": isinstance(settings.get("categoryGroups"), list), "manualCategories": all_manual_categories, "manualCategoryVisibility": manual_visibility, "manualCategoriesManaged": isinstance(settings.get("manualCategories"), list), "content": content, "lastSync": (latest or {}).get("finishedAt")}
     except HTTPException:
         raise
     except Exception:
