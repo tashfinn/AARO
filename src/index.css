@@ -4168,13 +4168,64 @@ svg.availability-check-spinner,
   overflow: hidden;
   border-radius: 18px;
 }
+/* Each slide is its own rounded clipping surface. Keep 3D perspective on the
+   track, but flatten the transformed slide itself so overflow clipping works
+   in Chromium for the partially visible side banners too. */
+.hero-art .hero-carousel-card {
+  overflow: hidden;
+  border-radius: 18px;
+  transform-style: flat;
+  clip-path: inset(0 round 18px);
+}
+.hero-art .hero-carousel-card .hero-photo-frame,
+.hero-art .hero-carousel-card picture,
+.hero-art .hero-carousel-card .hero-carousel-photo {
+  overflow: hidden;
+  border-radius: inherit;
+}
 @media (max-width: 600px) {
+  .hero-art .hero-carousel-card { border-radius: 14px; clip-path: inset(0 round 14px); }
   .hero-art .hero-carousel-card,
   .hero-art .hero-carousel-card .hero-photo-frame,
   .hero-art .hero-carousel-card picture,
   .hero-art .hero-carousel-card .hero-carousel-photo {
     border-radius: 14px;
   }
+}
+
+/* Mobile cards use proportional transforms (not independent X/Y scaling),
+   and deliberate opposing offsets so both preview cards peek evenly. */
+@media (max-width: 600px) {
+  .hero-art .hero-carousel-card,
+  .hero-art .hero-carousel-card.hero-carousel-image-0,
+  .hero-art .hero-carousel-card.hero-carousel-image-1,
+  .hero-art .hero-carousel-card.hero-carousel-image-2,
+  .hero-art .hero-carousel-card.hero-carousel-image-3 {
+    top: 50%;
+    left: 6%;
+    width: 88%;
+    height: 88%;
+    border-radius: 14px;
+    clip-path: inset(0 round 14px);
+    transform-origin: center;
+    transition: transform .55s cubic-bezier(.2,.7,.2,1), opacity .25s ease, visibility 0s linear .55s;
+  }
+  .hero-art .hero-carousel-card.hero-carousel-image-0 {
+    transform: translate3d(0,-50%,0);
+  }
+  .hero-art .hero-carousel-card.hero-carousel-image-1 {
+    transform: translate3d(14%,-50%,-70px) scale(.9);
+  }
+  .hero-art .hero-carousel-card.hero-carousel-image-2 {
+    transform: translate3d(-14%,-50%,-70px) scale(.9);
+  }
+  .hero-art .hero-carousel-card.hero-carousel-image-3 {
+    transform: translate3d(0,-50%,-120px) scale(.84);
+  }
+  .hero-art .hero-carousel-card .hero-photo-frame,
+  .hero-art .hero-carousel-card picture,
+  .hero-art .hero-carousel-card .hero-carousel-photo { border-radius: inherit; }
+  .hero-art .hero-carousel-photo { object-fit: cover; }
 }
 
 /* Loading UI must keep moving for the full time its loading state is visible. */
