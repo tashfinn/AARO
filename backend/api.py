@@ -1774,6 +1774,166 @@ def product_view_counts():
     counts = db().product_views.find({}, {"_id": 0, "productId": 1, "views": 1})
     return {item["productId"]: int(item.get("views", 0)) for item in counts}
 
+@app.get("/api/catalog-priority")
+def catalog_priority(
+    kind: Literal["home", "trending", "offers", "category", "search"],
+    limit: int = Query(default=50, ge=1, le=400),
+    offset: int = Query(default=0, ge=0),
+    category: str | None = None,
+    category_source_id: str | None = None,
+    parent_category_id: str | None = None,
+    search: str | None = None,
+):
+    """Fetch only the products needed for the current storefront view."""
+    store = db()
+    settings = store.store_settings.find_one({"_id": "storefront"}, {"_id": 0, "content.trendingIds": 1, "content.offerIds": 1}) or {}
+    content = settings.get("content") if isinstance(settings.get("content"), dict) else {}
+    explicit_ids: list[str] = []
+    priority_trending_ids: list[str] = []
+    query: dict[str, Any] = {"source": "shopbase", "sourceId": {"$exists": True}, "active": {"$ne": False}}
+
+    if kind in ("home", "trending"):
+        viewed = store.product_views.find({"views": {"$gt": 0}}, {"_id": 0, "productId": 1, "views": 1}).sort([("views", -1), ("productId", 1)]).limit(20)
+        priority_trending_ids.extend(str(item.get("productId", "")) for item in viewed if item.get("productId"))
+        priority_trending_ids.extend(str(item) for item in content.get("trendingIds", []) if isinstance(item, str))
+        priority_trending_ids = list(dict.fromkeys(item for item in priority_trending_ids if item))[:20]
+        if len(priority_trending_ids) < 20:
+            flag_query: dict[str, Any] = {"source": "shopbase", "sourceId": {"$exists": True}, "active": {"$ne": False}, "trending": True}
+            existing_source_ids = {item.removeprefix("shopbase-") for item in priority_trending_ids if item.startswith("shopbase-")}
+            if existing_source_ids:
+                flag_query["sourceId"] = {"$exists": True, "$nin": list(existing_source_ids)}
+            flagged_trending = list(store.products.find(flag_query, {"_id": 0, "sourceId": 1}).limit(20 - len(priority_trending_ids)))
+            priority_trending_ids.extend(f"shopbase-{item['sourceId']}" for item in flagged_trending if item.get("sourceId"))
+        explicit_ids.extend(priority_trending_ids)
+        featured_ids = content.get("offerIds", [])
+        if kind == "home":
+            active_offers = list(store.offers.find({"active": True}, {"_id": 0, "productId": 1, "productIds": 1, "thumbnailProductIds": 1}))
+            for offer in active_offers:
+                explicit_ids.extend(str(item) for item in offer.get("thumbnailProductIds", []) if isinstance(item, str))
+                explicit_ids.extend(str(item) for item in (offer.get("productIds") or ([offer.get("productId")] if offer.get("productId") else [])) if isinstance(item, str))
+            explicit_ids.extend(str(item) for item in featured_ids if isinstance(item, str))
+        else:
+            pass
+    elif kind == "offers":
+        explicit_ids.extend(str(item) for item in content.get("offerIds", []) if isinstance(item, str))
+        for offer in store.offers.find({"active": True}, {"_id": 0, "productId": 1, "productIds": 1, "thumbnailProductIds": 1}):
+            explicit_ids.extend(str(item) for item in offer.get("thumbnailProductIds", []) if isinstance(item, str))
+            explicit_ids.extend(str(item) for item in (offer.get("productIds") or ([offer.get("productId")] if offer.get("productId") else [])) if isinstance(item, str))
+        explicit_ids.extend(_catalog_product_id(item) for item in store.products.find({"source": "shopbase", "active": {"$ne": False}, "offer": True, "sourceId": {"$exists": True}}, {"_id": 0, "source": 1, "sourceId": 1}))
+        explicit_ids.extend(str(item.get("id")) for item in store.admin_products.find({"source": "custom", "active": True, "offer": True}, {"_id": 0, "id": 1}) if item.get("id"))
+    else:
+        if kind == "search" and search:
+            pattern = re.escape(search.strip()[:100])
+            query["$or"] = [{"title": {"$regex": pattern, "$options": "i"}}, {"category": {"$regex": pattern, "$options": "i"}}]
+        elif category_source_id:
+            query["categorySourceId"] = str(category_source_id)
+        elif parent_category_id:
+            query["parentCategoryId"] = str(parent_category_id)
+        elif category:
+            query["category"] = category
+
+    explicit_ids = list(dict.fromkeys(item for item in explicit_ids if item))
+    if kind == "trending":
+        explicit_ids = priority_trending_ids
+    if kind in ("home", "trending") and not explicit_ids:
+        query["trending"] = True
+    if kind == "offers" and not explicit_ids:
+        query["offer"] = True
+    if explicit_ids:
+        selected_ids = explicit_ids[offset:offset + limit]
+        source_ids = [item.removeprefix("shopbase-") for item in selected_ids if item.startswith("shopbase-")]
+        custom_ids = [item for item in selected_ids if not item.startswith("shopbase-")]
+        id_query: dict[str, Any] = {"$or": ([{"sourceId": {"$in": source_ids}}] if source_ids else []) + ([{"id": {"$in": custom_ids}}] if custom_ids else [])}
+        docs = list(store.products.find({**query, **id_query}).limit(limit)) if source_ids else []
+        custom_docs = list(store.admin_products.find({"source": "custom", "active": True, "id": {"$in": custom_ids}}).limit(limit)) if custom_ids else []
+        overrides = {item["id"]: item for item in store.admin_products.find({"source": "shopbase", "id": {"$in": [f"shopbase-{source_id}" for source_id in source_ids]}}, {"_id": 0})} if source_ids else {}
+        products_by_id: dict[str, dict[str, Any]] = {}
+        for item in docs:
+            product = public_product(item)
+            override = overrides.get(product["id"])
+            if not override or override.get("active") is not False:
+                products_by_id[product["id"]] = _apply_shopbase_override(product, override) if override else product
+        for item in custom_docs:
+            product = public_product(item)
+            products_by_id[product["id"]] = product
+        products = [products_by_id[item] for item in selected_ids if item in products_by_id]
+        total = len(explicit_ids)
+        return {"products": products, "hasMore": offset + len(selected_ids) < total, "nextOffset": offset + len(selected_ids), "total": total, "trendingIds": priority_trending_ids}
+    else:
+        source_fields = {"_id": 0, "sourceId": 1, "title": 1, "category": 1, "categorySourceId": 1, "parentCategory": 1, "parentCategoryId": 1, "price": 1, "suggestedRetailPrice": 1, "image": 1, "stock": 1, "active": 1, "source": 1, "trending": 1, "offer": 1, "badge": 1}
+        custom_query: dict[str, Any] = {"source": "custom", "active": True}
+        if kind == "search" and search:
+            pattern = re.escape(search.strip()[:100])
+            custom_query["$or"] = [{"title": {"$regex": pattern, "$options": "i"}}, {"category": {"$regex": pattern, "$options": "i"}}]
+        elif category_source_id:
+            custom_query["categorySourceId"] = str(category_source_id)
+        elif parent_category_id:
+            custom_query["parentCategoryId"] = str(parent_category_id)
+        elif category:
+            custom_query["category"] = category
+        shopbase_count = store.products.count_documents(query)
+        custom_count = store.admin_products.count_documents(custom_query)
+        shopbase_offset = min(offset, shopbase_count)
+        shopbase_take = min(limit, max(0, shopbase_count - shopbase_offset))
+        docs = list(store.products.find(query, source_fields).sort([("_id", 1)]).skip(shopbase_offset).limit(shopbase_take))
+        source_ids = [_catalog_product_id(item) for item in docs]
+        overrides = {item["id"]: item for item in store.admin_products.find({"source": "shopbase", "id": {"$in": source_ids}}, {"_id": 0})} if source_ids else {}
+        products = []
+        for item in docs:
+            product = public_product(item)
+            override = overrides.get(product["id"])
+            if not override or override.get("active") is not False:
+                products.append(_apply_shopbase_override(product, override) if override else product)
+        custom_offset = max(0, offset - shopbase_count)
+        custom_take = max(0, limit - len(products))
+        custom_docs = list(store.admin_products.find(custom_query, {"_id": 0}).sort([("_id", 1)]).skip(custom_offset).limit(custom_take))
+        products.extend(public_product(item) for item in custom_docs)
+        next_offset = offset + len(products)
+        if kind in ("home", "trending") and not priority_trending_ids:
+            priority_trending_ids = [product["id"] for product in products if product.get("trending")][:20]
+        return {"products": products, "hasMore": next_offset < shopbase_count + custom_count, "nextOffset": next_offset, "total": shopbase_count + custom_count, "trendingIds": priority_trending_ids}
+
+    total = len(products)
+    sliced = products[offset:offset + limit]
+    return {"products": sliced, "hasMore": offset + len(sliced) < total, "nextOffset": offset + len(sliced), "total": total}
+
+@app.get("/api/admin/catalog-summary")
+def admin_catalog_summary(authorization: str | None = Header(default=None)):
+    _admin_from_auth(authorization)
+    store = db()
+    latest = store.sync_runs.find_one({"status": {"$in": ["success", "success_with_skipped_details"]}}, {"_id": 0}, sort=[("finishedAt", -1)])
+    category_counts: dict[str, int] = {}
+    try:
+        groups = store.products.aggregate([
+            {"$match": {"source": "shopbase"}},
+            {"$group": {"_id": {"sourceId": "$categorySourceId", "name": "$category"}, "count": {"$sum": 1}}},
+        ])
+        for group in groups:
+            key = group.get("_id") or {}
+            if key.get("sourceId"):
+                category_counts[str(key["sourceId"])] = category_counts.get(str(key["sourceId"]), 0) + int(group.get("count", 0))
+            if key.get("name"):
+                name = str(key["name"]).strip().casefold()
+                category_counts[name] = category_counts.get(name, 0) + int(group.get("count", 0))
+        for group in store.admin_products.aggregate([
+            {"$match": {"source": "custom"}},
+            {"$group": {"_id": {"sourceId": "$categorySourceId", "name": "$category"}, "count": {"$sum": 1}}},
+        ]):
+            key = group.get("_id") or {}
+            if key.get("sourceId"):
+                category_counts[str(key["sourceId"])] = category_counts.get(str(key["sourceId"]), 0) + int(group.get("count", 0))
+            if key.get("name"):
+                name = str(key["name"]).strip().casefold()
+                category_counts[name] = category_counts.get(name, 0) + int(group.get("count", 0))
+    except Exception:
+        logging.exception("Could not calculate category product counts")
+    return {
+        "importedProducts": store.products.count_documents({"source": "shopbase"}),
+        "customProducts": store.admin_products.count_documents({"source": "custom"}),
+        "lastSync": (latest or {}).get("finishedAt"),
+        "categoryCounts": category_counts,
+    }
+
 @app.get("/api/products/{source_id}")
 def product_details(source_id: str):
     try:

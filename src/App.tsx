@@ -470,6 +470,12 @@ export default function App() {
   const [adminSessionChecking, setAdminSessionChecking] = useState(() => window.location.pathname === '/admin' && Boolean(readAdminToken()) && Boolean(API_BASE))
   const [adminProductList, setAdminProductList] = useState<Product[]>([])
   const [adminProductsLoading, setAdminProductsLoading] = useState(false)
+  const [adminProductsMoreLoading, setAdminProductsMoreLoading] = useState(false)
+  const [adminProductsHasMore, setAdminProductsHasMore] = useState(false)
+  const [adminProductsNextOffset, setAdminProductsNextOffset] = useState(0)
+  const [adminProductsTotal, setAdminProductsTotal] = useState(0)
+  const [adminImportedCount, setAdminImportedCount] = useState<number | null>(null)
+  const [adminCategoryProductCounts, setAdminCategoryProductCounts] = useState<Record<string, number>>({})
   const [darkTheme, setDarkTheme] = useState(() => localStorage.getItem(THEME_KEY) === 'dark')
   const [toast, setToast] = useState('')
   const [admin, setAdmin] = useState(false)
@@ -506,6 +512,9 @@ export default function App() {
   const [catalogError, setCatalogError] = useState(false)
   const [productViewCounts, setProductViewCounts] = useState<Record<string, number>>({})
   const [catalogRefreshTick, setCatalogRefreshTick] = useState(0)
+  const [priorityTrendingIds, setPriorityTrendingIds] = useState<string[]>([])
+  const catalogMetadataLoaded = useRef(false)
+  const backgroundCatalogStarted = useRef(false)
   const [importNote, setImportNote] = useState('')
   const searchRef = useRef<HTMLInputElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -701,114 +710,201 @@ export default function App() {
     return () => { current = false }
   }, [adminRoute, adminToken])
   useEffect(() => {
-    if (!admin || !adminToken || !API_BASE) return
+    if (!admin || !adminToken || !API_BASE || !['offers', 'orders', 'sync', 'categories', 'content'].includes(adminTab)) return
     let current = true
     const headers: RequestInit = { cache: 'no-store', headers: { Authorization: `Bearer ${adminToken}` } }
-    Promise.all([fetch(`${API_BASE}/api/admin/coupons`, headers), fetch(`${API_BASE}/api/admin/orders`, headers), fetch(`${API_BASE}/api/admin/offers`, headers)])
-      .then(async ([couponsResponse, ordersResponse, offersResponse]) => {
-        const [coupons, orders, offers] = await Promise.all([couponsResponse.json(), ordersResponse.json(), offersResponse.json()]) as [unknown, unknown, unknown]
-        if (!current) return
-        setState((previous) => ({ ...previous,
-          ...(couponsResponse.ok && Array.isArray(coupons) ? { coupons: coupons as Coupon[] } : {}),
-          ...(ordersResponse.ok && Array.isArray(orders) ? { orders: orders as Order[] } : {}),
-          ...(offersResponse.ok && Array.isArray(offers) ? { offers: offers as OfferDeal[] } : {}),
-        }))
-        if (![couponsResponse, ordersResponse, offersResponse].every((response) => response.ok)) notify('Some admin data could not be refreshed. Your session is still active.')
-      })
-      .catch(() => { if (current) notify('Admin data could not be reached. Your session is still active.') })
+    const jobs: Promise<void>[] = []
+    if (adminTab === 'offers') jobs.push(fetch(`${API_BASE}/api/catalog-priority?kind=offers&limit=400`, { cache: 'no-store' }).then(async (response) => {
+      const result = await response.json() as { products?: unknown }
+      if (!current || !response.ok || !Array.isArray(result.products)) return
+      const offerProducts = result.products.filter((item): item is Product => Boolean(item && typeof item === 'object' && 'id' in item && typeof item.id === 'string' && 'title' in item && typeof item.title === 'string' && 'category' in item && typeof item.category === 'string' && 'image' in item && typeof item.image === 'string' && 'price' in item && Number.isFinite(item.price))).map((product) => ({ ...product, source: product.source === 'custom' ? 'custom' as const : 'shopbase' as const }))
+      setState((previous) => ({ ...previous, products: [...new Map([...previous.products, ...offerProducts].map((product) => [product.id, product])).values()].sort((a, b) => a.title.localeCompare(b.title)) }))
+    }))
+    if (adminTab === 'offers') jobs.push(Promise.all([fetch(`${API_BASE}/api/admin/coupons`, headers), fetch(`${API_BASE}/api/admin/offers`, headers)]).then(async ([couponResponse, offerResponse]) => {
+      const [coupons, offers] = await Promise.all([couponResponse.json(), offerResponse.json()]) as [unknown, unknown]
+      if (!current) return
+      setState((previous) => ({ ...previous, ...(couponResponse.ok && Array.isArray(coupons) ? { coupons: coupons as Coupon[] } : {}), ...(offerResponse.ok && Array.isArray(offers) ? { offers: offers as OfferDeal[] } : {}) }))
+      if (!couponResponse.ok || !offerResponse.ok) notify('Offers or coupons could not be refreshed. Your session is still active.')
+    }))
+    if (adminTab === 'orders') jobs.push(fetch(`${API_BASE}/api/admin/orders`, headers).then(async (response) => {
+      const orders: unknown = await response.json()
+      if (!current) return
+      if (response.ok && Array.isArray(orders)) setState((previous) => ({ ...previous, orders: orders as Order[] }))
+      else notify('Orders could not be refreshed. Your session is still active.')
+    }))
+    if (adminTab === 'content') jobs.push(fetch(`${API_BASE}/api/admin/storefront`, headers).then(async (response) => {
+      const result = await response.json() as { content?: unknown; categoryGroups?: unknown; manualCategories?: unknown; manualCategoryVisibility?: unknown }
+      if (!current || !response.ok) return
+      if (result.content && typeof result.content === 'object' && !Array.isArray(result.content)) setState((previous) => ({ ...previous, content: { ...previous.content, ...(result.content as Partial<StoreContent>) } }))
+      if (Array.isArray(result.categoryGroups)) setCategoryGroups(result.categoryGroups.filter((group): group is CategoryGroup => Boolean(group && typeof group.id === 'string' && typeof group.name === 'string' && Array.isArray(group.children))))
+      if (Array.isArray(result.manualCategories)) setManualCategories(result.manualCategories.filter((name): name is string => typeof name === 'string'))
+      if (result.manualCategoryVisibility && typeof result.manualCategoryVisibility === 'object' && !Array.isArray(result.manualCategoryVisibility)) setManualCategoryVisibility(Object.fromEntries(Object.entries(result.manualCategoryVisibility).filter((item): item is [string, boolean] => typeof item[1] === 'boolean')))
+    }))
+    if (adminTab === 'sync' || adminTab === 'categories') jobs.push(fetch(`${API_BASE}/api/admin/catalog-summary`, headers).then(async (response) => {
+      const result = await response.json() as { importedProducts?: unknown; categoryCounts?: unknown }
+      if (current && response.ok && Number.isFinite(result.importedProducts) && adminTab === 'sync') setAdminImportedCount(Number(result.importedProducts))
+      if (current && response.ok && result.categoryCounts && typeof result.categoryCounts === 'object' && !Array.isArray(result.categoryCounts)) setAdminCategoryProductCounts(Object.fromEntries(Object.entries(result.categoryCounts).filter((item): item is [string, number] => typeof item[1] === 'number' && Number.isFinite(item[1]))))
+    }))
+    Promise.all(jobs).catch(() => { if (current) notify('This admin section could not be reached. Your session is still active.') })
     return () => { current = false }
-  }, [admin, adminToken])
+  }, [admin, adminTab, adminToken, catalogRefreshTick])
+  async function loadAdminProductPage(offset: number, append: boolean) {
+    if (!API_BASE || !adminToken || (append && adminProductsMoreLoading)) return
+    append ? setAdminProductsMoreLoading(true) : setAdminProductsLoading(true)
+    try {
+      const response = await fetch(`${API_BASE}/api/admin/products?offset=${offset}&limit=50`, { cache: 'no-store', headers: { Authorization: `Bearer ${adminToken}` } })
+      const result = await response.json()
+      if (!response.ok) throw new Error(result.detail || 'Could not load the product catalog.')
+      const page = Array.isArray(result) ? { products: result, hasMore: false, nextOffset: result.length, total: result.length } : result as { products?: unknown; hasMore?: boolean; nextOffset?: number; total?: number }
+      const products = Array.isArray(page.products) ? page.products.filter((item): item is Product => Boolean(item && typeof item.id === 'string' && typeof item.title === 'string' && typeof item.category === 'string' && typeof item.image === 'string' && Number.isFinite(item.price))) : []
+      setAdminProductList((existing) => {
+        const ids = new Set(append ? existing.map((product) => product.id) : [])
+        return [...(append ? existing : []), ...products.filter((product) => !ids.has(product.id))].sort((a, b) => a.title.localeCompare(b.title))
+      })
+      setAdminProductsNextOffset(Number.isInteger(page.nextOffset) ? page.nextOffset! : offset + products.length)
+      setAdminProductsHasMore(Boolean(page.hasMore))
+      if (Number.isFinite(page.total)) setAdminProductsTotal(Number(page.total))
+    } catch (error) { notify(error instanceof Error ? error.message : 'Could not load the product catalog.') }
+    finally { append ? setAdminProductsMoreLoading(false) : setAdminProductsLoading(false) }
+  }
   useEffect(() => {
     if (!admin || !adminToken || !API_BASE || !['products', 'categories'].includes(adminTab)) return
-    let current = true
     setAdminProductsLoading(true)
     setAdminProductList([])
-    const loadAdminProducts = async () => {
-      let nextOffset = 0
-      try {
-        let hasMore = true
-        while (current && hasMore) {
-          const response = await fetch(`${API_BASE}/api/admin/products?offset=${nextOffset}&limit=100`, { cache: 'no-store', headers: { Authorization: `Bearer ${adminToken}` } })
-          const result = await response.json()
-          if (!response.ok) throw new Error(result.detail || 'Could not load the product catalog.')
-          const page = Array.isArray(result) ? { products: result, hasMore: false, nextOffset: result.length } : result as { products?: unknown; hasMore?: boolean; nextOffset?: number }
-          const products = Array.isArray(page.products) ? page.products.filter((item): item is Product => Boolean(item && typeof item.id === 'string' && typeof item.title === 'string' && typeof item.category === 'string' && typeof item.image === 'string' && Number.isFinite(item.price))) : []
-          if (current && products.length) setAdminProductList((existing) => {
-            const ids = new Set(existing.map((product) => product.id))
-            return [...existing, ...products.filter((product) => !ids.has(product.id))].sort((a, b) => a.title.localeCompare(b.title))
-          })
-          nextOffset = Number.isInteger(page.nextOffset) ? page.nextOffset! : nextOffset + products.length
-          hasMore = Boolean(page.hasMore)
-        }
-      } catch (error) { if (current) notify(error instanceof Error ? error.message : 'Could not load the product catalog.') }
-      finally { if (current) setAdminProductsLoading(false) }
-    }
-    void loadAdminProducts()
-    return () => { current = false }
+    setAdminProductsHasMore(false)
+    setAdminProductsNextOffset(0)
+    setAdminProductsTotal(0)
+    void loadAdminProductPage(0, false)
   }, [admin, adminTab, adminToken])
   useEffect(() => {
+    if (adminRoute || admin) { setCatalogLoading(false); return }
     const apiUrl = import.meta.env.VITE_API_URL?.replace(/\/$/, '')
     if (!apiUrl) {
       if (import.meta.env.PROD) {
         setCatalogError(true)
-        setState((current) => ({ ...current, products: current.products.filter((product) => product.source === 'shopbase') }))
-        setCatalogLoading(false)
+        setState((current) => ({ ...current, products: current.products.filter((product) => product.source === 'custom') }))
       }
+      setCatalogLoading(false)
       return
     }
-    setCatalogLoading(true)
     let cancelled = false
+    let offersCurrent = true
+    let offersLoaded = false
+    const mergeProducts = (items: Product[]) => {
+      if (!items.length) return
+      setState((current) => {
+        const byId = new Map(current.products.map((product) => [product.id, product]))
+        for (const product of items) byId.set(product.id, { ...byId.get(product.id), ...product })
+        const merged = [...byId.values()]
+        return { ...current, products: merged.sort((a, b) => a.title.localeCompare(b.title)) }
+      })
+    }
+    const parseProducts = (value: unknown) => Array.isArray(value) ? value.filter((item): item is Product => Boolean(item && typeof item.id === 'string' && typeof item.title === 'string' && typeof item.category === 'string' && typeof item.image === 'string' && Number.isFinite(item.price))).map((product) => ({ ...product, source: product.source === 'custom' ? 'custom' as const : 'shopbase' as const })) : []
+    setCatalogLoading(true)
     const loadCatalog = async () => {
-      let nextOffset = 0
-      let firstPage = true
       try {
-        while (!cancelled) {
-          const response = await fetch(`${apiUrl}/api/catalog-page?offset=${nextOffset}&limit=400&include_meta=${firstPage}`)
-          if (!response.ok) throw new Error(`Catalog API returned ${response.status}`)
-          const catalog = await response.json() as { products?: unknown; hasMore?: boolean; nextOffset?: number; categories?: unknown; categoryGroups?: unknown; categoryGroupsManaged?: boolean; manualCategories?: unknown; manualCategoryVisibility?: unknown; manualCategoriesManaged?: boolean; content?: unknown; lastSync?: string; productViewCounts?: unknown }
+        if (!catalogMetadataLoaded.current || catalogRefreshTick > 0) {
+          const response = await fetch(`${apiUrl}/api/catalog-page?offset=0&limit=1&include_meta=true`)
+          if (!response.ok) throw new Error(`Catalog metadata returned ${response.status}`)
+          const catalog = await response.json() as { categories?: unknown; categoryGroups?: unknown; categoryGroupsManaged?: boolean; manualCategories?: unknown; manualCategoryVisibility?: unknown; manualCategoriesManaged?: boolean; content?: unknown; lastSync?: string; productViewCounts?: unknown }
           if (cancelled) return
-          const catalogProducts = Array.isArray(catalog.products) ? catalog.products.filter((item): item is Product => Boolean(item && typeof item.id === 'string' && typeof item.title === 'string' && typeof item.category === 'string' && typeof item.image === 'string' && typeof item.description === 'string' && Number.isFinite(item.price))).map((product) => ({ ...product, source: product.source === 'custom' ? 'custom' as const : 'shopbase' as const })) : []
-          if (firstPage) {
-            const catalogCategories = Array.isArray(catalog.categories) ? catalog.categories.filter((item): item is string => typeof item === 'string') : []
-            const catalogGroups = Array.isArray(catalog.categoryGroups) ? catalog.categoryGroups.filter((group): group is CategoryGroup => Boolean(group && typeof group.id === 'string' && typeof group.name === 'string' && Array.isArray(group.children))).map((group) => ({ ...group, children: group.children.filter((child) => child && typeof child.name === 'string') })) : []
-            const categoryVisibility = catalog.manualCategoryVisibility && typeof catalog.manualCategoryVisibility === 'object' && !Array.isArray(catalog.manualCategoryVisibility) ? Object.fromEntries(Object.entries(catalog.manualCategoryVisibility).filter((entry): entry is [string, boolean] => typeof entry[1] === 'boolean')) : {}
-            setManualCategoryVisibility(categoryVisibility)
-            if (catalog.productViewCounts && typeof catalog.productViewCounts === 'object' && !Array.isArray(catalog.productViewCounts)) setProductViewCounts(Object.fromEntries(Object.entries(catalog.productViewCounts as Record<string, unknown>).filter((entry): entry is [string, number] => typeof entry[1] === 'number' && Number.isFinite(entry[1]) && entry[1] >= 0)))
-            const rawSavedGroups: unknown = JSON.parse(localStorage.getItem(CATEGORY_GROUPS_KEY) || 'null')
-            const savedGroups = Array.isArray(rawSavedGroups) ? rawSavedGroups.filter((group): group is CategoryGroup => Boolean(group && typeof group.id === 'string' && typeof group.name === 'string' && Array.isArray(group.children))) : []
-            setCategoryGroups(catalog.categoryGroupsManaged ? catalogGroups : mergeCategoryGroups(savedGroups, catalogGroups))
-            setState((current) => {
-              const serverProductIds = new Set(catalogProducts.map((product) => product.id))
-              const manual = current.products.filter((product) => product.source === 'custom' && !serverProductIds.has(product.id))
-              const customCategories = current.categories.filter((item) => item !== 'All' && !initialState.categories.includes(item))
-              const serverManualCategories = Array.isArray(catalog.manualCategories) ? catalog.manualCategories.filter((item): item is string => typeof item === 'string') : []
-              const retainedManualCategories = catalog.manualCategoriesManaged ? serverManualCategories : customCategories
-              const content = catalog.content && typeof catalog.content === 'object' && !Array.isArray(catalog.content) ? { ...current.content, ...(catalog.content as Partial<StoreState['content']>) } : current.content
-              if (content.deliveryInDhaka === 60 && content.deliveryOutsideDhaka === 120 && !Number.isFinite((catalog.content as Partial<StoreState['content']> | undefined)?.deliverySubDhaka)) { content.deliveryInDhaka = 70; content.deliverySubDhaka = 100 }
-              return { ...current, products: [...manual, ...catalogProducts].sort((a, b) => a.title.localeCompare(b.title)), categories: [...new Set(['All', ...catalogCategories, ...retainedManualCategories])], content }
-            })
-            setManualCategories(catalog.manualCategoriesManaged && Array.isArray(catalog.manualCategories) ? catalog.manualCategories.filter((item): item is string => typeof item === 'string') : state.categories.filter((item) => item !== 'All' && !initialState.categories.includes(item) && !catalogCategories.includes(item)))
-            if (typeof catalog.lastSync === 'string') { setLastSync(catalog.lastSync); localStorage.setItem('aaro-last-import', catalog.lastSync) }
-            else { setLastSync(''); localStorage.removeItem('aaro-last-import') }
-            firstPage = false
-          } else if (catalogProducts.length) {
-            setState((current) => {
-              const ids = new Set(current.products.map((product) => product.id))
-              return { ...current, products: [...current.products, ...catalogProducts.filter((product) => !ids.has(product.id))].sort((a, b) => a.title.localeCompare(b.title)) }
-            })
-          }
-          nextOffset = Number.isInteger(catalog.nextOffset) ? catalog.nextOffset! : nextOffset + catalogProducts.length
-          if (!catalog.hasMore) break
+          const catalogCategories = Array.isArray(catalog.categories) ? catalog.categories.filter((item): item is string => typeof item === 'string') : []
+          const catalogGroups = Array.isArray(catalog.categoryGroups) ? catalog.categoryGroups.filter((group): group is CategoryGroup => Boolean(group && typeof group.id === 'string' && typeof group.name === 'string' && Array.isArray(group.children))).map((group) => ({ ...group, children: group.children.filter((child) => child && typeof child.name === 'string') })) : []
+          const categoryVisibility = catalog.manualCategoryVisibility && typeof catalog.manualCategoryVisibility === 'object' && !Array.isArray(catalog.manualCategoryVisibility) ? Object.fromEntries(Object.entries(catalog.manualCategoryVisibility).filter((entry): entry is [string, boolean] => typeof entry[1] === 'boolean')) : {}
+          setManualCategoryVisibility(categoryVisibility)
+          if (catalog.productViewCounts && typeof catalog.productViewCounts === 'object' && !Array.isArray(catalog.productViewCounts)) setProductViewCounts(Object.fromEntries(Object.entries(catalog.productViewCounts as Record<string, unknown>).filter((entry): entry is [string, number] => typeof entry[1] === 'number' && Number.isFinite(entry[1]) && entry[1] >= 0)))
+          const rawSavedGroups: unknown = JSON.parse(localStorage.getItem(CATEGORY_GROUPS_KEY) || 'null')
+          const savedGroups = Array.isArray(rawSavedGroups) ? rawSavedGroups.filter((group): group is CategoryGroup => Boolean(group && typeof group.id === 'string' && typeof group.name === 'string' && Array.isArray(group.children))) : []
+          setCategoryGroups(catalog.categoryGroupsManaged ? catalogGroups : mergeCategoryGroups(savedGroups, catalogGroups))
+          setState((current) => {
+            const customCategories = current.categories.filter((item) => item !== 'All' && !initialState.categories.includes(item))
+            const serverManualCategories = Array.isArray(catalog.manualCategories) ? catalog.manualCategories.filter((item): item is string => typeof item === 'string') : []
+            const retainedManualCategories = catalog.manualCategoriesManaged ? serverManualCategories : customCategories
+            const content = catalog.content && typeof catalog.content === 'object' && !Array.isArray(catalog.content) ? { ...current.content, ...(catalog.content as Partial<StoreState['content']>) } : current.content
+            if (content.deliveryInDhaka === 60 && content.deliveryOutsideDhaka === 120 && !Number.isFinite((catalog.content as Partial<StoreState['content']> | undefined)?.deliverySubDhaka)) { content.deliveryInDhaka = 70; content.deliverySubDhaka = 100 }
+            return { ...current, categories: [...new Set(['All', ...catalogCategories, ...retainedManualCategories])], content }
+          })
+          setManualCategories(catalog.manualCategoriesManaged && Array.isArray(catalog.manualCategories) ? catalog.manualCategories.filter((item): item is string => typeof item === 'string') : state.categories.filter((item) => item !== 'All' && !initialState.categories.includes(item) && !catalogCategories.includes(item)))
+          if (typeof catalog.lastSync === 'string') { setLastSync(catalog.lastSync); localStorage.setItem('aaro-last-import', catalog.lastSync) }
+          else { setLastSync(''); localStorage.removeItem('aaro-last-import') }
+          catalogMetadataLoaded.current = true
         }
-        if (!cancelled) setCatalogError(false)
+
+        const isSearch = page === 'shop' && Boolean(submittedQuery.trim())
+        const kind = isSearch ? 'search' : page === 'shop' || page === 'combos' ? 'home' : page === 'trending' ? 'trending' : page === 'offers' ? 'offers' : page === 'category' ? 'category' : null
+        if (page === 'offers' && !offersLoaded) {
+          setOffersLoading(true)
+          const response = await fetch(`${API_BASE}/api/offers`, { cache: 'no-store' })
+          const offers = response.ok ? await response.json() as unknown : []
+          if (!cancelled) setState((current) => ({ ...current, offers: Array.isArray(offers) ? offers as OfferDeal[] : [] }))
+          offersLoaded = true
+          offersCurrent = false
+          setOffersLoading(false)
+        }
+        let targetedNextOffset = 0
+        let targetedHasMore = false
+        if (kind) {
+          const params = new URLSearchParams({ kind, limit: kind === 'home' || kind === 'trending' ? '50' : '400' })
+          if (page === 'category') {
+            if (selectedCategorySourceId) params.set('category_source_id', selectedCategorySourceId)
+            else if (selectedParentCategoryId) params.set('parent_category_id', selectedParentCategoryId)
+            else if (category !== 'All') params.set('category', category)
+          }
+          if (isSearch) params.set('search', submittedQuery.trim())
+          const response = await fetch(`${apiUrl}/api/catalog-priority?${params.toString()}`)
+          if (!response.ok) throw new Error(`Priority product feed returned ${response.status}`)
+          const feed = await response.json() as { products?: unknown; trendingIds?: unknown; hasMore?: boolean; nextOffset?: number }
+          if (cancelled) return
+          const priorityProducts = parseProducts(feed.products)
+          mergeProducts(priorityProducts)
+          if ((kind === 'home' || kind === 'trending') && Array.isArray(feed.trendingIds)) setPriorityTrendingIds(feed.trendingIds.filter((id): id is string => typeof id === 'string').slice(0, 20))
+          targetedNextOffset = Number.isInteger(feed.nextOffset) ? feed.nextOffset! : priorityProducts.length
+          targetedHasMore = Boolean(feed.hasMore)
+        }
+        if (!cancelled) { setCatalogError(false); setCatalogLoading(false) }
+        while (!cancelled && targetedHasMore && (kind === 'category' || kind === 'offers')) {
+          const params = new URLSearchParams({ kind, offset: String(targetedNextOffset), limit: '400' })
+          if (page === 'category') {
+            if (selectedCategorySourceId) params.set('category_source_id', selectedCategorySourceId)
+            else if (selectedParentCategoryId) params.set('parent_category_id', selectedParentCategoryId)
+            else if (category !== 'All') params.set('category', category)
+          }
+          const response = await fetch(`${apiUrl}/api/catalog-priority?${params.toString()}`)
+          if (!response.ok) break
+          const feed = await response.json() as { products?: unknown; hasMore?: boolean; nextOffset?: number }
+          const pageProducts = parseProducts(feed.products)
+          mergeProducts(pageProducts)
+          targetedNextOffset = Number.isInteger(feed.nextOffset) ? feed.nextOffset! : targetedNextOffset + pageProducts.length
+          targetedHasMore = Boolean(feed.hasMore) && pageProducts.length > 0
+        }
+        if (kind === 'home' || kind === 'trending' || kind === 'category') {
+          window.setTimeout(() => {
+            if (backgroundCatalogStarted.current) return
+            backgroundCatalogStarted.current = true
+            void (async () => {
+              let nextOffset = 0
+              try {
+                while (true) {
+                  const response = await fetch(`${apiUrl}/api/catalog-page?offset=${nextOffset}&limit=400&include_meta=false`)
+                  if (!response.ok) throw new Error(`Catalog page returned ${response.status}`)
+                  const catalog = await response.json() as { products?: unknown; hasMore?: boolean; nextOffset?: number }
+                  const pageProducts = parseProducts(catalog.products)
+                  mergeProducts(pageProducts)
+                  nextOffset = Number.isInteger(catalog.nextOffset) ? catalog.nextOffset! : nextOffset + pageProducts.length
+                  if (!catalog.hasMore || !pageProducts.length) break
+                }
+              } catch (error) { console.warn('Background catalog loading paused.', error) }
+            })()
+          }, 700)
+        }
       } catch (error) {
         console.warn('AARO live catalog API unavailable.', error)
-        if (!cancelled) setCatalogError(true)
-      } finally { if (!cancelled) setCatalogLoading(false) }
+        if (!cancelled) { setCatalogError(true); setCatalogLoading(false) }
+      }
     }
     void loadCatalog()
-    return () => { cancelled = true }
-  }, [catalogRefreshTick])
+    return () => { cancelled = true; if (offersCurrent) setOffersLoading(false) }
+  }, [admin, adminRoute, catalogRefreshTick, page, category, selectedCategorySourceId, selectedParentCategoryId, submittedQuery])
   useEffect(() => {
     let current = true
     setRouteProduct(null)
@@ -881,13 +977,6 @@ export default function App() {
     return () => { current = false; window.clearInterval(timer) }
   }, [])
   useEffect(() => {
-    if (!API_BASE) return
-    let current = true
-    setOffersLoading(true)
-    fetch(`${API_BASE}/api/offers`, { cache: 'no-store' }).then((response) => response.ok ? response.json() as Promise<unknown> : []).then((offers) => { if (current) setState((state) => ({ ...state, offers: Array.isArray(offers) ? offers as OfferDeal[] : [] })) }).catch(() => { if (current) setState((state) => ({ ...state, offers: [] })) }).finally(() => { if (current) setOffersLoading(false) })
-    return () => { current = false }
-  }, [])
-  useEffect(() => {
     if (!toast) return
     const timer = window.setTimeout(() => setToast(''), 2800)
     return () => window.clearTimeout(timer)
@@ -920,7 +1009,7 @@ export default function App() {
     const parentChildren = selectedParentCategoryId ? categoryGroups.find((group) => group.id === selectedParentCategoryId)?.children || [] : []
     const parentChildIds = parentChildren.flatMap((child) => child.sourceId ? [child.sourceId] : [])
     let products = activeProducts
-    if (page === 'trending') products = [...products].sort((a, b) => (productViewCounts[b.id] || 0) - (productViewCounts[a.id] || 0)).slice(0, 20)
+    if (page === 'trending') products = (priorityTrendingIds.length ? priorityTrendingIds.map((id) => products.find((product) => product.id === id)).filter((product): product is Product => Boolean(product)) : products.filter((product) => product.trending).sort((a, b) => (productViewCounts[b.id] || 0) - (productViewCounts[a.id] || 0))).slice(0, 20)
     if (page === 'offers') {
       const dealProductIds = new Set(state.offers.filter((offer) => offer.active).flatMap((offer) => offer.productIds?.length ? offer.productIds : [offer.productId]))
       const featured = products.filter((product) => state.content.offerIds.includes(product.id) || product.offer || dealProductIds.has(product.id))
@@ -946,9 +1035,9 @@ export default function App() {
       if (priceSort === 'low-high') products = [...products].sort((a, b) => a.price - b.price)
       if (priceSort === 'high-low') products = [...products].sort((a, b) => b.price - a.price)
     }
-    products = [...products].sort((a, b) => (productViewCounts[b.id] || 0) - (productViewCounts[a.id] || 0))
+    if (page !== 'trending') products = [...products].sort((a, b) => (productViewCounts[b.id] || 0) - (productViewCounts[a.id] || 0))
     return products
-  }, [activeProducts, category, categoryGroups, maxPrice, minPrice, page, priceSort, productViewCounts, selectedCategorySourceId, selectedParentCategoryId, submittedQuery, state.content.offerIds, state.content.trendingIds, state.offers, wishlist])
+  }, [activeProducts, category, categoryGroups, maxPrice, minPrice, page, priceSort, priorityTrendingIds, productViewCounts, selectedCategorySourceId, selectedParentCategoryId, submittedQuery, state.content.offerIds, state.content.trendingIds, state.offers, wishlist])
   const searchSuggestions = useMemo(() => {
     const needle = query.trim().toLowerCase()
     if (!needle) return []
@@ -1516,8 +1605,8 @@ export default function App() {
     { label: 'Orders', icon: ShoppingCart, tab: 'orders' }, { label: 'Storefront', icon: Sparkles, tab: 'content' }, { label: 'Product sync', icon: RotateCcw, tab: 'sync' }
   ]
   const formatPageTitle = page === 'trending' ? 'Trending now' : page === 'offers' ? 'Offers for you' : page === 'category' ? category === 'All' ? 'All products' : category : page === 'wishlist' ? 'Your wishlist' : page === 'terms' ? 'Terms & Conditions' : page === 'delivery' ? 'Delivery & Returns' : page === 'contact' ? 'Contact us' : 'The AARO edit'
-  const selectedTrendingProducts = [...activeProducts].sort((a, b) => (productViewCounts[b.id] || 0) - (productViewCounts[a.id] || 0)).slice(0, 20)
-  const homeTrendingProducts = selectedTrendingProducts.slice(0, 12)
+  const selectedTrendingProducts = (priorityTrendingIds.length ? priorityTrendingIds.map((id) => activeProducts.find((product) => product.id === id)).filter((product): product is Product => Boolean(product)) : activeProducts.filter((product) => product.trending).sort((a, b) => (productViewCounts[b.id] || 0) - (productViewCounts[a.id] || 0))).slice(0, 20)
+  const homeTrendingProducts = selectedTrendingProducts.slice(0, 20)
   const dealProductIds = new Set(state.offers.filter((offer) => offer.active).flatMap((offer) => offer.productIds?.length ? offer.productIds : [offer.productId]))
   const selectedOfferProducts = activeProducts.filter((product) => state.content.offerIds.includes(product.id) || product.offer || dealProductIds.has(product.id))
   const discountedProducts = activeProducts.filter((product) => salePercentOf(product) > 0)
@@ -1536,7 +1625,9 @@ export default function App() {
   const looseOfferProducts = activeProducts.filter((product) => !formalOfferProductIds.has(product.id) && (state.content.offerIds.includes(product.id) || product.offer || salePercentOf(product) > 0))
   if (looseOfferProducts.length) offerCollections.push({ id: 'featured-offer-picks', title: 'Featured picks', description: `${looseOfferProducts.length.toLocaleString()} special picks to explore`, products: looseOfferProducts, previewProducts: looseOfferProducts.slice(0, 3), offer: null, coupon: null, storewide: false })
   const selectedOfferCollection = offerCollections.find((collection) => collection.id === selectedOfferId)
-  const homeCategories = useMemo(() => state.categories.filter((item) => item !== 'All').map((category) => ({ category, products: activeProducts.filter((product) => product.category === category) })).filter((item) => item.products.length > 0).sort(() => Math.random() - 0.5).slice(0, 12), [activeProducts, state.categories])
+  const categoryShuffleSeed = useRef(Math.random()).current
+  const homeCategoryNames = useMemo(() => state.categories.filter((item) => item !== 'All').map((category) => ({ category, score: [...category].reduce((value, char) => Math.imul(value ^ char.charCodeAt(0), 16777619), Math.floor(categoryShuffleSeed * 0xffffffff)) >>> 0 })).sort((a, b) => a.score - b.score).slice(0, 12).map((item) => item.category), [categoryShuffleSeed, state.categories])
+  const homeCategories = useMemo(() => homeCategoryNames.map((category) => ({ category, products: activeProducts.filter((product) => product.category === category) })).filter((item) => item.products.length > 0), [activeProducts, homeCategoryNames])
   const visibleHomeCategories = homeCategories.filter(({ category: name }) => !dismissedHomeCategories.includes(name))
   useEffect(() => {
     const carousel = categoryCarouselRef.current
@@ -1568,12 +1659,12 @@ export default function App() {
         <header className="admin-topbar"><button className="mobile-menu-trigger" onClick={() => setMobileMenu(true)}><Menu size={20} /></button><div><p className="eyebrow">AARO <span>/</span> {navItems.find((item) => item.tab === adminTab)?.label.toUpperCase()}</p><h1>{adminTab === 'overview' ? 'Good morning, Admin' : navItems.find((item) => item.tab === adminTab)?.label}</h1></div><div className="admin-top-actions"><span className="date-chip"><CalendarDays size={15} /> {dateLabel(new Date().toISOString())}</span><IconButton label={darkTheme ? 'Switch to light theme' : 'Switch to dark theme'} className="theme-toggle admin-theme-toggle" onClick={() => setDarkTheme((current) => !current)}>{darkTheme ? <Sun size={19} /> : <Moon size={19} />}</IconButton><button className="admin-view-store" onClick={() => window.location.assign('/')}>View store <ArrowUpRight size={15} /></button><button className="admin-logout-button admin-logout-top" onClick={logoutAdmin}><LogOut size={16} /> Log out</button><div className="avatar avatar-small"><img src="/images/aaro-favicon.png" alt="" /></div></div></header>
         <div className="admin-content">
           {adminTab === 'overview' && <AdminOverview state={state} revenue={revenue} customerCount={customerCount} productViews={Object.values(productViewCounts).reduce((sum, count) => sum + count, 0)} onTab={setAdminTab} updateOrderStatus={updateOrderStatus} /> }
-          {adminTab === 'products' && <AdminProducts products={adminProductList} loading={adminProductsLoading} productViewCounts={productViewCounts} categoryGroups={categoryGroups} onCheckAvailability={async (product) => { const headers = { Authorization: `Bearer ${adminToken}` }; const base = `${API_BASE}/api/admin/products/${encodeURIComponent(product.id)}/availability-check`; const started = await fetch(base, { method: 'POST', headers }); const startResult = await started.json().catch(() => ({})); if (!started.ok) throw new Error(startResult.detail || 'Could not start the availability check.'); for (let attempt = 0; attempt < 240; attempt += 1) { await new Promise((resolve) => window.setTimeout(resolve, 2000)); const response = await fetch(`${base}/${encodeURIComponent(startResult.checkId)}`, { headers, cache: 'no-store' }); const result = await response.json().catch(() => ({})); if (!response.ok) throw new Error(result.detail || 'Could not read availability check status.'); if (result.status === 'complete') return Boolean(result.available); if (result.status === 'failed') throw new Error(result.error || 'The ShopBase check failed.') } throw new Error('The availability check is taking longer than expected. Check sync progress and refresh this product later.') }} onAdd={() => startEditProduct()} onView={viewAdminProduct} onEdit={startEditProduct} onDelete={deleteProduct} />}
-          {adminTab === 'categories' && <CategoriesAdmin categories={state.categories} categoryGroups={categoryGroups} products={adminProductList} content={state.content} manualCategoryVisibility={manualCategoryVisibility} categoryInput={categoryInput} onCategoryInput={setCategoryInput} onAdd={addCategory} onRemove={removeCategory} onDeleteChild={(groupId, sourceId) => void deleteSubcategory(groupId, sourceId)} onEditGroup={editCategoryGroup} onEditChild={editSubcategory} onCategoryImage={(name) => setCategoryImageEditor({ name, value: state.content.categoryImages?.[name] || '' })} onToggleGroup={(id, visible) => void toggleCategoryGroupVisibility(id, visible)} onToggleChild={(id, name, visible) => void toggleSubcategoryVisibility(id, name, visible)} onToggleManual={(name, visible) => void toggleManualCategoryVisibility(name, visible)} />}
+          {adminTab === 'products' && <AdminProducts products={adminProductList} loading={adminProductsLoading} moreLoading={adminProductsMoreLoading} hasMore={adminProductsHasMore} total={adminProductsTotal} onLoadMore={() => void loadAdminProductPage(adminProductsNextOffset, true)} productViewCounts={productViewCounts} categoryGroups={categoryGroups} onCheckAvailability={async (product) => { const headers = { Authorization: `Bearer ${adminToken}` }; const base = `${API_BASE}/api/admin/products/${encodeURIComponent(product.id)}/availability-check`; const started = await fetch(base, { method: 'POST', headers }); const startResult = await started.json().catch(() => ({})); if (!started.ok) throw new Error(startResult.detail || 'Could not start the availability check.'); for (let attempt = 0; attempt < 240; attempt += 1) { await new Promise((resolve) => window.setTimeout(resolve, 2000)); const response = await fetch(`${base}/${encodeURIComponent(startResult.checkId)}`, { headers, cache: 'no-store' }); const result = await response.json().catch(() => ({})); if (!response.ok) throw new Error(result.detail || 'Could not read availability check status.'); if (result.status === 'complete') return Boolean(result.available); if (result.status === 'failed') throw new Error(result.error || 'The ShopBase check failed.') } throw new Error('The availability check is taking longer than expected. Check sync progress and refresh this product later.') }} onAdd={() => startEditProduct()} onView={viewAdminProduct} onEdit={startEditProduct} onDelete={deleteProduct} />}
+          {adminTab === 'categories' && <CategoriesAdmin categories={state.categories} categoryGroups={categoryGroups} products={adminProductList} productCounts={adminCategoryProductCounts} content={state.content} manualCategoryVisibility={manualCategoryVisibility} categoryInput={categoryInput} onCategoryInput={setCategoryInput} onAdd={addCategory} onRemove={removeCategory} onDeleteChild={(groupId, sourceId) => void deleteSubcategory(groupId, sourceId)} onEditGroup={editCategoryGroup} onEditChild={editSubcategory} onCategoryImage={(name) => setCategoryImageEditor({ name, value: state.content.categoryImages?.[name] || '' })} onToggleGroup={(id, visible) => void toggleCategoryGroupVisibility(id, visible)} onToggleChild={(id, name, visible) => void toggleSubcategoryVisibility(id, name, visible)} onToggleManual={(name, visible) => void toggleManualCategoryVisibility(name, visible)} />}
           {adminTab === 'offers' && <AdminOffers state={state} products={activeProducts} apiBase={API_BASE} token={adminToken} onNewCoupon={() => setCouponFormOpen(true)} onNewOffer={() => { setEditingOffer(null); setOfferFormOpen(true) }} onEditOffer={(offer) => { setEditingOffer(offer); setOfferFormOpen(true) }} toggleCoupon={toggleCoupon} deleteCoupon={deleteCoupon} toggleOffer={toggleOffer} deleteOffer={deleteOffer} onEdit={startEditProduct} updateState={updateState} notify={notify} />}
           {adminTab === 'orders' && <AdminOrders orders={state.orders} filter={orderFilter} setFilter={setOrderFilter} search={orderSearch} setSearch={setOrderSearch} onStatus={updateOrderStatus} />}
           {adminTab === 'content' && <section className="content-grid"><div className="panel content-editor"><div className="panel-heading"><div><h2>Storefront & campaigns</h2><p>Manage the homepage, promo banner, combos, and delivery estimates.</p></div><span className="saved-badge"><CheckCircle2 size={15} /> Saved to the catalog</span></div><form className="settings-form" onSubmit={saveContent}><label>Announcement bar<input name="announcement" defaultValue={state.content.announcement} /></label><h3 className="settings-subhead">Homepage & default link thumbnail</h3><p className="form-help">This is the default thumbnail for the homepage, offers listing, and product links. Individual offers can have their own thumbnail in Edit offer. Upload an image (recommended: 1200 × 630 px).</p><input type="hidden" name="socialShareImage" value={contentDraft.socialShareImage || ""} /><div className="social-thumbnail-uploader"><div className="social-thumbnail-preview">{contentDraft.socialShareImage ? <ImageView src={contentDraft.socialShareImage} alt="Homepage sharing thumbnail" /> : <div><ImageIcon size={24} /><span>No thumbnail uploaded</span></div>}</div><div><label className="secondary-button product-upload-button"><Upload size={16} />{contentDraft.socialShareImage ? "Replace thumbnail" : "Upload thumbnail"}<input type="file" accept="image/*" onChange={(event) => { void uploadSocialThumbnail(event.target.files?.[0]); event.currentTarget.value = "" }} /></label>{contentDraft.socialShareImage && <button type="button" className="secondary-button" onClick={() => setContentDraft((current) => ({ ...current, socialShareImage: "" }))}>Remove thumbnail</button>}</div></div><h3 className="settings-subhead">Hero carousel slides</h3><p className="form-help">Leave a headline, supporting text, or button text blank to hide it on that banner. For crisp banners, use desktop 16:7 (2880 × 1260 px or larger) and phone 4:5 (1800 × 2250 px). Uploads keep more detail while staying optimized.</p>{contentDraft.heroSlides.map((slide, index) => <div className="combo-editor" key={`hero-slide-${index}`}><div className="hero-slide-editor-heading"><b>Banner {index + 1}</b><div className="hero-slide-order"><button type="button" className="secondary-button" aria-label={`Move banner ${index + 1} earlier`} title="Move earlier" onClick={() => moveHeroSlide(index, -1)} disabled={index === 0}><ChevronUp size={16} /></button><button type="button" className="secondary-button" aria-label={`Move banner ${index + 1} later`} title="Move later" onClick={() => moveHeroSlide(index, 1)} disabled={index === contentDraft.heroSlides.length - 1}><ChevronDown size={16} /></button><button type="button" className="secondary-button" onClick={() => removeHeroSlide(index)} disabled={contentDraft.heroSlides.length <= 1}><Trash2 size={15} /> Remove banner</button></div></div><label>Desktop image URL<input value={slide.image} onChange={(event) => updateHeroSlide(index, { image: event.target.value })} /></label><label>Upload desktop image<input type="file" accept="image/*" onChange={(event) => uploadHeroSlideImage(index, event.target.files?.[0], false)} /></label><label>Phone image URL<input value={slide.mobileImage || ""} placeholder="Optional — uses desktop image if blank" onChange={(event) => updateHeroSlide(index, { mobileImage: event.target.value })} /></label><label>Upload phone image<input type="file" accept="image/*" onChange={(event) => uploadHeroSlideImage(index, event.target.files?.[0], true)} /></label><label>Headline<textarea rows={2} value={slide.title} onChange={(event) => updateHeroSlide(index, { title: event.target.value })} /></label><label>Supporting text<textarea rows={2} value={slide.description} onChange={(event) => updateHeroSlide(index, { description: event.target.value })} /></label><div className="settings-two"><label>Button text<input value={slide.cta} onChange={(event) => updateHeroSlide(index, { cta: event.target.value })} /></label><label>Button destination<input value={slide.link} onChange={(event) => updateHeroSlide(index, { link: event.target.value })} placeholder="/offers, /trending, / or full URL" /></label></div></div>)}<button type="button" className="secondary-button add-hero-slide" onClick={addHeroSlide}><Plus size={16} /> Add banner</button><h3 className="settings-subhead">Promotional banner</h3><label>Banner headline<textarea name="offerTitle" rows={2} defaultValue={state.content.offerTitle} /></label><label>Banner supporting line<textarea name="offerSubtitle" rows={2} defaultValue={state.content.offerSubtitle} /></label><label>Banner image URL<input name="offerImage" defaultValue={state.content.offerImage} /></label><h3 className="settings-subhead">Homepage combo cards</h3>{state.content.combos.map((combo, index) => <div className="combo-editor" key={`${combo.title}-${index}`}><b>Combo 0{index + 1}</b><label>Title<input name={`comboTitle${index}`} defaultValue={combo.title} /></label><div className="settings-two"><label>Subtitle<input name={`comboSubtitle${index}`} defaultValue={combo.subtitle} /></label><label>Price from (৳)<input name={`comboPrice${index}`} type="number" defaultValue={combo.price} /></label></div><label>Image URL<input name={`comboImage${index}`} defaultValue={combo.image} /></label></div>)}<h3 className="settings-subhead">Delivery charges</h3><div className="settings-two"><label>Dhaka city (৳)<input name="deliveryInDhaka" type="number" min="0" defaultValue={state.content.deliveryInDhaka} /></label><label>Sub-Dhaka (৳)<input name="deliverySubDhaka" type="number" min="0" defaultValue={state.content.deliverySubDhaka} /></label><label>Outside Dhaka (৳)<input name="deliveryOutsideDhaka" type="number" min="0" defaultValue={state.content.deliveryOutsideDhaka} /></label></div><p className="form-help">Default delivery charges are ৳70 in Dhaka city, ৳100 in Sub-Dhaka, and ৳120 outside Dhaka.</p><div className="settings-two"><div><p className="form-help">Move existing uploaded storefront images out of MongoDB. Future storefront saves will mirror new uploads to Cloudinary automatically.</p><button type="button" className="secondary-button" onClick={() => void migrateStorefrontMedia()} disabled={mediaMigrationBusy}>{mediaMigrationBusy ? 'Moving images to CDN…' : 'Move existing images to Cloudinary'}</button></div><button className="primary-button"><Check size={17} /> Save storefront</button></div></form></div><div className="panel preview-panel"><div className="panel-heading"><div><h3>Homepage preview</h3><p>How the edit appears to customers</p></div><button className="subtle-icon" onClick={() => window.location.assign('/')} aria-label="Open storefront"><ArrowUpRight size={17} /></button></div><div className="mini-carousel">{[-1, 0, 1].map((offset) => { const index = (previewSlide + offset + contentDraft.heroSlides.length) % contentDraft.heroSlides.length; const slide = contentDraft.heroSlides[index]; return <button type="button" key={offset} className={`mini-carousel-card mini-carousel-${offset === 0 ? 'active' : offset < 0 ? 'left' : 'right'}`} onClick={() => setPreviewSlide(index)}><ImageView src={slide.image} alt="" /><span className="mini-carousel-shade" /><span className="mini-carousel-copy">{slide.title.trim() && <b>{slide.title}</b>}{slide.description.trim() && <small>{slide.description.split(/\r?\n/).map((line, lineIndex) => <span className="hero-description-line" key={`${index}-preview-description-${lineIndex}`}>{line}</span>)}</small>}{slide.cta.trim() && <i>{slide.cta} <ArrowRight size={12} /></i>}</span></button> })}<div className="mini-carousel-dots">{contentDraft.heroSlides.map((_, index) => <button key={index} className={previewSlide === index ? 'active' : ''} aria-label={`Preview slide ${index + 1}`} onClick={() => setPreviewSlide(index)} />)}</div></div><div className="preview-note"><ShieldCheck size={17} /> Storefront settings are shared through the catalog API.</div></div></section>}
-          {adminTab === 'sync' && <SyncPanel lastSync={lastSync} onLastSync={(value) => { setLastSync(value); localStorage.setItem('aaro-last-import', value) }} onSyncComplete={() => setCatalogRefreshTick((tick) => tick + 1)} importNote={importNote} fileRef={fileRef} onImport={importCsv} products={state.products} apiBase={API_BASE} token={adminToken} />}
+          {adminTab === 'sync' && <SyncPanel lastSync={lastSync} importedCount={adminImportedCount} onLastSync={(value) => { setLastSync(value); localStorage.setItem('aaro-last-import', value) }} onSyncComplete={() => { backgroundCatalogStarted.current = false; catalogMetadataLoaded.current = false; setCatalogRefreshTick((tick) => tick + 1) }} importNote={importNote} fileRef={fileRef} onImport={importCsv} products={state.products} apiBase={API_BASE} token={adminToken} />}
         </div>
       </main>
       {mobileMenu && <button className="admin-backdrop" onClick={() => setMobileMenu(false)} aria-label="Close menu" />}
@@ -1582,7 +1673,7 @@ export default function App() {
       {categoryImageEditor && <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setCategoryImageEditor(null)}><section className="form-modal small-form-modal"><div className="modal-heading"><div><span className="section-kicker">AARO / HOMEPAGE CATEGORY</span><h2>Choose an image for {categoryImageEditor.name}</h2></div><IconButton label="Close image picker" onClick={() => setCategoryImageEditor(null)}><X size={19} /></IconButton></div><form className="settings-form" onSubmit={saveCategoryImage}><label>Use a product photo<select value={categoryImageEditor.value.startsWith('data:') ? '' : categoryImageEditor.value} onChange={(event) => setCategoryImageEditor((current) => current ? { ...current, value: event.target.value } : current)}><option value="">Choose a product</option>{adminProductList.filter((product) => product.image && product.category === categoryImageEditor.name).concat(adminProductList.filter((product) => product.image && product.category !== categoryImageEditor.name)).map((product) => <option value={product.image} key={product.id}>{product.title} · {product.category}</option>)}</select></label><label>Or upload a category image<input type="file" accept="image/*" onChange={async (event) => { const file = event.target.files?.[0]; if (!file) return; try { const value = await compressImageFile(file, 1000, 1000); setCategoryImageEditor((current) => current ? { ...current, value } : current) } catch (error) { notify(error instanceof Error ? error.message : 'Could not prepare this image.') } }} /></label>{categoryImageEditor.value && <div className="category-image-preview"><ImageView src={categoryImageEditor.value} alt={`${categoryImageEditor.name} preview`} /></div>}<div className="modal-actions"><button className="secondary-button" type="button" onClick={() => setCategoryImageEditor(null)}>Cancel</button><button className="primary-button"><Check size={16} /> Save image</button></div></form></section></div>}
       {viewingProduct && <AdminProductViewer product={viewingProduct} onClose={() => setViewingProduct(null)} onEdit={() => { const product = viewingProduct; setViewingProduct(null); void startEditProduct(product) }} />}
       {couponFormOpen && <CouponEditor onClose={() => setCouponFormOpen(false)} onSave={saveCoupon} />}
-      {offerFormOpen && <OfferEditor offer={editingOffer} products={activeProducts} onClose={() => { setOfferFormOpen(false); setEditingOffer(null) }} onSave={saveOffer} />}
+      {offerFormOpen && <OfferEditor offer={editingOffer} products={activeProducts} apiBase={API_BASE} onClose={() => { setOfferFormOpen(false); setEditingOffer(null) }} onSave={saveOffer} />}
       {toast && <div className="toast"><CheckCircle2 size={17} />{toast}</div>}
     </div> : adminRoute ? adminSessionChecking && adminToken ? <main className="admin-login-page"><div className="login-modal" role="status">Restoring your admin session…</div></main> : <AdminLogin apiBase={API_BASE} onSuccess={(token, rememberMe) => { localStorage.removeItem(ADMIN_TOKEN_KEY); sessionStorage.removeItem(ADMIN_SESSION_TOKEN_KEY); (rememberMe ? localStorage : sessionStorage).setItem(rememberMe ? ADMIN_TOKEN_KEY : ADMIN_SESSION_TOKEN_KEY, token); setAdminToken(token); setAdmin(true) }} /> : !storeIsLive ? <main className={`store-closed-page ${darkTheme ? 'theme-dark' : ''}`}><span className="wordmark">AARO<span>.</span></span><h1>We’ll be back soon</h1><p>Our store is temporarily closed while we make a few updates. Please check back shortly.</p></main> : (authRoute || (page === 'account' && !accountToken)) ? <AccountAccessPage key={authRoute || 'login'} mode={authRoute || 'login'} apiBase={API_BASE} darkTheme={darkTheme} onToggleTheme={() => setDarkTheme((current) => !current)} onModeChange={showAuth} onBack={() => showStore('shop')} onAuth={(token, identifier) => { setAccountToken(token); localStorage.setItem(AUTH_TOKEN_KEY, token); setUser(identifier); localStorage.setItem(USER_KEY, identifier); showAccount() }} /> : <div className={`storefront ${darkTheme ? 'theme-dark' : ''} ${mobileMenu ? 'storefront-menu-open' : ''}`}>
       <div className="announcement"><Sparkles size={14} /><span>{state.content.announcement}</span><button onClick={() => showStore('offers')}>Shop offers <ArrowRight size={13} /></button></div>
@@ -1851,7 +1942,7 @@ function AdminOverview({ state, revenue, customerCount, productViews, onTab, upd
   })
   return <><div className="admin-welcome"><div><span className="section-kicker">{new Intl.DateTimeFormat('en-GB', { weekday: 'long', day: '2-digit', month: 'long' }).format(new Date()).toUpperCase()}</span><h2>Your store, at a glance.</h2><p>Here’s what’s happening with AARO today.</p></div><button className="primary-button" onClick={() => onTab('products')}><Plus size={17} /> Add a product</button></div><div className="stat-grid">{stats.map(({ title, value, note, icon: Icon, trend, up }) => <div className="stat-card" key={title}><div className="stat-card-top"><span>{title}</span><i><Icon size={18} /></i></div><strong>{value}</strong><div className="stat-card-bottom"><span>{note}</span><b className={up ? 'trend-up' : 'trend-neutral'}>{up ? <ArrowUpRight size={14} /> : null}{trend}</b></div></div>)}</div><div className="overview-grid"><section className="panel revenue-panel"><div className="panel-heading"><div><h3>Revenue overview</h3><p>Completed and active orders · Last 30 days</p></div></div><div className="revenue-total"><strong>{money(periodRevenue)}</strong><small>Actual order totals for this period</small></div><div className="chart-area">{periodRevenue > 0 ? <><div className="chart-y">{chartTicks.map((amount, index) => <span key={index}>{chartAmount(amount)}</span>)}</div><div className="chart-bars">{revenueBuckets.map((amount, index) => <div className="chart-column" key={index} title={chartLabels[index] + ': ' + money(amount)}><i style={{ height: String(chartMax ? amount / chartMax * 100 : 0) + '%' }} /><span>{chartLabels[index]}</span></div>)}</div></> : <div className="chart-empty">No confirmed sales in the last 30 days.</div>}</div><div className="chart-legend"><span><i /> Sales</span><span>Confirmed, processing, shipped, and delivered orders</span></div></section><section className="panel attention-panel"><div className="panel-heading"><div><h3>Needs your attention</h3><p>Keep orders moving smoothly</p></div></div><div className="attention-item"><span className="attention-icon amber-icon"><Clock3 size={18} /></span><div><b>{state.orders.filter((order) => order.status === 'Pending confirmation').length} orders to confirm</b><small>Call customers before sending to ShopBase</small></div><button onClick={() => onTab('orders')}><ArrowRight size={16} /></button></div><div className="attention-item"><span className="attention-icon teal-icon"><Package size={18} /></span><div><b>{liveCatalogCount.toLocaleString()} live catalog products</b><small>{liveCatalogCount ? 'Imported from your ShopBase catalog' : 'Run the catalog sync to load products'}</small></div><button onClick={() => onTab('products')}><ArrowRight size={16} /></button></div><div className="attention-foot"><ShieldCheck size={15} /> Orders stay in your review queue until confirmed.</div></section></div><section className="panel recent-panel"><div className="panel-heading"><div><h3>Recent orders</h3><p>The latest customer activity</p></div><button className="text-link" onClick={() => onTab('orders')}>View all orders <ArrowRight size={15} /></button></div><OrderTable orders={orders.slice(0, 5)} onStatus={updateOrderStatus} compact /></section></>
 }
-function AdminProducts({ products: allProducts, categoryGroups, loading, productViewCounts, onCheckAvailability, onAdd, onView, onEdit, onDelete }: { products: Product[]; categoryGroups: CategoryGroup[]; loading: boolean; productViewCounts: Record<string, number>; onCheckAvailability: (product: Product) => Promise<boolean>; onAdd: () => void; onView: (product: Product) => void; onEdit: (product: Product) => void; onDelete: (id: string) => void }) {
+function AdminProducts({ products: allProducts, categoryGroups, loading, moreLoading, hasMore, total, onLoadMore, productViewCounts, onCheckAvailability, onAdd, onView, onEdit, onDelete }: { products: Product[]; categoryGroups: CategoryGroup[]; loading: boolean; moreLoading: boolean; hasMore: boolean; total: number; onLoadMore: () => void; productViewCounts: Record<string, number>; onCheckAvailability: (product: Product) => Promise<boolean>; onAdd: () => void; onView: (product: Product) => void; onEdit: (product: Product) => void; onDelete: (id: string) => void }) {
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('all')
   const [categoryFilter, setCategoryFilter] = useState('all')
@@ -1870,7 +1961,7 @@ function AdminProducts({ products: allProducts, categoryGroups, loading, product
     const matchesFilter = filter === 'all' || filter === 'recent' && recentlyAdded || filter === 'active' && product.active || filter === 'hidden' && !product.active || filter === 'available' && product.stock > 0 || filter === 'unavailable' && product.stock <= 0 || filter === 'shopbase' && product.source === 'shopbase' || filter === 'manual' && product.source !== 'shopbase'
     return matchesSearch && matchesFilter && matchesCategory
   }).sort((a, b) => sort === 'added' ? (Date.parse(b.addedAt || '') || 0) - (Date.parse(a.addedAt || '') || 0) : sort === 'name-asc' ? a.title.localeCompare(b.title) : sort === 'name-desc' ? b.title.localeCompare(a.title) : sort === 'price-asc' ? a.price - b.price : sort === 'price-desc' ? b.price - a.price : sort === 'views' ? (productViewCounts[b.id] || 0) - (productViewCounts[a.id] || 0) : (b.updatedAt || '').localeCompare(a.updatedAt || ''))
-  return <section className="panel"><div className="panel-heading panel-heading-wrap"><div><h2>Product catalog</h2><p>Edit product details, pricing, images, availability, and collections.</p></div><button className="primary-button" onClick={onAdd}><Plus size={17} /> Add product</button></div><div className="table-toolbar"><div className="admin-search"><Search size={17} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search products..." /></div><select className="select-chip" aria-label="Filter by category or subcategory" value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}><option value="all">All categories</option>{categoryGroups.map((group) => <optgroup key={group.id} label={group.name}><option value={`group:${group.id}`}>All {group.name}</option>{group.children.map((child) => <option key={`${group.id}-${child.sourceId || child.name}`} value={child.sourceId ? `source:${child.sourceId}` : `name:${child.name}`}>{child.name}</option>)}</optgroup>)}</select><select className="select-chip" aria-label="Filter products" value={filter} onChange={(event) => setFilter(event.target.value)}><option value="all">All products</option><option value="recent">New products · last 30 days</option><option value="active">Active</option><option value="hidden">Hidden</option><option value="available">Available stock</option><option value="unavailable">Out of stock</option><option value="shopbase">ShopBase import</option><option value="manual">Manually added</option></select><label className="product-sort-control">Sort by<select className="select-chip" aria-label="Sort products" value={sort} onChange={(event) => setSort(event.target.value as typeof sort)}><option value="added">Recently added</option><option value="updated">Recently updated</option><option value="name-asc">Name: A to Z</option><option value="name-desc">Name: Z to A</option><option value="price-asc">Price: low to high</option><option value="price-desc">Price: high to low</option><option value="views">Most viewed</option></select></label><span>{products.length.toLocaleString()} products{loading ? ' · loading more' : ''}</span></div>{loading && allProducts.length === 0 ? <div className="admin-product-loading" role="status" aria-label="Loading products"><div className="loading-caption"><span className="loading-orbit" />Loading products</div>{[0,1,2,3,4].map((row) => <div className="admin-product-loading-row" key={row}><i /><span /><span /><span /></div>)}</div> : products.length ? <>{availabilityError && <p className="availability-check-notice" role="alert">{availabilityError}</p>}<div className="responsive-table"><table className="data-table product-table"><thead><tr><th>Product</th><th>Category</th><th>Price</th><th>Added</th><th>Views</th><th>Stock</th><th>Visibility</th><th>Source</th><th /></tr></thead><tbody>{products.slice(0, visibleCount).map((product) => <tr key={product.id}><td><div className="table-product"><ImageView src={product.image} alt="" /><span><button className="product-admin-view-link" onClick={() => onView(product)}>{product.title}</button><small>SKU / {product.sourceId || product.id.slice(0, 10)}</small></span></div></td><td>{product.category}</td><td><b>{money(product.price)}</b>{product.compareAt && <small className="old-price">{money(product.compareAt)}</small>}</td><td>{product.addedAt ? dateTimeLabel(product.addedAt) : 'Date unavailable'}</td><td><b>{(productViewCounts[product.id] || 0).toLocaleString()}</b></td><td><span className={product.stock < 10 ? 'stock-low' : 'stock-good'}><i /> {product.stock > 0 ? 'Available' : 'Unavailable'}</span></td><td><span className={`visibility ${product.active ? 'visible' : ''}`}><i /> {product.active ? 'Active' : 'Hidden'}</span></td><td><span className="source-tag">{product.source === 'shopbase' ? 'ShopBase import' : 'Manual'}</span></td><td><div className="row-actions">{product.source === 'shopbase' && <button className="availability-check-button" onClick={() => void checkAvailability(product)} disabled={checkingId === product.id} aria-label={`Check availability for ${product.title}`} title={checkingId === product.id ? "Checking ShopBase availability…" : availabilityResults[product.id] === true ? "Available in ShopBase" : availabilityResults[product.id] === false ? "Unavailable in ShopBase" : "Check availability in ShopBase"}>{checkingId === product.id ? <LoaderCircle size={16} className="availability-check-spinner" /> : availabilityResults[product.id] === true ? <Check size={17} /> : availabilityResults[product.id] === false ? <X size={17} /> : <RefreshCw size={16} />}</button>}<button onClick={() => onView(product)} aria-label={`View ${product.title}`}><Eye size={16} /></button><button onClick={() => onEdit(product)} aria-label={`Edit ${product.title}`}><Pencil size={16} /></button><button onClick={() => onDelete(product.id)} aria-label={`Delete ${product.title}`}><Trash2 size={16} /></button></div></td></tr>)}</tbody></table></div>{products.length > visibleCount && <button className="load-more-button" onClick={() => setVisibleCount((count) => Math.min(count + 50, products.length))}>Load more products <span>Showing {Math.min(visibleCount, products.length).toLocaleString()} of {products.length.toLocaleString()}</span></button>}</> : loading ? <p className="empty-row">Loading more products…</p> : <p className="empty-row">No products match this filter.</p>}</section>
+  return <section className="panel"><div className="panel-heading panel-heading-wrap"><div><h2>Product catalog</h2><p>Edit product details, pricing, images, availability, and collections.</p></div><button className="primary-button" onClick={onAdd}><Plus size={17} /> Add product</button></div><div className="table-toolbar"><div className="admin-search"><Search size={17} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search products..." /></div><select className="select-chip" aria-label="Filter by category or subcategory" value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}><option value="all">All categories</option>{categoryGroups.map((group) => <optgroup key={group.id} label={group.name}><option value={`group:${group.id}`}>All {group.name}</option>{group.children.map((child) => <option key={`${group.id}-${child.sourceId || child.name}`} value={child.sourceId ? `source:${child.sourceId}` : `name:${child.name}`}>{child.name}</option>)}</optgroup>)}</select><select className="select-chip" aria-label="Filter products" value={filter} onChange={(event) => setFilter(event.target.value)}><option value="all">All products</option><option value="recent">New products · last 30 days</option><option value="active">Active</option><option value="hidden">Hidden</option><option value="available">Available stock</option><option value="unavailable">Out of stock</option><option value="shopbase">ShopBase import</option><option value="manual">Manually added</option></select><label className="product-sort-control">Sort by<select className="select-chip" aria-label="Sort products" value={sort} onChange={(event) => setSort(event.target.value as typeof sort)}><option value="added">Recently added</option><option value="updated">Recently updated</option><option value="name-asc">Name: A to Z</option><option value="name-desc">Name: Z to A</option><option value="price-asc">Price: low to high</option><option value="price-desc">Price: high to low</option><option value="views">Most viewed</option></select></label><span>{Math.min(products.length, total).toLocaleString()} of {total.toLocaleString()} products{loading ? ' · loading' : ''}</span></div>{loading && allProducts.length === 0 ? <div className="admin-product-loading" role="status" aria-label="Loading products"><div className="loading-caption"><span className="loading-orbit" />Loading products</div>{[0,1,2,3,4].map((row) => <div className="admin-product-loading-row" key={row}><i /><span /><span /><span /></div>)}</div> : products.length ? <>{availabilityError && <p className="availability-check-notice" role="alert">{availabilityError}</p>}<div className="responsive-table"><table className="data-table product-table"><thead><tr><th>Product</th><th>Category</th><th>Price</th><th>Added</th><th>Views</th><th>Stock</th><th>Visibility</th><th>Source</th><th /></tr></thead><tbody>{products.slice(0, visibleCount).map((product) => <tr key={product.id}><td><div className="table-product"><ImageView src={product.image} alt="" /><span><button className="product-admin-view-link" onClick={() => onView(product)}>{product.title}</button><small>SKU / {product.sourceId || product.id.slice(0, 10)}</small></span></div></td><td>{product.category}</td><td><b>{money(product.price)}</b>{product.compareAt && <small className="old-price">{money(product.compareAt)}</small>}</td><td>{product.addedAt ? dateTimeLabel(product.addedAt) : 'Date unavailable'}</td><td><b>{(productViewCounts[product.id] || 0).toLocaleString()}</b></td><td><span className={product.stock < 10 ? 'stock-low' : 'stock-good'}><i /> {product.stock > 0 ? 'Available' : 'Unavailable'}</span></td><td><span className={`visibility ${product.active ? 'visible' : ''}`}><i /> {product.active ? 'Active' : 'Hidden'}</span></td><td><span className="source-tag">{product.source === 'shopbase' ? 'ShopBase import' : 'Manual'}</span></td><td><div className="row-actions">{product.source === 'shopbase' && <button className="availability-check-button" onClick={() => void checkAvailability(product)} disabled={checkingId === product.id} aria-label={`Check availability for ${product.title}`} title={checkingId === product.id ? "Checking ShopBase availability…" : availabilityResults[product.id] === true ? "Available in ShopBase" : availabilityResults[product.id] === false ? "Unavailable in ShopBase" : "Check availability in ShopBase"}>{checkingId === product.id ? <LoaderCircle size={16} className="availability-check-spinner" /> : availabilityResults[product.id] === true ? <Check size={17} /> : availabilityResults[product.id] === false ? <X size={17} /> : <RefreshCw size={16} />}</button>}<button onClick={() => onView(product)} aria-label={`View ${product.title}`}><Eye size={16} /></button><button onClick={() => onEdit(product)} aria-label={`Edit ${product.title}`}><Pencil size={16} /></button><button onClick={() => onDelete(product.id)} aria-label={`Delete ${product.title}`}><Trash2 size={16} /></button></div></td></tr>)}</tbody></table></div>{(products.length > visibleCount || hasMore) && <button className="load-more-button" disabled={moreLoading} onClick={() => { if (products.length > visibleCount) setVisibleCount((count) => count + 50); else { setVisibleCount((count) => count + 50); onLoadMore() } }}>{moreLoading ? 'Loading next 50 products…' : 'Load next 50 products'} <span>Loaded {products.length.toLocaleString()} of {total.toLocaleString()}</span></button>}</> : loading ? <p className="empty-row">Loading more products…</p> : <p className="empty-row">No products match this filter.</p>}</section>
 }
 
 function AdminOffers({ state, products, apiBase, token, onNewCoupon, onNewOffer, onEditOffer, toggleCoupon, deleteCoupon, toggleOffer, deleteOffer, onEdit, updateState, notify }: { state: StoreState; products: Product[]; apiBase: string; token: string; onNewCoupon: () => void; onNewOffer: () => void; onEditOffer: (offer: OfferDeal) => void; toggleCoupon: (id: string) => void; deleteCoupon: (id: string) => void; toggleOffer: (id: string) => void; deleteOffer: (id: string) => void; onEdit: (product: Product) => void; updateState: (updater: (current: StoreState) => StoreState) => void; notify: (message: string) => void }) {
@@ -1956,11 +2047,11 @@ function AdminProductViewer({ product, onClose, onEdit }: { product: Product; on
   return <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section className="form-modal product-detail-modal"><div className="modal-heading"><div><span className="section-kicker">AARO / PRODUCT DETAILS</span><h2>{product.title}</h2></div><IconButton label="Close product details" onClick={onClose}><X size={19} /></IconButton></div><div className="admin-product-detail"><ImageView src={product.image} alt={product.title} /><div><div className="admin-product-detail-meta"><span>{product.category}</span><span>{product.source === 'shopbase' ? 'ShopBase import' : 'Manual product'}</span><span>{product.active ? 'Active' : 'Hidden'}</span></div><h3>{money(product.price)}{product.compareAt ? <del>{money(product.compareAt)}</del> : null}</h3><p>{product.description || 'No product description has been added.'}</p><dl><div><dt>Availability</dt><dd>{product.stock > 0 ? `${product.stock} in stock` : 'Out of stock'}</dd></div><div><dt>Product ID</dt><dd>{product.sourceId || product.id}</dd></div>{product.retailerPrice != null ? <div><dt>Retailer price</dt><dd>{money(product.retailerPrice)}</dd></div> : null}{product.sizes?.length ? <div><dt>Sizes</dt><dd>{product.sizes.join(', ')}</dd></div> : null}{product.options?.map((option) => <div key={option.name}><dt>{option.name}</dt><dd>{option.values.join(', ')}</dd></div>)}{product.attributes?.map((attribute) => <div key={attribute}><dt>Detail</dt><dd>{attribute}</dd></div>)}</dl><div className="modal-actions"><button className="secondary-button" onClick={onClose}>Close</button><button className="primary-button" onClick={onEdit}><Pencil size={16} /> Edit product</button></div></div></div></section></div>
 }
 
-function CategoriesAdmin({ categories, categoryGroups, products, content, manualCategoryVisibility, categoryInput, onCategoryInput, onAdd, onRemove, onDeleteChild, onEditGroup, onEditChild, onCategoryImage, onToggleGroup, onToggleChild, onToggleManual }: { categories: string[]; categoryGroups: CategoryGroup[]; products: Product[]; content: StoreContent; manualCategoryVisibility: Record<string, boolean>; categoryInput: string; onCategoryInput: (value: string) => void; onAdd: (event: FormEvent<HTMLFormElement>) => void; onRemove: (name: string) => void; onDeleteChild: (groupId: string, sourceId: string) => void; onEditGroup: (id: string) => void; onEditChild: (id: string, name: string) => void; onCategoryImage: (name: string) => void; onToggleGroup: (id: string, visible: boolean) => void; onToggleChild: (id: string, name: string, visible: boolean) => void; onToggleManual: (name: string, visible: boolean) => void }) {
+function CategoriesAdmin({ categories, categoryGroups, products, productCounts, content, manualCategoryVisibility, categoryInput, onCategoryInput, onAdd, onRemove, onDeleteChild, onEditGroup, onEditChild, onCategoryImage, onToggleGroup, onToggleChild, onToggleManual }: { categories: string[]; categoryGroups: CategoryGroup[]; products: Product[]; productCounts: Record<string, number>; content: StoreContent; manualCategoryVisibility: Record<string, boolean>; categoryInput: string; onCategoryInput: (value: string) => void; onAdd: (event: FormEvent<HTMLFormElement>) => void; onRemove: (name: string) => void; onDeleteChild: (groupId: string, sourceId: string) => void; onEditGroup: (id: string) => void; onEditChild: (id: string, name: string) => void; onCategoryImage: (name: string) => void; onToggleGroup: (id: string, visible: boolean) => void; onToggleChild: (id: string, name: string, visible: boolean) => void; onToggleManual: (name: string, visible: boolean) => void }) {
   const manualNames = categories.filter((name) => name !== 'All' && !categoryGroups.some((group) => group.children.some((child) => child.name === name)))
   const imageFor = (name: string) => content.categoryImages?.[name] || products.find((product) => product.category === name && product.image)?.image || ''
-  const countFor = (child: CategoryGroup['children'][number]) => products.filter((product) => child.sourceId ? product.categorySourceId === child.sourceId : product.category === child.name).length
-  return <section className="panel category-management-panel"><div className="panel-heading"><div><h2>Categories</h2><p>Choose images, rename categories, and control what customers see.</p></div><span className="category-total-count">{categoryGroups.reduce((sum, group) => sum + group.children.length, manualNames.length)} categories</span></div><form className="inline-add" onSubmit={onAdd}><input value={categoryInput} onChange={(event) => onCategoryInput(event.target.value)} placeholder="Add a manual category" /><button className="primary-button"><Plus size={17} /> Add category</button></form><div className="category-group-admin-list">{categoryGroups.map((group) => { const groupCount = group.children.reduce((sum, child) => sum + countFor(child), 0); return <section className="category-group-admin" key={group.id}><div className="category-group-admin-heading"><div className="category-group-title"><span className="section-kicker">CATEGORY GROUP</span><button className="category-edit-name" aria-label={`Edit ${group.name}`} onClick={() => onEditGroup(group.id)}><span>{group.name}</span><Pencil size={15} /></button><small>{groupCount.toLocaleString()} products · {group.children.length} subcategories</small></div><CategoryVisibilityToggle checked={group.showInStorefront !== false} onChange={(visible) => onToggleGroup(group.id, visible)} /></div><div className="category-admin-list">{group.children.map((child) => { const count = countFor(child); const image = imageFor(child.name); return <article className="category-admin-card" key={`${group.id}-${child.sourceId || child.name}`}><div className="category-card-image">{image ? <ImageView src={image} alt={`${child.name} category`} /> : <div className="category-image-empty"><ImageIcon size={24} /><span>No image yet</span></div>}<button className="category-image-action" onClick={() => onCategoryImage(child.name)}>{content.categoryImages?.[child.name] ? 'Change image' : 'Choose image'}</button></div><div className="category-card-content"><div className="category-card-title"><button className="category-edit-name" aria-label={`Edit ${child.name}`} onClick={() => onEditChild(group.id, child.name)}><span>{child.name}</span><Pencil size={14} /></button><span className="category-product-count">{count.toLocaleString()} products</span></div><div className="category-card-controls"><CategoryVisibilityToggle checked={child.showInStorefront !== false} onChange={(visible) => onToggleChild(group.id, child.name, visible)} />{child.sourceId && <button type="button" className="subtle-icon danger-hover category-delete-button" aria-label={`Delete ${child.name}`} title="Remove this subcategory from storefront" onClick={() => onDeleteChild(group.id, child.sourceId!)}><Trash2 size={16} /> Delete</button>}</div></div></article> })}</div></section> })}{manualNames.map((name) => { const image = imageFor(name); const count = products.filter((product) => product.category === name).length; return <article className="category-admin-card manual-category-card" key={name}><div className="category-card-image">{image ? <ImageView src={image} alt={`${name} category`} /> : <div className="category-image-empty"><ImageIcon size={24} /><span>No image yet</span></div>}<button className="category-image-action" onClick={() => onCategoryImage(name)}>{content.categoryImages?.[name] ? 'Change image' : 'Choose image'}</button></div><div className="category-card-content"><div className="category-card-title"><strong>{name}</strong><span className="category-product-count">{count.toLocaleString()} products · manual</span></div><CategoryVisibilityToggle checked={manualCategoryVisibility[name] !== false} onChange={(visible) => onToggleManual(name, visible)} /><button className="subtle-icon danger-hover" aria-label={`Remove ${name}`} onClick={() => onRemove(name)}><Trash2 size={17} /> Remove</button></div></article> })}</div></section>
+  const countFor = (child: CategoryGroup['children'][number]) => productCounts[child.sourceId || ''] ?? productCounts[child.name.toLocaleLowerCase()] ?? products.filter((product) => child.sourceId ? product.categorySourceId === child.sourceId : product.category === child.name).length
+  return <section className="panel category-management-panel"><div className="panel-heading"><div><h2>Categories</h2><p>Choose images, rename categories, and control what customers see.</p></div><span className="category-total-count">{categoryGroups.reduce((sum, group) => sum + group.children.length, manualNames.length)} categories</span></div><form className="inline-add" onSubmit={onAdd}><input value={categoryInput} onChange={(event) => onCategoryInput(event.target.value)} placeholder="Add a manual category" /><button className="primary-button"><Plus size={17} /> Add category</button></form><div className="category-group-admin-list">{categoryGroups.map((group) => { const groupCount = group.children.reduce((sum, child) => sum + countFor(child), 0); return <section className="category-group-admin" key={group.id}><div className="category-group-admin-heading"><div className="category-group-title"><span className="section-kicker">CATEGORY GROUP</span><button className="category-edit-name" aria-label={`Edit ${group.name}`} onClick={() => onEditGroup(group.id)}><span>{group.name}</span><Pencil size={15} /></button><small>{groupCount.toLocaleString()} products · {group.children.length} subcategories</small></div><CategoryVisibilityToggle checked={group.showInStorefront !== false} onChange={(visible) => onToggleGroup(group.id, visible)} /></div><div className="category-admin-list">{group.children.map((child) => { const count = countFor(child); const image = imageFor(child.name); return <article className="category-admin-card" key={`${group.id}-${child.sourceId || child.name}`}><div className="category-card-image">{image ? <ImageView src={image} alt={`${child.name} category`} /> : <div className="category-image-empty"><ImageIcon size={24} /><span>No image yet</span></div>}<button className="category-image-action" onClick={() => onCategoryImage(child.name)}>{content.categoryImages?.[child.name] ? 'Change image' : 'Choose image'}</button></div><div className="category-card-content"><div className="category-card-title"><button className="category-edit-name" aria-label={`Edit ${child.name}`} onClick={() => onEditChild(group.id, child.name)}><span>{child.name}</span><Pencil size={14} /></button><span className="category-product-count">{count.toLocaleString()} products</span></div><div className="category-card-controls"><CategoryVisibilityToggle checked={child.showInStorefront !== false} onChange={(visible) => onToggleChild(group.id, child.name, visible)} />{child.sourceId && <button type="button" className="subtle-icon danger-hover category-delete-button" aria-label={`Delete ${child.name}`} title="Remove this subcategory from storefront" onClick={() => onDeleteChild(group.id, child.sourceId!)}><Trash2 size={16} /> Delete</button>}</div></div></article> })}</div></section> })}{manualNames.map((name) => { const image = imageFor(name); const count = productCounts[name.toLocaleLowerCase()] ?? products.filter((product) => product.category === name).length; return <article className="category-admin-card manual-category-card" key={name}><div className="category-card-image">{image ? <ImageView src={image} alt={`${name} category`} /> : <div className="category-image-empty"><ImageIcon size={24} /><span>No image yet</span></div>}<button className="category-image-action" onClick={() => onCategoryImage(name)}>{content.categoryImages?.[name] ? 'Change image' : 'Choose image'}</button></div><div className="category-card-content"><div className="category-card-title"><strong>{name}</strong><span className="category-product-count">{count.toLocaleString()} products · manual</span></div><CategoryVisibilityToggle checked={manualCategoryVisibility[name] !== false} onChange={(visible) => onToggleManual(name, visible)} /><button className="subtle-icon danger-hover" aria-label={`Remove ${name}`} onClick={() => onRemove(name)}><Trash2 size={17} /> Remove</button></div></article> })}</div></section>
 }
 
 function CategoryVisibilityToggle({ checked, onChange }: { checked: boolean; onChange: (visible: boolean) => void }) {
@@ -2002,8 +2093,9 @@ function ProductEditor({ product, categories, onClose, onSave }: { product: Prod
     <div className="modal-actions"><button className="secondary-button" type="button" onClick={onClose}>Cancel</button><button className="primary-button" disabled={!images.length}><Check size={16} /> Save product</button></div>
   </form></div></div>
 }
-function OfferEditor({ offer, products, onClose, onSave }: { offer: OfferDeal | null; products: Product[]; onClose: () => void; onSave: (event: FormEvent<HTMLFormElement>) => void }) {
+function OfferEditor({ offer, products, apiBase, onClose, onSave }: { offer: OfferDeal | null; products: Product[]; apiBase: string; onClose: () => void; onSave: (event: FormEvent<HTMLFormElement>) => void }) {
   const [search, setSearch] = useState('')
+  const [searchedProducts, setSearchedProducts] = useState<Product[]>([])
   const [visibleProductCount, setVisibleProductCount] = useState(60)
   const [kind, setKind] = useState<OfferDeal['kind'] | 'percentage_each'>(offer?.kind === 'quantity_discount' && offer.quantity === 1 && offer.discountKind === 'percent' ? 'percentage_each' : offer?.kind || 'special_price')
   const [discountKind, setDiscountKind] = useState<OfferDeal['discountKind']>(offer?.discountKind || 'percent')
@@ -2013,9 +2105,23 @@ function OfferEditor({ offer, products, onClose, onSave }: { offer: OfferDeal | 
   const [shareImage, setShareImage] = useState(offer?.shareImage || '')
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
-  const matchingProducts = products.filter((product) => `${product.title} ${product.category}`.toLowerCase().includes(search.toLowerCase()))
+  useEffect(() => {
+    const needle = search.trim()
+    if (!apiBase || needle.length < 2) { setSearchedProducts([]); return }
+    const controller = new AbortController()
+    const timer = window.setTimeout(() => {
+      const params = new URLSearchParams({ kind: 'search', search: needle, limit: '50' })
+      fetch(`${apiBase}/api/catalog-priority?${params.toString()}`, { signal: controller.signal })
+        .then((response) => response.ok ? response.json() as Promise<{ products?: unknown }> : null)
+        .then((result) => { if (!result || !Array.isArray(result.products)) return; const found = result.products.filter((item): item is Product => Boolean(item && typeof item === 'object' && 'id' in item && typeof item.id === 'string' && 'title' in item && typeof item.title === 'string' && 'category' in item && typeof item.category === 'string' && 'image' in item && typeof item.image === 'string' && 'price' in item && Number.isFinite(Number(item.price)))); setSearchedProducts((current) => [...new Map([...current, ...found].map((product) => [product.id, product])).values()]) })
+        .catch(() => { /* Keep local offer products searchable when the catalog API is unavailable. */ })
+    }, 220)
+    return () => { window.clearTimeout(timer); controller.abort() }
+  }, [apiBase, search])
+  const searchableProducts = [...new Map([...products, ...searchedProducts].map((product) => [product.id, product])).values()]
+  const matchingProducts = searchableProducts.filter((product) => `${product.title} ${product.category}`.toLowerCase().includes(search.toLowerCase()))
   const filtered = matchingProducts.slice(0, visibleProductCount)
-  const selectedProducts = selectedProductIds.map((id) => products.find((product) => product.id === id)).filter((product): product is Product => Boolean(product))
+  const selectedProducts = selectedProductIds.map((id) => searchableProducts.find((product) => product.id === id)).filter((product): product is Product => Boolean(product))
   const selectedProduct = selectedProducts[0]
   const toggleSelectedProduct = (id: string) => setSelectedProductIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])
   const moveThumbnail = (id: string, direction: -1 | 1) => setThumbnailProductIds((current) => {
@@ -2054,12 +2160,13 @@ function CouponEditor({ onClose, onSave }: { onClose: () => void; onSave: (event
   return <div className="modal-backdrop"><div className="form-modal small-form-modal"><div className="modal-heading"><div><span className="section-kicker">AARO / CHECKOUT</span><h2>Create coupon</h2></div><IconButton label="Close coupon form" onClick={onClose}><X size={19} /></IconButton></div><form className="settings-form" onSubmit={onSave}><label>Coupon code<input name="code" required minLength={3} maxLength={32} pattern="[A-Za-z0-9_-]+" title="Use letters, numbers, dashes, or underscores only." placeholder="e.g. AARO15" /></label><div className="settings-two"><label>Discount type<select name="kind" value={kind} onChange={(event) => setKind(event.target.value as Coupon['kind'])}><option value="percent">Percentage</option><option value="amount">Fixed amount</option></select></label><label>Value<input name="value" type="number" min="1" max={kind === 'percent' ? 100 : undefined} required /></label></div><label>Minimum order (৳), optional<input name="minimum" type="number" min="0" /></label><div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Cancel</button><button className="primary-button"><Check size={16} /> Save coupon</button></div></form></div></div>
 }
 
-function SyncPanel({ lastSync, onLastSync, onSyncComplete, importNote, fileRef, onImport, products, apiBase, token }: { lastSync: string; onLastSync: (value: string) => void; onSyncComplete: () => void; importNote: string; fileRef: { current: HTMLInputElement | null }; onImport: (file?: File) => void; products: Product[]; apiBase: string; token: string }) {
+function SyncPanel({ lastSync, importedCount, onLastSync, onSyncComplete, importNote, fileRef, onImport, products, apiBase, token }: { lastSync: string; importedCount: number | null; onLastSync: (value: string) => void; onSyncComplete: () => void; importNote: string; fileRef: { current: HTMLInputElement | null }; onImport: (file?: File) => void; products: Product[]; apiBase: string; token: string }) {
   const onLastSyncRef = useRef(onLastSync)
   onLastSyncRef.current = onLastSync
   const onSyncCompleteRef = useRef(onSyncComplete)
   onSyncCompleteRef.current = onSyncComplete
   const imported = products.filter((product) => product.source === 'shopbase')
+  const stableImportedCount = importedCount ?? imported.length
   type SyncProgress = { status: string; phase?: string; error?: string; startedAt?: string; updatedAt?: string; finishedAt?: string; requestedAt?: string; workflowStartedAt?: string; workflowFinishedAt?: string; categoriesProcessed?: number; totalCategories?: number; productsDiscovered?: number; productsProcessed?: number; totalProducts?: number; created?: number; changed?: number; unchanged?: number; skippedDetails?: number; progressPercent?: number; workflowStatus?: string; workflowRunId?: number; workflowUrl?: string }
   const appliedSyncAtRef = useRef('')
   const [syncProgress, setSyncProgress] = useState<SyncProgress | null>(null)
@@ -2295,8 +2402,8 @@ function SyncPanel({ lastSync, onLastSync, onSyncComplete, importNote, fileRef, 
       <div className="sync-schedule-settings"><label htmlFor="catalog-sync-interval">Automatic sync interval<select id="catalog-sync-interval" value={intervalHours} onChange={(event) => { setIntervalHours(Number(event.target.value)); setScheduleMessage('') }}><option value={6}>Every 6 hours</option><option value={12}>Every 12 hours</option><option value={24}>Every 24 hours</option><option value={48}>Every 48 hours</option></select></label><label htmlFor="catalog-sync-start">Daily start time (Bangladesh)<input id="catalog-sync-start" type="time" step={3600} value={startTime} onChange={(event) => { setStartTime(event.target.value); setScheduleMessage('') }} /></label><button type="button" className="secondary-button" onClick={saveSchedule} disabled={scheduleSaving}>{scheduleSaving ? 'Saving…' : 'Save changes'}</button>{scheduleMessage && <p className="sync-schedule-message" role="status">{scheduleMessage}</p>}</div>
       <div className="sync-status-box">
         <div className="sync-status-icon"><Clock3 size={19} /></div>
-        <span><b>{imported.length ? imported.length.toLocaleString() + ' imported products' : 'ShopBase catalog not synced'}</b><small>{lastSync ? 'Last catalog update ' + dateTimeLabel(lastSync) + ' (Bangladesh time)' : imported.length ? 'Products are available from your connected catalog API.' : 'Save your ShopBase login below to allow the hosted runner to refresh expired sessions.'}</small></span>
-        <span className={'status-pill ' + (imported.length ? 'status-green' : 'status-amber')}><i />{imported.length ? 'Connected' : 'Needs sync'}</span>
+        <span><b>{stableImportedCount ? stableImportedCount.toLocaleString() + ' imported products' : 'ShopBase catalog not synced'}</b><small>{lastSync ? 'Last catalog update ' + dateTimeLabel(lastSync) + ' (Bangladesh time)' : stableImportedCount ? 'Products are available from your connected catalog API.' : 'Save your ShopBase login below to allow the hosted runner to refresh expired sessions.'}</small></span>
+        <span className={'status-pill ' + (stableImportedCount ? 'status-green' : 'status-amber')}><i />{stableImportedCount ? 'Connected' : 'Needs sync'}</span>
       </div>
       <div className="sync-actions"><button className="secondary-button" onClick={startHostedCookieSync} disabled={progressLoading || progress?.status === 'running'}><RotateCcw size={16} /> Sync cookie automatically</button><button className="secondary-button" onClick={saveShopBaseCookie} disabled={progressLoading}>{progressLoading && <LoaderCircle size={16} />} Sync cookie manually</button><button className="primary-button sync-now-button" onClick={startSyncNow} disabled={progressLoading || progress?.status === 'running'}>{progressLoading || progress?.status === 'running' ? <LoaderCircle size={17} /> : <RotateCcw size={17} />} {progress?.status === 'running' ? 'Sync running…' : progressLoading ? 'Starting…' : 'Sync Now'}</button><button className="secondary-button" onClick={() => fileRef.current?.click()}><Upload size={17} /> Import supplier CSV</button><input ref={fileRef} type="file" accept=".csv,text/csv" hidden onChange={(event) => onImport(event.target.files?.[0])} /><button className="secondary-button" onClick={exportAvailableProducts} disabled={exportingProducts}>{exportingProducts ? <LoaderCircle size={17} /> : <Download size={17} />} {exportingProducts ? 'Preparing export…' : 'Export available products (CSV)'}</button><button className="secondary-button" onClick={refreshProgress} disabled={progressLoading}>{progressLoading ? <LoaderCircle size={16} /> : <RotateCcw size={16} />} {progressLoading ? 'Checking progress…' : 'View sync progress'}</button></div>
       {exportMessage && <div className="import-result sync-progress-message" role="status">{exportMessage}</div>}
