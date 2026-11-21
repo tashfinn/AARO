@@ -11,7 +11,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
-from fastapi import FastAPI, HTTPException, Header
+from fastapi import FastAPI, HTTPException, Header, Query
 from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
@@ -254,22 +254,26 @@ def ensure_storefront_query_indexes():
     """Keep public catalog lookups bounded as the product/view collections grow."""
     try:
         store = db()
-        # The product sync already creates the partial sourceId index; ensure it
-        # exists for deployments whose database predates that sync behavior.
-        store.products.create_index(
-            [("sourceId", 1)],
-            unique=True,
-            partialFilterExpression={"source": "shopbase"},
-            name="sourceId_1",
-        )
-        store.products.create_index([("source", 1), ("active", 1)], name="catalog_shopbase_active")
-        store.admin_products.create_index([("source", 1)], name="catalog_admin_source")
-        store.product_views.create_index([("productId", 1)], name="catalog_views_product")
-        store.product_views.create_index([("views", -1)], name="catalog_views_ranked")
     except Exception:
-        # Index setup must not prevent the API from starting; the request path
-        # still remains correct if MongoDB temporarily refuses index changes.
-        logging.exception("Could not ensure storefront query indexes")
+        logging.exception("Could not connect while ensuring catalog indexes")
+        return
+    indexes = [
+        (store.products, [("sourceId", 1)], {"unique": True, "partialFilterExpression": {"source": "shopbase"}, "name": "sourceId_1"}),
+        (store.products, [("source", 1), ("active", 1)], {"name": "catalog_shopbase_active"}),
+        (store.products, [("source", 1), ("title", 1), ("_id", 1)], {"name": "catalog_admin_title"}),
+        (store.admin_products, [("source", 1)], {"name": "catalog_admin_source"}),
+        (store.admin_products, [("source", 1), ("title", 1), ("_id", 1)], {"name": "catalog_admin_title"}),
+        (store.admin_products, [("id", 1)], {"name": "catalog_admin_id"}),
+        (store.product_views, [("productId", 1)], {"name": "catalog_views_product"}),
+        (store.product_views, [("views", -1)], {"name": "catalog_views_ranked"}),
+    ]
+    for collection, keys, options in indexes:
+        try:
+            collection.create_index(keys, **options)
+        except Exception:
+            # One legacy or conflicting index must not prevent later query
+            # indexes from being created on the other catalog collections.
+            logging.exception("Could not ensure index %s", options["name"])
 
 def _password_hash(password: str, salt: bytes | None = None) -> str:
     salt = salt or secrets.token_bytes(16)
@@ -1250,13 +1254,23 @@ def save_admin_product(input: AdminProductInput, authorization: str | None = Hea
     return product
 
 @app.get("/api/admin/products")
-def list_admin_products(authorization: str | None = Header(default=None)):
+def list_admin_products(
+    authorization: str | None = Header(default=None),
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=500, ge=1, le=1000),
+):
     _admin_from_auth(authorization)
     store = db()
     fields = {"_id": 1, "sourceId": 1, "title": 1, "category": 1, "categorySourceId": 1, "parentCategory": 1, "parentCategoryId": 1, "price": 1, "suggestedRetailPrice": 1, "wholesalePrice": 1, "compareAt": 1, "image": 1, "stock": 1, "active": 1, "source": 1, "addedAt": 1, "updatedAt": 1, "trending": 1, "offer": 1, "badge": 1, "rating": 1, "reviews": 1, "sizes": 1, "options": 1}
-    overrides = {item["id"]: item for item in store.admin_products.find({"source": "shopbase"}, {"_id": 0})}
+    shopbase_count = store.products.count_documents({"source": "shopbase"})
+    custom_count = store.admin_products.count_documents({"source": "custom"})
     products = []
-    for item in store.products.find({"source": "shopbase"}, fields).limit(20000):
+    shopbase_offset = min(offset, shopbase_count)
+    shopbase_take = min(limit, max(0, shopbase_count - shopbase_offset))
+    shopbase_items = list(store.products.find({"source": "shopbase"}, fields).sort([("title", 1), ("_id", 1)]).skip(shopbase_offset).limit(shopbase_take))
+    ids = [_catalog_product_id(item) for item in shopbase_items]
+    overrides = {item["id"]: item for item in store.admin_products.find({"source": "shopbase", "id": {"$in": ids}}, {"_id": 0})} if ids else {}
+    for item in shopbase_items:
         product_id = _catalog_product_id(item)
         added_at = item.get("addedAt") or (item.get("_id").generation_time.isoformat() if getattr(item.get("_id"), "generation_time", None) else None)
         retailer_price = item.get("wholesalePrice")
@@ -1269,7 +1283,9 @@ def list_admin_products(authorization: str | None = Header(default=None)):
         elif retailer_price is not None:
             product["retailerPrice"] = retailer_price
         products.append(product)
-    for item in store.admin_products.find({"source": "custom"}).limit(20000):
+    custom_offset = max(0, offset - shopbase_count)
+    custom_take = max(0, limit - len(shopbase_items))
+    for item in store.admin_products.find({"source": "custom"}).sort([("title", 1), ("_id", 1)]).skip(custom_offset).limit(custom_take):
         item["addedAt"] = item.get("addedAt") or (item.get("_id").generation_time.isoformat() if getattr(item.get("_id"), "generation_time", None) else None)
         item.pop("_id", None)
         products.append(item)
@@ -1462,25 +1478,27 @@ def health():
         raise HTTPException(status_code=503, detail="Catalog database is unavailable.")
 
 @app.get("/api/catalog")
-def catalog(response: Response):
+def catalog(
+    response: Response,
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=500, ge=1, le=1000),
+    include_meta: bool = Query(default=True),
+):
     try:
         store = db()
         fields = {"_id": 0, "sourceId": 1, "title": 1, "category": 1, "categorySourceId": 1, "parentCategory": 1, "parentCategoryId": 1, "price": 1, "suggestedRetailPrice": 1, "compareAt": 1, "image": 1, "stock": 1, "active": 1, "source": 1, "trending": 1, "offer": 1, "badge": 1}
         override_fields = {"_id": 0, "id": 1, "active": 1, "title": 1, "category": 1, "image": 1, "images": {"$slice": 1}, "stock": 1, "trending": 1, "offer": 1, "badge": 1, "categorySourceId": 1, "parentCategory": 1, "parentCategoryId": 1, "originalPrice": 1, "discountedPrice": 1, "compareAt": 1, "price": 1}
-        overrides = {item["id"]: item for item in store.admin_products.find({"source": "shopbase"}, override_fields)}
+        shopbase_query = {"source": "shopbase", "sourceId": {"$exists": True}, "active": True}
+        shopbase_count = store.products.count_documents(shopbase_query)
+        custom_query = {"source": "custom", "active": True}
+        custom_count = store.admin_products.count_documents(custom_query)
         products = []
-        product_counts = {}
-        # Ignore inactive/out-of-stock inventory in MongoDB itself instead of
-        # downloading it and filtering it after the database cursor is exhausted.
-        for item in store.products.find({
-            "source": "shopbase",
-            "sourceId": {"$exists": True},
-            "active": True,
-        }, fields).limit(20000):
-            category_source_id = item.get("categorySourceId")
-            if category_source_id is not None:
-                key = str(category_source_id)
-                product_counts[key] = product_counts.get(key, 0) + 1
+        shopbase_offset = min(offset, shopbase_count)
+        shopbase_take = min(limit, max(0, shopbase_count - shopbase_offset))
+        shopbase_items = list(store.products.find(shopbase_query, fields).skip(shopbase_offset).limit(shopbase_take))
+        ids = [_catalog_product_id(item) for item in shopbase_items]
+        overrides = {item["id"]: item for item in store.admin_products.find({"source": "shopbase", "id": {"$in": ids}}, override_fields)} if ids else {}
+        for item in shopbase_items:
             product_id = _catalog_product_id(item)
             override = overrides.get(product_id)
             if override and override.get("active") is False:
@@ -1489,34 +1507,30 @@ def catalog(response: Response):
             if override:
                 product = _apply_shopbase_override(product, override)
             products.append(product)
-        products.extend(public_product(item) for item in store.admin_products.find({"source": "custom", "active": True}, {"_id": 0}).limit(20000))
+        custom_offset = max(0, offset - shopbase_count)
+        custom_take = max(0, limit - len(shopbase_items))
+        custom_items = list(store.admin_products.find(custom_query, {"_id": 0}).sort([("title", 1), ("_id", 1)]).skip(custom_offset).limit(custom_take))
+        products.extend(public_product(item) for item in custom_items)
         products = [product for product in products if product.get("active", True)]
-        products.sort(key=lambda item: str(item.get("title", "")).casefold())
-        view_counts = {
-            item["productId"]: int(item.get("views", 0))
-            for item in store.product_views.find(
-                {},
-                {"_id": 0, "productId": 1, "views": 1},
-            ).sort("views", -1).limit(1000)
-        }
+        has_more = offset + len(shopbase_items) + len(custom_items) < shopbase_count + custom_count
+        payload = {"products": products, "hasMore": has_more, "nextOffset": offset + len(shopbase_items) + len(custom_items)}
+        if not include_meta:
+            response.headers["Cache-Control"] = "public, max-age=30, stale-while-revalidate=120"
+            return payload
+        view_counts = {item["productId"]: int(item.get("views", 0)) for item in store.product_views.find({}, {"_id": 0, "productId": 1, "views": 1}).sort("views", -1).limit(1000)}
         categories = list(store.categories.find({"source": "shopbase", "type": {"$ne": "parent"}}, {"_id": 0, "sourceId": 1, "name": 1, "parentId": 1, "parentName": 1, "sortOrder": 1, "sourceOrder": 1}))
-        # The supplier's catalog order is the tie-breaker for same-named child
-        # categories (e.g. Denim Jacket under two parent collections).
         if categories and all(item.get("sourceOrder") is not None for item in categories):
             categories.sort(key=lambda item: item["sourceOrder"])
         settings = store.store_settings.find_one({"_id": "storefront"}) or {}
-        groups, _ = _category_groups_for_store(store, settings=settings, categories=categories, product_counts=product_counts)
+        groups, _ = _category_groups_for_store(store, settings=settings, categories=categories, product_counts={})
         all_manual_categories = settings.get("manualCategories", [])
         manual_visibility = settings.get("manualCategoryVisibility", {}) if isinstance(settings.get("manualCategoryVisibility", {}), dict) else {}
         manual_categories = [name for name in all_manual_categories if manual_visibility.get(name, True) is not False]
         visible_sources = {str(child.get("sourceId")) for group in groups if group.get("showInStorefront", True) is not False for child in group.get("children", []) if child.get("showInStorefront", True) is not False and child.get("sourceId")}
-        visible_names = {str(child.get("name", "")).casefold() for group in groups if group.get("showInStorefront", True) is not False for child in group.get("children", []) if child.get("showInStorefront", True) is not False and child.get("name")}
-        visible_names.update(name.casefold() for name in manual_categories)
-        products = [item for item in products if (str(item.get("categorySourceId")) in visible_sources if item.get("categorySourceId") else str(item.get("category", "")).casefold() in visible_names)]
-        latest = store.sync_runs.find_one({"status": {"$in": ["success", "success_with_skipped_details"]}}, {"_id": 0}, sort=[("finishedAt", -1)])
         visible_shopbase_categories = [item["name"] for item in categories if str(item.get("sourceId", "")) in visible_sources]
+        latest = store.sync_runs.find_one({"status": {"$in": ["success", "success_with_skipped_details"]}}, {"_id": 0}, sort=[("finishedAt", -1)])
         response.headers["Cache-Control"] = "public, max-age=30, stale-while-revalidate=120"
-        return {"products": products, "categories": list(dict.fromkeys(visible_shopbase_categories + manual_categories)), "categoryGroups": groups, "categoryGroupsManaged": isinstance(settings.get("categoryGroups"), list), "manualCategories": all_manual_categories, "manualCategoryVisibility": manual_visibility, "manualCategoriesManaged": isinstance(settings.get("manualCategories"), list), "content": settings.get("content"), "lastSync": (latest or {}).get("finishedAt"), "productViewCounts": view_counts}
+        return {**payload, "categories": list(dict.fromkeys(visible_shopbase_categories + manual_categories)), "categoryGroups": groups, "categoryGroupsManaged": isinstance(settings.get("categoryGroups"), list), "manualCategories": all_manual_categories, "manualCategoryVisibility": manual_visibility, "manualCategoriesManaged": isinstance(settings.get("manualCategories"), list), "content": settings.get("content"), "lastSync": (latest or {}).get("finishedAt"), "productViewCounts": view_counts}
     except HTTPException:
         raise
     except Exception:

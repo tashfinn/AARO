@@ -723,14 +723,30 @@ export default function App() {
     if (!admin || !adminToken || !API_BASE || !['products', 'categories'].includes(adminTab)) return
     let current = true
     setAdminProductsLoading(true)
-    fetch(`${API_BASE}/api/admin/products`, { cache: 'no-store', headers: { Authorization: `Bearer ${adminToken}` } })
-      .then(async (response) => {
-        const result = await response.json()
-        if (!response.ok) throw new Error(result.detail || 'Could not load the complete product catalog.')
-        if (current) setAdminProductList(Array.isArray(result) ? result as Product[] : [])
-      })
-      .catch((error) => { if (current) notify(error instanceof Error ? error.message : 'Could not load the complete product catalog.') })
-      .finally(() => { if (current) setAdminProductsLoading(false) })
+    const loadAdminProducts = async () => {
+      const pageSize = 400
+      let offset = 0
+      try {
+        while (current) {
+          const response = await fetch(`${API_BASE}/api/admin/products?offset=${offset}&limit=${pageSize}`, { cache: 'no-store', headers: { Authorization: `Bearer ${adminToken}` } })
+          const result = await response.json()
+          if (!response.ok) throw new Error(result.detail || 'Could not load the product catalog.')
+          const page = Array.isArray(result) ? result as Product[] : []
+          if (!current) return
+          const pageOffset = offset
+          setAdminProductList((previous) => {
+            const existing = new Set(pageOffset === 0 ? [] : previous.map((product) => product.id))
+            return [...(pageOffset === 0 ? [] : previous), ...page.filter((product) => !existing.has(product.id))].sort((a, b) => a.title.localeCompare(b.title))
+          })
+          offset += page.length
+          if (offset >= pageSize) setAdminProductsLoading(false)
+          if (page.length < pageSize) break
+        }
+      } catch (error) {
+        if (current) notify(error instanceof Error ? error.message : 'Could not load the product catalog.')
+      } finally { if (current) setAdminProductsLoading(false) }
+    }
+    void loadAdminProducts()
     return () => { current = false }
   }, [admin, adminTab, adminToken])
   useEffect(() => {
@@ -745,12 +761,13 @@ export default function App() {
     }
     setCatalogLoading(true)
     let cancelled = false
-    fetch(`${apiUrl}/api/catalog`)
-      .then((response) => {
-        if (!response.ok) throw new Error(`Catalog API returned ${response.status}`)
-        return response.json() as Promise<{ products?: unknown; categories?: unknown; categoryGroups?: unknown; categoryGroupsManaged?: boolean; manualCategories?: unknown; manualCategoryVisibility?: unknown; manualCategoriesManaged?: boolean; content?: unknown; lastSync?: string; productViewCounts?: unknown }>
-      })
-      .then((catalog) => {
+    const loadCatalog = async () => {
+      let nextOffset = 0
+      let initialLoaded = false
+      try {
+        const firstResponse = await fetch(`${apiUrl}/api/catalog?offset=0&limit=400&include_meta=true`)
+        if (!firstResponse.ok) throw new Error(`Catalog API returned ${firstResponse.status}`)
+        const catalog = await firstResponse.json() as { products?: unknown; categories?: unknown; categoryGroups?: unknown; categoryGroupsManaged?: boolean; manualCategories?: unknown; manualCategoryVisibility?: unknown; manualCategoriesManaged?: boolean; content?: unknown; lastSync?: string; productViewCounts?: unknown; hasMore?: boolean; nextOffset?: number }
         if (cancelled) return
         const catalogProducts = Array.isArray(catalog.products) ? catalog.products.filter((item): item is Product => Boolean(item && typeof item.id === 'string' && typeof item.title === 'string' && typeof item.category === 'string' && typeof item.image === 'string' && typeof item.description === 'string' && Number.isFinite(item.price))) : []
         const catalogCategories = Array.isArray(catalog.categories) ? catalog.categories.filter((item): item is string => typeof item === 'string') : []
@@ -764,7 +781,7 @@ export default function App() {
         const savedGroups = Array.isArray(rawSavedGroups) ? rawSavedGroups.filter((group): group is CategoryGroup => Boolean(group && typeof group.id === 'string' && typeof group.name === 'string' && Array.isArray(group.children))) : []
         setCategoryGroups(catalog.categoryGroupsManaged ? catalogGroups : mergeCategoryGroups(savedGroups, catalogGroups))
         setState((current) => {
-          const synced = catalogProducts.map((product) => ({ ...product, source: product.source === 'custom' ? 'custom' as const : 'shopbase' as const }))
+          const synced = catalogProducts.map((product) => ({ ...product, source: product.source === 'custom' ? 'custom' as const : 'shopbase' as const })).sort((a, b) => a.title.localeCompare(b.title))
           const serverProductIds = new Set(catalogProducts.map((product) => product.id))
           const manual = current.products.filter((product) => product.source === 'custom' && !serverProductIds.has(product.id))
           const customCategories = current.categories.filter((item) => item !== 'All' && !initialState.categories.includes(item))
@@ -777,15 +794,32 @@ export default function App() {
         setManualCategories(catalog.manualCategoriesManaged && Array.isArray(catalog.manualCategories) ? catalog.manualCategories.filter((item): item is string => typeof item === 'string') : state.categories.filter((item) => item !== 'All' && !initialState.categories.includes(item) && !catalogCategories.includes(item)))
         if (typeof catalog.lastSync === 'string') { setLastSync(catalog.lastSync); localStorage.setItem('aaro-last-import', catalog.lastSync) }
         else { setLastSync(''); localStorage.removeItem('aaro-last-import') }
-      })
-      .catch((error) => {
+        nextOffset = Number.isInteger(catalog.nextOffset) ? catalog.nextOffset! : catalogProducts.length
+        initialLoaded = true
+        setCatalogLoading(false)
+        let hasMore = Boolean(catalog.hasMore)
+        while (!cancelled && hasMore) {
+          const response = await fetch(`${apiUrl}/api/catalog?offset=${nextOffset}&limit=400&include_meta=false`)
+          if (!response.ok) throw new Error(`Catalog page returned ${response.status}`)
+          const page = await response.json() as { products?: unknown; hasMore?: boolean; nextOffset?: number }
+          if (cancelled) return
+          const products = Array.isArray(page.products) ? page.products.filter((item): item is Product => Boolean(item && typeof item.id === 'string' && typeof item.title === 'string' && typeof item.category === 'string' && typeof item.image === 'string' && typeof item.description === 'string' && Number.isFinite(item.price))).map((product) => ({ ...product, source: product.source === 'custom' ? 'custom' as const : 'shopbase' as const })) : []
+          if (products.length) setState((current) => {
+            const ids = new Set(current.products.map((product) => product.id))
+            return { ...current, products: [...current.products, ...products.filter((product) => !ids.has(product.id))].sort((a, b) => a.title.localeCompare(b.title)) }
+          })
+          nextOffset = Number.isInteger(page.nextOffset) ? page.nextOffset! : nextOffset + products.length
+          hasMore = Boolean(page.hasMore)
+        }
+      } catch (error) {
         console.warn('AARO live catalog API unavailable.', error)
-        if (!cancelled) {
+        if (!cancelled && !initialLoaded) {
           setCatalogError(true)
           setState((current) => ({ ...current, products: current.products.filter((product) => product.source === 'shopbase') }))
         }
-      })
-      .finally(() => { if (!cancelled) setCatalogLoading(false) })
+      } finally { if (!cancelled) setCatalogLoading(false) }
+    }
+    void loadCatalog()
     return () => { cancelled = true }
   }, [catalogRefreshTick])
   useEffect(() => {
