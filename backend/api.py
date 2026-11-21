@@ -265,6 +265,7 @@ def ensure_storefront_query_indexes():
         store.products.create_index([("source", 1), ("active", 1)], name="catalog_shopbase_active")
         store.admin_products.create_index([("source", 1)], name="catalog_admin_source")
         store.product_views.create_index([("productId", 1)], name="catalog_views_product")
+        store.product_views.create_index([("views", -1)], name="catalog_views_ranked")
     except Exception:
         # Index setup must not prevent the API from starting; the request path
         # still remains correct if MongoDB temporarily refuses index changes.
@@ -1491,14 +1492,13 @@ def catalog(response: Response):
         products.extend(public_product(item) for item in store.admin_products.find({"source": "custom", "active": True}, {"_id": 0}).limit(20000))
         products = [product for product in products if product.get("active", True)]
         products.sort(key=lambda item: str(item.get("title", "")).casefold())
-        product_ids = [item["id"] for item in products if item.get("id")]
         view_counts = {
             item["productId"]: int(item.get("views", 0))
             for item in store.product_views.find(
-                {"productId": {"$in": product_ids}},
+                {},
                 {"_id": 0, "productId": 1, "views": 1},
-            )
-        } if product_ids else {}
+            ).sort("views", -1).limit(1000)
+        }
         categories = list(store.categories.find({"source": "shopbase", "type": {"$ne": "parent"}}, {"_id": 0, "sourceId": 1, "name": 1, "parentId": 1, "parentName": 1, "sortOrder": 1, "sourceOrder": 1}))
         # The supplier's catalog order is the tie-breaker for same-named child
         # categories (e.g. Denim Jacket under two parent collections).
