@@ -203,6 +203,7 @@ class OfferInput(BaseModel):
     productId: str = Field(default="", max_length=120)
     productIds: list[str] = Field(default_factory=list)
     thumbnailProductIds: list[str] = Field(default_factory=list, max_length=3)
+    productCount: int | None = Field(default=None, ge=0)
     sortOrder: int = Field(default=0, ge=0)
     kind: str
     value: float = Field(default=0, ge=0)
@@ -333,6 +334,15 @@ def _count_inline_images(value: Any) -> int:
         return sum(_count_inline_images(item) for item in value)
     if isinstance(value, dict):
         return sum(_count_inline_images(item) for item in value.values())
+    return 0
+
+def _count_cloudinary_images(value: Any) -> int:
+    if isinstance(value, str):
+        return int(value.startswith("https://res.cloudinary.com/"))
+    if isinstance(value, list):
+        return sum(_count_cloudinary_images(item) for item in value)
+    if isinstance(value, dict):
+        return sum(_count_cloudinary_images(item) for item in value.values())
     return 0
 
 def _b64(data: bytes) -> str:
@@ -724,8 +734,19 @@ def public_offers():
     # Share images are stored as base64 on the offer document. They are only
     # needed by the dedicated link-preview endpoint; including them here makes
     # every storefront visit download hundreds of KB of unrelated media.
-    offers = db().offers.find({"active": True}, {"_id": 0, "shareImage": 0})
-    return sorted(list(offers), key=lambda offer: offer.get("sortOrder", 0))
+    store = db()
+    result = list(store.offers.find({"active": True}, {"_id": 0, "shareImage": 0}))
+    storewide_count: int | None = None
+    for offer in result:
+        if not isinstance(offer.get("productCount"), int):
+            if offer.get("kind") == "free_delivery":
+                if storewide_count is None:
+                    storewide_count = store.products.count_documents({"source": "shopbase", "active": {"$ne": False}}) + store.admin_products.count_documents({"source": "custom", "active": True})
+                offer["productCount"] = storewide_count
+            else:
+                offer["productCount"] = len(offer.get("productIds") or ([offer.get("productId")] if offer.get("productId") else []))
+            store.offers.update_one({"id": offer.get("id"), "productCount": {"$exists": False}}, {"$set": {"productCount": offer["productCount"]}})
+    return sorted(result, key=lambda offer: offer.get("sortOrder", 0))
 
 @app.get("/api/admin/offers")
 def list_offers(authorization: str | None = Header(default=None)):
@@ -815,6 +836,13 @@ def save_offer(input: OfferInput, authorization: str | None = Header(default=Non
         input.productId = ""
         input.productIds = []
     offer = input.model_dump()
+    if input.kind == "free_delivery":
+        offer["productCount"] = (
+            db().products.count_documents({"source": "shopbase", "active": {"$ne": False}})
+            + db().admin_products.count_documents({"source": "custom", "active": True})
+        )
+    else:
+        offer["productCount"] = len(input.productIds)
     db().offers.replace_one({"id": offer["id"]}, offer, upsert=True)
     return offer
 
@@ -1184,6 +1212,17 @@ def admin_storefront_settings(authorization: str | None = Header(default=None)):
     settings = db().store_settings.find_one({"_id": "storefront"}) or {}
     return {key: settings[key] for key in ("content", "categoryGroups", "manualCategories", "manualCategoryVisibility") if key in settings}
 
+@app.get("/api/admin/storefront-media/status")
+def storefront_media_status(authorization: str | None = Header(default=None)):
+    _admin_from_auth(authorization)
+    settings = db().store_settings.find_one({"_id": "storefront"}, {"_id": 0, "content": 1}) or {}
+    content = settings.get("content") if isinstance(settings.get("content"), dict) else {}
+    return {
+        "configured": _cloudinary_credentials() is not None,
+        "cloudinaryImages": _count_cloudinary_images(content),
+        "inlineImages": _count_inline_images(content),
+    }
+
 @app.post("/api/admin/storefront-media/migrate")
 def migrate_storefront_media(authorization: str | None = Header(default=None)):
     _admin_from_auth(authorization)
@@ -1379,9 +1418,69 @@ def save_admin_product(input: AdminProductInput, authorization: str | None = Hea
     return product
 
 @app.get("/api/admin/products")
-def list_admin_products(authorization: str | None = Header(default=None), offset: int | None = Query(default=None, ge=0), limit: int = Query(default=100, ge=1, le=400)):
+def list_admin_products(authorization: str | None = Header(default=None), offset: int | None = Query(default=None, ge=0), limit: int = Query(default=100, ge=1, le=400), search: str | None = Query(default=None, max_length=100)):
     _admin_from_auth(authorization)
     store = db()
+    needle = (search or "").strip()
+    if needle:
+        pattern = re.escape(needle)
+        source_needle = needle.removeprefix("shopbase-")
+        search_fields = [
+            {"title": {"$regex": pattern, "$options": "i"}},
+            {"category": {"$regex": pattern, "$options": "i"}},
+            {"sourceId": {"$regex": re.escape(source_needle), "$options": "i"}},
+            {"id": {"$regex": pattern, "$options": "i"}},
+        ]
+        shopbase_query = {"source": "shopbase", "$or": search_fields}
+        custom_query = {"source": "custom", "$or": search_fields}
+        override_query = {"source": "shopbase", "$or": search_fields}
+        override_matches = list(store.admin_products.find(override_query, {"_id": 0, "id": 1, "sourceId": 1, "title": 1}).sort([("title", 1), ("id", 1)]))
+        override_source_ids = list(dict.fromkeys(str(item.get("sourceId") or str(item.get("id", "")).removeprefix("shopbase-")) for item in override_matches))
+        base_search_ids = {str(item.get("sourceId", "")) for item in store.products.find(shopbase_query, {"_id": 0, "sourceId": 1}) if item.get("sourceId")}
+        matching_override_ids = {str(item.get("sourceId", "")) for item in store.products.find({"source": "shopbase", "sourceId": {"$in": override_source_ids}}, {"_id": 0, "sourceId": 1}) if item.get("sourceId")} if override_source_ids else set()
+        shopbase_count = len(base_search_ids | matching_override_ids)
+        custom_count = store.admin_products.count_documents(custom_query)
+        total = shopbase_count + custom_count
+        candidate_count = (offset or 0) + limit
+        fields = {"_id": 1, "sourceId": 1, "title": 1, "category": 1, "categorySourceId": 1, "parentCategory": 1, "parentCategoryId": 1, "price": 1, "suggestedRetailPrice": 1, "wholesalePrice": 1, "compareAt": 1, "image": 1, "stock": 1, "active": 1, "source": 1, "addedAt": 1, "updatedAt": 1, "trending": 1, "offer": 1, "badge": 1, "rating": 1, "reviews": 1, "sizes": 1, "options": 1}
+        shopbase_items = list(store.products.find(shopbase_query, fields).sort([("title", 1), ("_id", 1)]).limit(candidate_count))
+        override_candidate_source_ids = override_source_ids[:candidate_count]
+        if override_candidate_source_ids:
+            included_source_ids = {str(item.get("sourceId", "")) for item in shopbase_items}
+            additional_items = store.products.find({"source": "shopbase", "sourceId": {"$in": override_candidate_source_ids}}, fields).sort([("title", 1), ("_id", 1)]).limit(candidate_count)
+            shopbase_items.extend(item for item in additional_items if str(item.get("sourceId", "")) not in included_source_ids)
+        shopbase_items = list({str(item.get("sourceId", "")): item for item in reversed(shopbase_items)}.values())
+        source_ids = [_catalog_product_id(item) for item in shopbase_items]
+        override_fields = {"_id": 0, "id": 1, "title": 1, "category": 1, "categorySourceId": 1, "parentCategory": 1, "parentCategoryId": 1, "price": 1, "originalPrice": 1, "discountedPrice": 1, "compareAt": 1, "image": 1, "images": {"$slice": 1}, "stock": 1, "active": 1, "trending": 1, "offer": 1, "badge": 1, "sizes": 1, "options": 1, "updatedAt": 1}
+        overrides = {item["id"]: item for item in store.admin_products.find({"source": "shopbase", "id": {"$in": source_ids}}, override_fields)} if source_ids else {}
+        results: list[dict[str, Any]] = []
+        for item in shopbase_items:
+            product = public_product(item)
+            product.pop("_id", None)
+            product["addedAt"] = item.get("addedAt") or (item.get("_id").generation_time.isoformat() if getattr(item.get("_id"), "generation_time", None) else None)
+            override = overrides.get(product["id"])
+            results.append(_apply_shopbase_override(product, override, retailer_price=item.get("wholesalePrice")) if override else {**product, **({"retailerPrice": item["wholesalePrice"]} if item.get("wholesalePrice") is not None else {})})
+        custom_fields = {"_id": 1, "id": 1, "sourceId": 1, "title": 1, "category": 1, "categorySourceId": 1, "parentCategory": 1, "parentCategoryId": 1, "price": 1, "originalPrice": 1, "discountedPrice": 1, "compareAt": 1, "image": 1, "images": {"$slice": 1}, "stock": 1, "active": 1, "source": 1, "addedAt": 1, "updatedAt": 1, "trending": 1, "offer": 1, "badge": 1, "rating": 1, "reviews": 1, "sizes": 1, "options": 1}
+        for item in store.admin_products.find(custom_query, custom_fields).sort([("title", 1), ("_id", 1)]).limit(candidate_count):
+            item["addedAt"] = item.get("addedAt") or (item.get("_id").generation_time.isoformat() if getattr(item.get("_id"), "generation_time", None) else None)
+            item.pop("_id", None)
+            results.append(item)
+        exact = needle.removeprefix("shopbase-").casefold()
+        def relevance(product: dict[str, Any]) -> tuple[int, str, str]:
+            product_id = str(product.get("sourceId") or product.get("id") or "").casefold()
+            if product_id.removeprefix("shopbase-") == exact:
+                rank = 0
+            elif product_id.startswith(exact):
+                rank = 1
+            elif exact in str(product.get("title", "")).casefold():
+                rank = 2
+            else:
+                rank = 3
+            return rank, str(product.get("title", "")).casefold(), str(product.get("id", ""))
+        results.sort(key=relevance)
+        page_offset = offset or 0
+        products = results[page_offset:page_offset + limit]
+        return {"products": products, "hasMore": page_offset + len(products) < total, "nextOffset": page_offset + len(products), "total": total}
     if offset is not None:
         shopbase_query = {"source": "shopbase"}
         custom_query = {"source": "custom"}
@@ -1776,13 +1875,14 @@ def product_view_counts():
 
 @app.get("/api/catalog-priority")
 def catalog_priority(
-    kind: Literal["home", "trending", "offers", "category", "search"],
+    kind: Literal["home", "trending", "offers", "offer", "category", "search"],
     limit: int = Query(default=50, ge=1, le=400),
     offset: int = Query(default=0, ge=0),
     category: str | None = None,
     category_source_id: str | None = None,
     parent_category_id: str | None = None,
     search: str | None = None,
+    offer_id: str | None = None,
 ):
     """Fetch only the products needed for the current storefront view."""
     store = db()
@@ -1805,26 +1905,23 @@ def catalog_priority(
             flagged_trending = list(store.products.find(flag_query, {"_id": 0, "sourceId": 1}).limit(20 - len(priority_trending_ids)))
             priority_trending_ids.extend(f"shopbase-{item['sourceId']}" for item in flagged_trending if item.get("sourceId"))
         explicit_ids.extend(priority_trending_ids)
-        featured_ids = content.get("offerIds", [])
-        if kind == "home":
-            active_offers = list(store.offers.find({"active": True}, {"_id": 0, "productId": 1, "productIds": 1, "thumbnailProductIds": 1}))
-            for offer in active_offers:
-                explicit_ids.extend(str(item) for item in offer.get("thumbnailProductIds", []) if isinstance(item, str))
-                explicit_ids.extend(str(item) for item in (offer.get("productIds") or ([offer.get("productId")] if offer.get("productId") else [])) if isinstance(item, str))
-            explicit_ids.extend(str(item) for item in featured_ids if isinstance(item, str))
-        else:
-            pass
+        # Homepage priority is the stable trending queue. Offer and category
+        # products load when their sections are requested or in idle loading.
     elif kind == "offers":
-        explicit_ids.extend(str(item) for item in content.get("offerIds", []) if isinstance(item, str))
-        for offer in store.offers.find({"active": True}, {"_id": 0, "productId": 1, "productIds": 1, "thumbnailProductIds": 1}):
-            explicit_ids.extend(str(item) for item in offer.get("thumbnailProductIds", []) if isinstance(item, str))
+        for offer in store.offers.find({"active": True}, {"_id": 0, "thumbnailProductIds": 1}):
+            explicit_ids.extend(str(item) for item in (offer.get("thumbnailProductIds") or [])[:3] if isinstance(item, str))
+    elif kind == "offer":
+        offer = store.offers.find_one({"id": offer_id, "active": True}, {"_id": 0, "kind": 1, "productId": 1, "productIds": 1}) if offer_id else None
+        if not offer:
+            return {"products": [], "hasMore": False, "nextOffset": 0, "total": 0}
+        if offer.get("kind") != "free_delivery":
             explicit_ids.extend(str(item) for item in (offer.get("productIds") or ([offer.get("productId")] if offer.get("productId") else [])) if isinstance(item, str))
-        explicit_ids.extend(_catalog_product_id(item) for item in store.products.find({"source": "shopbase", "active": {"$ne": False}, "offer": True, "sourceId": {"$exists": True}}, {"_id": 0, "source": 1, "sourceId": 1}))
-        explicit_ids.extend(str(item.get("id")) for item in store.admin_products.find({"source": "custom", "active": True, "offer": True}, {"_id": 0, "id": 1}) if item.get("id"))
     else:
         if kind == "search" and search:
-            pattern = re.escape(search.strip()[:100])
-            query["$or"] = [{"title": {"$regex": pattern, "$options": "i"}}, {"category": {"$regex": pattern, "$options": "i"}}]
+            raw_search = search.strip()[:100]
+            pattern = re.escape(raw_search)
+            source_pattern = re.escape(raw_search.removeprefix("shopbase-"))
+            query["$or"] = [{"title": {"$regex": pattern, "$options": "i"}}, {"category": {"$regex": pattern, "$options": "i"}}, {"sourceId": {"$regex": source_pattern, "$options": "i"}}, {"description": {"$regex": pattern, "$options": "i"}}, {"details": {"$regex": pattern, "$options": "i"}}]
         elif category_source_id:
             query["categorySourceId"] = str(category_source_id)
         elif parent_category_id:
@@ -1838,7 +1935,7 @@ def catalog_priority(
     if kind in ("home", "trending") and not explicit_ids:
         query["trending"] = True
     if kind == "offers" and not explicit_ids:
-        query["offer"] = True
+        return {"products": [], "hasMore": False, "nextOffset": 0, "total": 0, "trendingIds": []}
     if explicit_ids:
         selected_ids = explicit_ids[offset:offset + limit]
         source_ids = [item.removeprefix("shopbase-") for item in selected_ids if item.startswith("shopbase-")]
@@ -1863,19 +1960,48 @@ def catalog_priority(
         source_fields = {"_id": 0, "sourceId": 1, "title": 1, "category": 1, "categorySourceId": 1, "parentCategory": 1, "parentCategoryId": 1, "price": 1, "suggestedRetailPrice": 1, "image": 1, "stock": 1, "active": 1, "source": 1, "trending": 1, "offer": 1, "badge": 1}
         custom_query: dict[str, Any] = {"source": "custom", "active": True}
         if kind == "search" and search:
-            pattern = re.escape(search.strip()[:100])
-            custom_query["$or"] = [{"title": {"$regex": pattern, "$options": "i"}}, {"category": {"$regex": pattern, "$options": "i"}}]
+            raw_search = search.strip()[:100]
+            pattern = re.escape(raw_search)
+            source_pattern = re.escape(raw_search.removeprefix("shopbase-"))
+            custom_query["$or"] = [{"title": {"$regex": pattern, "$options": "i"}}, {"category": {"$regex": pattern, "$options": "i"}}, {"id": {"$regex": pattern, "$options": "i"}}, {"sourceId": {"$regex": source_pattern, "$options": "i"}}, {"description": {"$regex": pattern, "$options": "i"}}, {"details": {"$regex": pattern, "$options": "i"}}]
         elif category_source_id:
             custom_query["categorySourceId"] = str(category_source_id)
         elif parent_category_id:
             custom_query["parentCategoryId"] = str(parent_category_id)
         elif category:
             custom_query["category"] = category
-        shopbase_count = store.products.count_documents(query)
         custom_count = store.admin_products.count_documents(custom_query)
-        shopbase_offset = min(offset, shopbase_count)
-        shopbase_take = min(limit, max(0, shopbase_count - shopbase_offset))
-        docs = list(store.products.find(query, source_fields).sort([("_id", 1)]).skip(shopbase_offset).limit(shopbase_take))
+        search_candidates = kind == "search" and bool(search and search.strip())
+        override_matches: list[dict[str, Any]] = []
+        override_source_ids: list[str] = []
+        if search_candidates:
+            raw_search = search.strip()[:100]
+            pattern = re.escape(raw_search)
+            source_pattern = re.escape(raw_search.removeprefix("shopbase-"))
+            override_query = {"source": "shopbase", "active": {"$ne": False}, "$or": [{"title": {"$regex": pattern, "$options": "i"}}, {"category": {"$regex": pattern, "$options": "i"}}, {"id": {"$regex": pattern, "$options": "i"}}, {"sourceId": {"$regex": source_pattern, "$options": "i"}}, {"description": {"$regex": pattern, "$options": "i"}}, {"details": {"$regex": pattern, "$options": "i"}}]}
+            override_matches = list(store.admin_products.find(override_query, {"_id": 0, "id": 1, "sourceId": 1, "title": 1}).sort([("title", 1), ("id", 1)]))
+            override_source_ids = list(dict.fromkeys(str(item.get("sourceId") or str(item.get("id", "")).removeprefix("shopbase-")) for item in override_matches))
+            base_search_ids = {str(item.get("sourceId", "")) for item in store.products.find(query, {"_id": 0, "sourceId": 1}) if item.get("sourceId")}
+            matched_override_ids = {str(item.get("sourceId", "")) for item in store.products.find({"source": "shopbase", "active": {"$ne": False}, "sourceId": {"$in": override_source_ids}}, {"_id": 0, "sourceId": 1}) if item.get("sourceId")} if override_source_ids else set()
+            shopbase_count = len(base_search_ids | matched_override_ids)
+        else:
+            shopbase_count = store.products.count_documents(query)
+        candidate_limit = max(offset + limit, limit * 20) if search_candidates else limit
+        shopbase_offset = 0 if search_candidates else min(offset, shopbase_count)
+        shopbase_take = min(candidate_limit, max(0, shopbase_count - shopbase_offset))
+        shopbase_sort = [("title", 1), ("_id", 1)] if search_candidates else [("_id", 1)]
+        docs = list(store.products.find(query, source_fields).sort(shopbase_sort).skip(shopbase_offset).limit(shopbase_take))
+        if search_candidates:
+            needle = search.strip()
+            source_needle = needle.removeprefix("shopbase-")
+            prioritized_shopbase = list(store.products.find({"source": "shopbase", "sourceId": source_needle, "active": {"$ne": False}}, source_fields).limit(1))
+            prioritized_shopbase.extend(store.products.find({"source": "shopbase", "title": {"$regex": f"^{re.escape(needle)}$", "$options": "i"}, "active": {"$ne": False}}, source_fields).limit(5))
+            known_source_ids = {str(item.get("sourceId", "")) for item in docs}
+            docs.extend(item for item in prioritized_shopbase if str(item.get("sourceId", "")) not in known_source_ids)
+            override_candidate_source_ids = override_source_ids[:candidate_limit]
+            if override_candidate_source_ids:
+                docs.extend(store.products.find({"source": "shopbase", "active": {"$ne": False}, "sourceId": {"$in": override_candidate_source_ids}}, source_fields).limit(candidate_limit))
+            docs = list({str(item.get("sourceId", "")): item for item in reversed(docs)}.values())
         source_ids = [_catalog_product_id(item) for item in docs]
         overrides = {item["id"]: item for item in store.admin_products.find({"source": "shopbase", "id": {"$in": source_ids}}, {"_id": 0})} if source_ids else {}
         products = []
@@ -1884,10 +2010,28 @@ def catalog_priority(
             override = overrides.get(product["id"])
             if not override or override.get("active") is not False:
                 products.append(_apply_shopbase_override(product, override) if override else product)
-        custom_offset = max(0, offset - shopbase_count)
-        custom_take = max(0, limit - len(products))
-        custom_docs = list(store.admin_products.find(custom_query, {"_id": 0}).sort([("_id", 1)]).skip(custom_offset).limit(custom_take))
+        custom_offset = 0 if search_candidates else max(0, offset - shopbase_count)
+        custom_take = candidate_limit if search_candidates else max(0, limit - len(products))
+        custom_sort = [("title", 1), ("_id", 1)] if search_candidates else [("_id", 1)]
+        custom_docs = list(store.admin_products.find(custom_query, {"_id": 0}).sort(custom_sort).skip(custom_offset).limit(custom_take))
+        if search_candidates:
+            needle = search.strip()
+            prioritized_custom = list(store.admin_products.find({"source": "custom", "id": needle, "active": True}, {"_id": 0}).limit(1))
+            prioritized_custom.extend(store.admin_products.find({"source": "custom", "title": {"$regex": f"^{re.escape(needle)}$", "$options": "i"}, "active": True}, {"_id": 0}).limit(5))
+            known_custom_ids = {str(item.get("id", "")) for item in custom_docs}
+            custom_docs.extend(item for item in prioritized_custom if str(item.get("id", "")) not in known_custom_ids)
         products.extend(public_product(item) for item in custom_docs)
+        if search_candidates:
+            needle = search.strip().casefold().removeprefix("shopbase-")
+            def search_relevance(product: dict[str, Any]) -> tuple[int, str, str]:
+                product_id = str(product.get("sourceId") or product.get("id") or "").casefold().removeprefix("shopbase-")
+                title = str(product.get("title", "")).casefold()
+                category_name = str(product.get("category", "")).casefold()
+                rank = 0 if product_id == needle else 1 if title == needle else 2 if title.startswith(needle) else 3 if needle in title else 4 if needle in category_name else 5
+                return rank, title, str(product.get("id", ""))
+            products.sort(key=search_relevance)
+            page_products = products[offset:offset + limit]
+            return {"products": page_products, "hasMore": offset + len(page_products) < shopbase_count + custom_count, "nextOffset": offset + len(page_products), "total": shopbase_count + custom_count}
         next_offset = offset + len(products)
         if kind in ("home", "trending") and not priority_trending_ids:
             priority_trending_ids = [product["id"] for product in products if product.get("trending")][:20]
