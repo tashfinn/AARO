@@ -11,7 +11,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
-from fastapi import FastAPI, HTTPException, Header
+from fastapi import FastAPI, HTTPException, Header, Query
 from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
@@ -1567,6 +1567,78 @@ def catalog(response: Response):
     except Exception:
         logging.exception("Catalog load failed")
         raise HTTPException(status_code=503, detail="Could not load catalog.")
+
+@app.get("/api/catalog-page")
+def catalog_page(
+    response: Response,
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=400, ge=1, le=800),
+    include_meta: bool = Query(default=True),
+):
+    """Return a small catalog page so the storefront need not wait for every SKU."""
+    try:
+        store = db()
+        shopbase_query = {"source": "shopbase", "sourceId": {"$exists": True}, "active": {"$ne": False}}
+        custom_query = {"source": "custom", "active": True}
+        shopbase_count = store.products.count_documents(shopbase_query)
+        custom_count = store.admin_products.count_documents(custom_query)
+        shopbase_offset = min(offset, shopbase_count)
+        shopbase_take = min(limit, max(0, shopbase_count - shopbase_offset))
+        product_fields = {"_id": 0, "sourceId": 1, "title": 1, "category": 1, "categorySourceId": 1, "parentCategory": 1, "parentCategoryId": 1, "price": 1, "suggestedRetailPrice": 1, "compareAt": 1, "image": 1, "stock": 1, "active": 1, "source": 1, "trending": 1, "offer": 1, "badge": 1}
+        shopbase_items = list(store.products.find(shopbase_query, product_fields).skip(shopbase_offset).limit(shopbase_take))
+        ids = [_catalog_product_id(item) for item in shopbase_items]
+        override_fields = {"_id": 0, "id": 1, "active": 1, "title": 1, "category": 1, "image": 1, "images": {"$slice": 1}, "stock": 1, "trending": 1, "offer": 1, "badge": 1, "categorySourceId": 1, "parentCategory": 1, "parentCategoryId": 1, "originalPrice": 1, "discountedPrice": 1, "compareAt": 1, "price": 1}
+        overrides = {item["id"]: item for item in store.admin_products.find({"source": "shopbase", "id": {"$in": ids}}, override_fields)} if ids else {}
+        products = []
+        for item in shopbase_items:
+            product = public_product(item)
+            override = overrides.get(product["id"])
+            if override and override.get("active") is False:
+                continue
+            products.append(_apply_shopbase_override(product, override) if override else product)
+        custom_offset = max(0, offset - shopbase_count)
+        custom_take = max(0, limit - len(shopbase_items))
+        custom_items = list(store.admin_products.find(custom_query, {"_id": 0}).sort([("title", 1), ("_id", 1)]).skip(custom_offset).limit(custom_take))
+        products.extend(public_product(item) for item in custom_items)
+        next_offset = offset + len(shopbase_items) + len(custom_items)
+        payload: dict[str, Any] = {"products": products, "hasMore": next_offset < shopbase_count + custom_count, "nextOffset": next_offset}
+        if include_meta:
+            categories = list(store.categories.find({"source": "shopbase", "type": {"$ne": "parent"}}, {"_id": 0, "sourceId": 1, "name": 1, "parentId": 1, "parentName": 1, "sortOrder": 1, "sourceOrder": 1}))
+            if categories and all(item.get("sourceOrder") is not None for item in categories):
+                categories.sort(key=lambda item: item["sourceOrder"])
+            groups, _ = _category_groups_for_store(store)
+            settings = store.store_settings.find_one({"_id": "storefront"}, {
+                "_id": 0, "categoryGroups": 1, "manualCategories": 1, "manualCategoryVisibility": 1,
+                "content.heroTitle": 1, "content.heroSubtitle": 1, "content.heroCta": 1,
+                "content.offerTitle": 1, "content.offerSubtitle": 1, "content.announcement": 1,
+                "content.trendingIds": 1, "content.offerIds": 1, "content.combos": 1,
+                "content.categoryImages": 1, "content.deliveryInDhaka": 1,
+                "content.deliverySubDhaka": 1, "content.deliveryOutsideDhaka": 1,
+            }) or {}
+            all_manual_categories = settings.get("manualCategories", [])
+            manual_visibility = settings.get("manualCategoryVisibility", {}) if isinstance(settings.get("manualCategoryVisibility", {}), dict) else {}
+            manual_categories = [name for name in all_manual_categories if manual_visibility.get(name, True) is not False]
+            visible_sources = {str(child.get("sourceId")) for group in groups if group.get("showInStorefront", True) is not False for child in group.get("children", []) if child.get("showInStorefront", True) is not False and child.get("sourceId")}
+            visible_shopbase_categories = [item["name"] for item in categories if str(item.get("sourceId", "")) in visible_sources]
+            latest = store.sync_runs.find_one({"status": {"$in": ["success", "success_with_skipped_details"]}}, {"_id": 0}, sort=[("finishedAt", -1)])
+            payload.update({
+                "categories": list(dict.fromkeys(visible_shopbase_categories + manual_categories)),
+                "categoryGroups": groups,
+                "categoryGroupsManaged": isinstance(settings.get("categoryGroups"), list),
+                "manualCategories": all_manual_categories,
+                "manualCategoryVisibility": manual_visibility,
+                "manualCategoriesManaged": isinstance(settings.get("manualCategories"), list),
+                "content": settings.get("content"),
+                "lastSync": (latest or {}).get("finishedAt"),
+                "productViewCounts": {item["productId"]: int(item.get("views", 0)) for item in store.product_views.find({}, {"_id": 0, "productId": 1, "views": 1}).sort("views", -1).limit(1000)},
+            })
+        response.headers["Cache-Control"] = "public, max-age=30, stale-while-revalidate=120"
+        return payload
+    except HTTPException:
+        raise
+    except Exception:
+        logging.exception("Catalog page load failed")
+        raise HTTPException(status_code=503, detail="Could not load catalog page.")
 
 @app.post("/api/products/{product_id}/view")
 def record_product_view(product_id: str):
