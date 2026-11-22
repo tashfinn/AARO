@@ -11,7 +11,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
-from fastapi import FastAPI, HTTPException, Header, Query
+from fastapi import FastAPI, HTTPException, Header, Query, Request
 from fastapi.responses import Response, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
@@ -249,6 +249,18 @@ def db():
     if _client is None:
         _client = MongoClient(uri, serverSelectionTimeoutMS=5000)
     return _client[os.getenv("MONGODB_DATABASE", "aaro")]
+
+@app.on_event("startup")
+def ensure_storefront_indexes():
+    """Keep the read paths used by the storefront on indexed queries."""
+    try:
+        store = db()
+        store.product_views.create_index([("views", -1), ("productId", 1)], name="storefront_trending_views")
+        store.products.create_index([("source", 1), ("categorySourceId", 1), ("_id", 1)], name="storefront_category_samples")
+        store.admin_products.create_index([("source", 1), ("id", 1)], name="storefront_product_overrides")
+    except Exception:
+        # A temporary database outage should not prevent the API from starting.
+        logging.exception("Could not ensure storefront query indexes")
 
 def _password_hash(password: str, salt: bytes | None = None) -> str:
     salt = salt or secrets.token_bytes(16)
@@ -730,7 +742,7 @@ def create_order(input: OrderInput, authorization: str | None = Header(default=N
 
 
 @app.get("/api/offers")
-def public_offers():
+def public_offers(response: Response):
     # Share images are stored as base64 on the offer document. They are only
     # needed by the dedicated link-preview endpoint; including them here makes
     # every storefront visit download hundreds of KB of unrelated media.
@@ -746,6 +758,7 @@ def public_offers():
             else:
                 offer["productCount"] = len(offer.get("productIds") or ([offer.get("productId")] if offer.get("productId") else []))
             store.offers.update_one({"id": offer.get("id"), "productCount": {"$exists": False}}, {"$set": {"productCount": offer["productCount"]}})
+    response.headers["Cache-Control"] = "public, max-age=15, stale-while-revalidate=120"
     return sorted(result, key=lambda offer: offer.get("sortOrder", 0))
 
 @app.get("/api/admin/offers")
@@ -1674,6 +1687,65 @@ def public_product(product, include_details=False):
         product["description"] = ""
     return product
 
+def _catalog_image_url(request: Request, product_id: str, image_index: int, image: Any) -> str:
+    if not isinstance(image, str) or not image.startswith("data:image/"):
+        return image if isinstance(image, str) else ""
+    version = hashlib.sha256(image.encode("utf-8")).hexdigest()[:20]
+    return str(request.url_for("catalog_product_image").include_query_params(product_id=product_id, image_index=image_index, v=version))
+
+def _externalize_product_images(product: dict[str, Any], request: Request) -> dict[str, Any]:
+    """Replace base64 JSON payloads with cacheable image URLs."""
+    product_id = str(product.get("id") or "")
+    images = product.get("images")
+    if isinstance(images, list):
+        product["images"] = [_catalog_image_url(request, product_id, index, image) for index, image in enumerate(images)]
+    if isinstance(product.get("image"), str):
+        product["image"] = _catalog_image_url(request, product_id, 0, product["image"])
+    return product
+
+@app.get("/api/catalog-image", name="catalog_product_image")
+def catalog_product_image(
+    request: Request,
+    product_id: str = Query(min_length=1, max_length=180),
+    image_index: int = Query(default=0, ge=0, le=20),
+    version: str | None = Query(default=None, alias="v", max_length=40),
+):
+    """Serve one product image separately so product feeds stay small and cacheable."""
+    store = db()
+    saved = store.admin_products.find_one(
+        {"id": product_id, "source": {"$in": ["shopbase", "custom"]}},
+        {"_id": 0, "source": 1, "sourceId": 1, "image": 1, "images": {"$slice": [image_index, 1]}},
+    )
+    image = None
+    if saved and (saved.get("images") or saved.get("image")):
+        saved_images = saved.get("images") if isinstance(saved.get("images"), list) else []
+        image = saved_images[0] if saved_images else (saved.get("image") if image_index == 0 else None)
+    elif product_id.startswith("shopbase-"):
+        source_id = product_id.removeprefix("shopbase-")
+        base = store.products.find_one(
+            {"sourceId": source_id, "source": "shopbase"},
+            {"_id": 0, "image": 1, "images": {"$slice": [image_index, 1]}},
+        )
+        if base:
+            base_images = base.get("images") if isinstance(base.get("images"), list) else []
+            image = base_images[0] if base_images else (base.get("image") if image_index == 0 else None)
+    if not isinstance(image, str) or not image:
+        raise HTTPException(status_code=404, detail="Product image not found.")
+    if image.startswith(("https://", "http://")):
+        return RedirectResponse(image, headers={"Cache-Control": "public, max-age=86400, stale-while-revalidate=604800"})
+    match = re.fullmatch(r"data:(image/[A-Za-z0-9.+-]+);base64,([A-Za-z0-9+/=\r\n]+)", image)
+    if not match or match.group(1).lower() not in {"image/jpeg", "image/png", "image/webp", "image/gif", "image/avif"}:
+        raise HTTPException(status_code=404, detail="Product image is not available.")
+    try:
+        image_bytes = base64.b64decode(match.group(2).replace("\r", "").replace("\n", ""), validate=True)
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail="Product image data is invalid.") from error
+    etag = f'"{hashlib.sha256(image_bytes).hexdigest()}"'
+    headers = {"Cache-Control": "public, max-age=31536000, immutable", "ETag": etag}
+    if etag in request.headers.get("if-none-match", "").split(","):
+        return Response(status_code=304, headers=headers)
+    return Response(content=image_bytes, media_type=match.group(1).lower(), headers=headers)
+
 def _apply_shopbase_override(product: dict[str, Any], override: dict[str, Any], *, retailer_price: Any = None) -> dict[str, Any]:
     """Apply admin overrides while refreshing supplier data not overridden by admin."""
     try:
@@ -1724,7 +1796,7 @@ def health():
         raise HTTPException(status_code=503, detail="Catalog database is unavailable.")
 
 @app.get("/api/catalog")
-def catalog(response: Response):
+def catalog(response: Response, request: Request):
     try:
         store = db()
         fields = {"_id": 0, "sourceId": 1, "title": 1, "category": 1, "categorySourceId": 1, "parentCategory": 1, "parentCategoryId": 1, "price": 1, "suggestedRetailPrice": 1, "compareAt": 1, "image": 1, "stock": 1, "active": 1, "source": 1, "trending": 1, "offer": 1, "badge": 1}
@@ -1741,7 +1813,7 @@ def catalog(response: Response):
                 product = _apply_shopbase_override(product, override)
             products.append(product)
         products.extend(public_product(item) for item in store.admin_products.find({"source": "custom", "active": True}, {"_id": 0}).limit(20000))
-        products = [product for product in products if product.get("active", True)]
+        products = [_externalize_product_images(product, request) for product in products if product.get("active", True)]
         products.sort(key=lambda item: str(item.get("title", "")).casefold())
         view_counts = {item["productId"]: int(item.get("views", 0)) for item in store.product_views.find({}, {"_id": 0, "productId": 1, "views": 1})}
         categories = list(store.categories.find({"source": "shopbase", "type": {"$ne": "parent"}}, {"_id": 0, "sourceId": 1, "name": 1, "parentId": 1, "parentName": 1, "sortOrder": 1, "sourceOrder": 1}))
@@ -1791,6 +1863,7 @@ def catalog(response: Response):
 @app.get("/api/catalog-page")
 def catalog_page(
     response: Response,
+    request: Request,
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=400, ge=1, le=800),
     include_meta: bool = Query(default=True),
@@ -1821,6 +1894,7 @@ def catalog_page(
         custom_items = list(store.admin_products.find(custom_query, {"_id": 0}).sort([("title", 1), ("_id", 1)]).skip(custom_offset).limit(custom_take))
         products.extend(public_product(item) for item in custom_items)
         next_offset = offset + len(shopbase_items) + len(custom_items)
+        products = [_externalize_product_images(product, request) for product in products]
         payload: dict[str, Any] = {"products": products, "hasMore": next_offset < shopbase_count + custom_count, "nextOffset": next_offset}
         if include_meta:
             categories = list(store.categories.find({"source": "shopbase", "type": {"$ne": "parent"}}, {"_id": 0, "sourceId": 1, "name": 1, "parentId": 1, "parentName": 1, "sortOrder": 1, "sourceOrder": 1}))
@@ -1879,6 +1953,8 @@ def product_view_counts():
 
 @app.get("/api/catalog-priority")
 def catalog_priority(
+    response: Response,
+    request: Request,
     kind: Literal["home", "trending", "offers", "offer", "category", "search"],
     limit: int = Query(default=50, ge=1, le=400),
     offset: int = Query(default=0, ge=0),
@@ -1890,10 +1966,12 @@ def catalog_priority(
 ):
     """Fetch only the products needed for the current storefront view."""
     store = db()
-    settings = store.store_settings.find_one({"_id": "storefront"}, {"_id": 0, "content.trendingIds": 1, "content.offerIds": 1}) or {}
+    response.headers["Cache-Control"] = "public, max-age=15, stale-while-revalidate=120"
+    settings = store.store_settings.find_one({"_id": "storefront"}, {"_id": 0, "content.trendingIds": 1, "content.offerIds": 1, "categoryGroups": 1, "manualCategories": 1, "manualCategoryVisibility": 1}) or {}
     content = settings.get("content") if isinstance(settings.get("content"), dict) else {}
     explicit_ids: list[str] = []
     priority_trending_ids: list[str] = []
+    category_products: list[dict[str, Any]] = []
     query: dict[str, Any] = {"source": "shopbase", "sourceId": {"$exists": True}, "active": {"$ne": False}}
 
     if kind in ("home", "trending"):
@@ -1909,11 +1987,66 @@ def catalog_priority(
             flagged_trending = list(store.products.find(flag_query, {"_id": 0, "sourceId": 1}).limit(20 - len(priority_trending_ids)))
             priority_trending_ids.extend(f"shopbase-{item['sourceId']}" for item in flagged_trending if item.get("sourceId"))
         explicit_ids.extend(priority_trending_ids)
-        # Homepage priority is the stable trending queue. Offer and category
-        # products load when their sections are requested or in idle loading.
+        if kind == "home":
+            # Fetch one real product for each of the first visible categories.
+            # The storefront can show category tiles immediately instead of
+            # choosing arbitrary category names with no already-loaded image.
+            try:
+                category_docs = list(store.categories.find(
+                    {"source": "shopbase", "type": {"$ne": "parent"}},
+                    {"_id": 0, "sourceId": 1, "name": 1, "sourceOrder": 1},
+                ))
+                def category_order(item: dict[str, Any]) -> tuple[float, str]:
+                    try:
+                        source_order = float(item.get("sourceOrder"))
+                    except (TypeError, ValueError):
+                        source_order = float("inf")
+                    return source_order, str(item.get("name", ""))
+                category_docs.sort(key=category_order)
+                saved_groups = settings.get("categoryGroups")
+                if isinstance(saved_groups, list):
+                    visible_source_ids = {
+                        str(child.get("sourceId"))
+                        for group in saved_groups if isinstance(group, dict) and group.get("showInStorefront", True) is not False
+                        for child in group.get("children", []) if isinstance(child, dict) and child.get("showInStorefront", True) is not False and child.get("sourceId")
+                    }
+                    category_docs = [item for item in category_docs if str(item.get("sourceId", "")) in visible_source_ids]
+                category_candidates = category_docs[:30]
+                candidate_source_ids = [item.get("sourceId") for item in category_candidates if item.get("sourceId") is not None]
+                category_samples: dict[str, dict[str, Any]] = {}
+                if candidate_source_ids:
+                    for row in store.products.aggregate([
+                        {"$match": {"source": "shopbase", "active": {"$ne": False}, "categorySourceId": {"$in": candidate_source_ids}}},
+                        {"$project": {"sourceId": 1, "source": 1, "active": 1, "title": 1, "category": 1, "categorySourceId": 1, "parentCategory": 1, "parentCategoryId": 1, "price": 1, "suggestedRetailPrice": 1, "compareAt": 1, "image": 1, "stock": 1, "rating": 1, "reviews": 1, "trending": 1, "offer": 1, "badge": 1}},
+                        {"$sort": {"categorySourceId": 1, "_id": 1}},
+                        {"$group": {"_id": "$categorySourceId", "product": {"$first": "$$ROOT"}}},
+                        {"$replaceRoot": {"newRoot": "$product"}},
+                        {"$project": {"_id": 0, "sourceId": 1, "source": 1, "active": 1, "title": 1, "category": 1, "categorySourceId": 1, "parentCategory": 1, "parentCategoryId": 1, "price": 1, "suggestedRetailPrice": 1, "compareAt": 1, "image": 1, "stock": 1, "rating": 1, "reviews": 1, "trending": 1, "offer": 1, "badge": 1}},
+                    ]):
+                        category_samples[str(row.get("categorySourceId", ""))] = row
+                sample_rows = [category_samples[str(item.get("sourceId", ""))] for item in category_candidates if str(item.get("sourceId", "")) in category_samples]
+                sample_ids = [_catalog_product_id(item) for item in sample_rows]
+                category_overrides = {
+                    item["id"]: item
+                    for item in store.admin_products.find(
+                        {"source": "shopbase", "id": {"$in": sample_ids}},
+                        {"_id": 0, "id": 1, "active": 1, "title": 1, "category": 1, "categorySourceId": 1, "parentCategory": 1, "parentCategoryId": 1, "image": 1, "images": {"$slice": 1}, "stock": 1, "rating": 1, "reviews": 1, "trending": 1, "offer": 1, "badge": 1, "originalPrice": 1, "discountedPrice": 1, "compareAt": 1, "price": 1},
+                    )
+                } if sample_ids else {}
+                for item in sample_rows:
+                    product = public_product(item)
+                    override = category_overrides.get(product["id"])
+                    if override and override.get("active") is False:
+                        continue
+                    category_products.append(_apply_shopbase_override(product, override) if override else product)
+                    if len(category_products) == 15:
+                        break
+            except Exception:
+                logging.exception("Could not load homepage category samples")
     elif kind == "offers":
-        for offer in store.offers.find({"active": True}, {"_id": 0, "thumbnailProductIds": 1}):
-            explicit_ids.extend(str(item) for item in (offer.get("thumbnailProductIds") or [])[:3] if isinstance(item, str))
+        for offer in store.offers.find({"active": True}, {"_id": 0, "thumbnailProductIds": 1, "productIds": 1, "productId": 1}):
+            thumbnail_ids = offer.get("thumbnailProductIds") or offer.get("productIds") or ([offer.get("productId")] if offer.get("productId") else [])
+            explicit_ids.extend(str(item) for item in thumbnail_ids[:3] if isinstance(item, str))
     elif kind == "offer":
         offer = store.offers.find_one({"id": offer_id, "active": True}, {"_id": 0, "kind": 1, "productId": 1, "productIds": 1}) if offer_id else None
         if not offer:
@@ -1963,9 +2096,12 @@ def catalog_priority(
         for item in custom_docs:
             product = public_product(item)
             products_by_id[product["id"]] = product
-        products = [products_by_id[item] for item in selected_ids if item in products_by_id]
+        products = [_externalize_product_images(products_by_id[item], request) for item in selected_ids if item in products_by_id]
         total = len(explicit_ids)
-        return {"products": products, "hasMore": offset + len(selected_ids) < total, "nextOffset": offset + len(selected_ids), "total": total, "trendingIds": priority_trending_ids}
+        payload = {"products": products, "hasMore": offset + len(selected_ids) < total, "nextOffset": offset + len(selected_ids), "total": total, "trendingIds": priority_trending_ids}
+        if category_products:
+            payload["categoryProducts"] = [_externalize_product_images(product, request) for product in category_products]
+        return payload
     else:
         source_fields = {"_id": 0, "sourceId": 1, "title": 1, "category": 1, "categorySourceId": 1, "parentCategory": 1, "parentCategoryId": 1, "price": 1, "suggestedRetailPrice": 1, "image": 1, "stock": 1, "active": 1, "source": 1, "trending": 1, "offer": 1, "badge": 1}
         custom_query: dict[str, Any] = {"source": "custom", "active": True}
@@ -2041,11 +2177,14 @@ def catalog_priority(
                 return rank, title, str(product.get("id", ""))
             products.sort(key=search_relevance)
             page_products = products[offset:offset + limit]
-            return {"products": page_products, "hasMore": offset + len(page_products) < shopbase_count + custom_count, "nextOffset": offset + len(page_products), "total": shopbase_count + custom_count}
+            return {"products": [_externalize_product_images(product, request) for product in page_products], "hasMore": offset + len(page_products) < shopbase_count + custom_count, "nextOffset": offset + len(page_products), "total": shopbase_count + custom_count}
         next_offset = offset + len(products)
         if kind in ("home", "trending") and not priority_trending_ids:
             priority_trending_ids = [product["id"] for product in products if product.get("trending")][:20]
-        return {"products": products, "hasMore": next_offset < shopbase_count + custom_count, "nextOffset": next_offset, "total": shopbase_count + custom_count, "trendingIds": priority_trending_ids}
+        payload = {"products": [_externalize_product_images(product, request) for product in products], "hasMore": next_offset < shopbase_count + custom_count, "nextOffset": next_offset, "total": shopbase_count + custom_count, "trendingIds": priority_trending_ids}
+        if category_products:
+            payload["categoryProducts"] = [_externalize_product_images(product, request) for product in category_products]
+        return payload
 
     total = len(products)
     sliced = products[offset:offset + limit]
@@ -2089,11 +2228,11 @@ def admin_catalog_summary(authorization: str | None = Header(default=None)):
     }
 
 @app.get("/api/products/{source_id}")
-def product_details(source_id: str):
+def product_details(source_id: str, request: Request):
     try:
         custom = db().admin_products.find_one({"id": source_id, "source": "custom", "active": True}, {"_id": 0})
         if custom:
-            return public_product(custom, include_details=True)
+            return _externalize_product_images(public_product(custom, include_details=True), request)
         product = db().products.find_one({"sourceId": source_id, "source": "shopbase", "active": True}, {"_id": 0})
         if not product:
             raise HTTPException(status_code=404, detail="Product is unavailable.")
@@ -2101,7 +2240,7 @@ def product_details(source_id: str):
         override = db().admin_products.find_one({"id": f"shopbase-{source_id}", "source": "shopbase"}, {"_id": 0})
         if override:
             result = _apply_shopbase_override(result, override)
-        return result
+        return _externalize_product_images(result, request)
     except HTTPException:
         raise
     except Exception:
