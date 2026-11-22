@@ -877,8 +877,8 @@ img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .price-sort-menu { position: relative; display: grid; gap: 5px; min-width: 190px; align-self: center; margin: 16px 0 0 auto; color: #71847a; font-size: 11px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; z-index: 5; }
 .listing-heading:has(.price-sort-menu) { display:grid; grid-template-columns:minmax(0,1fr) auto auto; align-items:end; column-gap:14px; row-gap:14px; }
 .listing-heading:has(.price-sort-menu) > div:first-child { grid-column:1 / -1; }
-.listing-heading:has(.price-sort-menu) > .price-sort-menu { grid-column:2; margin:0; align-self:center; }
-.listing-heading:has(.price-sort-menu) > .offer-back-button { grid-column:3; align-self:center; white-space:nowrap; }
+.listing-heading:has(.price-sort-menu) > .price-sort-menu { grid-column:2; margin:0; align-self:end; }
+.listing-heading:has(.price-sort-menu) > .offer-back-button { grid-column:3; align-self:end; margin-bottom:0; white-space:nowrap; }
 .price-sort-menu > button { display:flex; align-items:center; justify-content:space-between; gap:20px; width:100%; min-height:44px; padding:0 14px; border:1px solid #cddbd1; border-radius:10px; background:#fff; color:#214c43; font-size:14px; font-weight:600; letter-spacing:normal; text-align:left; text-transform:none; box-shadow:0 2px 8px rgba(21,52,39,.05); cursor:pointer; }
 .price-sort-menu > button:hover, .price-sort-menu.is-open > button { border-color:#92b6a0; box-shadow:0 4px 14px rgba(21,52,39,.1); }
 .price-sort-options { position:absolute; top:calc(100% + 7px); right:0; width:100%; padding:5px; border:1px solid #d9e3da; border-radius:11px; background:#fff; box-shadow:0 12px 32px rgba(19,45,35,.16); }
