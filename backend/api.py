@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 from pymongo import MongoClient, UpdateOne
 import requests
 from nacl import encoding, public
+from nacl.secret import SecretBox
 from category_groups import category_group_payload
 
 app = FastAPI(title="AARO catalog API", version="0.1.0")
@@ -38,9 +39,10 @@ PASSWORD_ROUNDS = 310_000
 
 def _send_order_notification(order: dict[str, Any]) -> None:
     """Send a best-effort store-owner email after an order has been saved."""
-    api_key = os.getenv("RESEND_API_KEY", "").strip()
-    recipient = os.getenv("ORDER_NOTIFICATION_EMAIL", "aaro.shop.bd@gmail.com").strip()
-    sender = os.getenv("ORDER_NOTIFICATION_FROM", "").strip()
+    settings = db().sync_settings.find_one({"_id": "order-email"}, {"_id": 0}) or {}
+    api_key = _decrypt_email_key(settings.get("encryptedApiKey", "")) if settings.get("encryptedApiKey") else os.getenv("RESEND_API_KEY", "").strip()
+    recipient = str(settings.get("recipient") or os.getenv("ORDER_NOTIFICATION_EMAIL", "aaro.shop.bd@gmail.com")).strip()
+    sender = str(settings.get("sender") or os.getenv("ORDER_NOTIFICATION_FROM", "")).strip()
     if not api_key or not sender or not recipient:
         logging.warning(
             "Order %s was saved, but its email notification is not configured; set RESEND_API_KEY, ORDER_NOTIFICATION_FROM, and ORDER_NOTIFICATION_EMAIL.",
@@ -103,6 +105,24 @@ def _send_order_notification(order: dict[str, Any]) -> None:
         # The order is already durable. Do not turn a mail outage into a failed
         # checkout, which could cause a duplicate order when the customer retries.
         logging.exception("Could not send new-order email for order %s", order.get("id", "unknown"))
+
+
+def _email_secret_box() -> SecretBox:
+    secret = os.getenv("AUTH_SECRET", "").strip()
+    if len(secret) < 32:
+        raise HTTPException(status_code=503, detail="Set a strong AUTH_SECRET on the API service before saving email credentials.")
+    return SecretBox(hashlib.sha256(secret.encode()).digest())
+
+
+def _decrypt_email_key(ciphertext: str) -> str:
+    return _email_secret_box().decrypt(base64.b64decode(ciphertext)).decode()
+
+
+class OrderEmailSettingsInput(BaseModel):
+    provider: Literal["resend"] = "resend"
+    apiKey: str = Field(default="", max_length=500)
+    sender: str = Field(min_length=3, max_length=254)
+    recipient: str = Field(min_length=3, max_length=254)
 try:
     with (Path(__file__).resolve().parent / "bangladesh-locations.json").open(encoding="utf-8") as location_file:
         _location_payload = json.load(location_file)
@@ -675,6 +695,41 @@ def login_admin(input: AdminCredentials):
 def check_admin_session(authorization: str | None = Header(default=None)):
     admin = _admin_from_auth(authorization)
     return {"ok": True, "adminId": admin.get("sub", "")}
+
+@app.get("/api/admin/order-email")
+def get_order_email_settings(authorization: str | None = Header(default=None)):
+    _admin_from_auth(authorization)
+    saved = db().sync_settings.find_one({"_id": "order-email"}, {"_id": 0, "sender": 1, "recipient": 1, "encryptedApiKey": 1}) or {}
+    return {"provider": "resend", "sender": saved.get("sender", os.getenv("ORDER_NOTIFICATION_FROM", "")), "recipient": saved.get("recipient", os.getenv("ORDER_NOTIFICATION_EMAIL", "aaro.shop.bd@gmail.com")), "hasApiKey": bool(saved.get("encryptedApiKey") or os.getenv("RESEND_API_KEY")), "configured": bool((saved.get("encryptedApiKey") or os.getenv("RESEND_API_KEY")) and (saved.get("sender") or os.getenv("ORDER_NOTIFICATION_FROM")))}
+
+@app.put("/api/admin/order-email")
+def save_order_email_settings(input: OrderEmailSettingsInput, authorization: str | None = Header(default=None)):
+    _admin_from_auth(authorization)
+    if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", input.sender.strip()) or not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", input.recipient.strip()):
+        raise HTTPException(status_code=422, detail="Enter valid sender and recipient email addresses.")
+    collection = db().sync_settings
+    values: dict[str, Any] = {"sender": input.sender.strip(), "recipient": input.recipient.strip(), "updatedAt": datetime.now(timezone.utc).isoformat()}
+    if input.apiKey.strip():
+        values["encryptedApiKey"] = base64.b64encode(bytes(_email_secret_box().encrypt(input.apiKey.strip().encode()))).decode()
+    elif not collection.find_one({"_id": "order-email", "encryptedApiKey": {"$exists": True}}, {"_id": 1}) and not os.getenv("RESEND_API_KEY"):
+        raise HTTPException(status_code=422, detail="Paste a Resend API key before saving these settings.")
+    collection.update_one({"_id": "order-email"}, {"$set": values}, upsert=True)
+    return {"ok": True, "hasApiKey": bool(values.get("encryptedApiKey") or os.getenv("RESEND_API_KEY")), "configured": True}
+
+@app.post("/api/admin/order-email/test")
+def test_order_email(authorization: str | None = Header(default=None)):
+    _admin_from_auth(authorization)
+    order = {"id": "TEST", "customer": {"name": "AARO email test", "phone": "-", "address": "-", "thana": "-", "district": "-"}, "items": [], "subtotal": 0, "delivery": 0, "discount": 0, "total": 0, "createdAt": datetime.now(timezone.utc).isoformat()}
+    settings = db().sync_settings.find_one({"_id": "order-email"}, {"_id": 0}) or {}
+    api_key = _decrypt_email_key(settings.get("encryptedApiKey", "")) if settings.get("encryptedApiKey") else os.getenv("RESEND_API_KEY", "").strip()
+    sender = str(settings.get("sender") or os.getenv("ORDER_NOTIFICATION_FROM", "")).strip()
+    recipient = str(settings.get("recipient") or os.getenv("ORDER_NOTIFICATION_EMAIL", "aaro.shop.bd@gmail.com")).strip()
+    if not api_key or not sender:
+        raise HTTPException(status_code=422, detail="Save your Resend API key and verified sender first.")
+    response = requests.post("https://api.resend.com/emails", headers={"Authorization": f"Bearer {api_key}", "Idempotency-Key": f"aaro-email-test-{uuid.uuid4().hex}"}, json={"from": sender, "to": [recipient], "subject": "AARO order email test", "text": "Your AARO new-order email notifications are working."}, timeout=(3, 15))
+    if not response.ok:
+        raise HTTPException(status_code=502, detail="Resend could not send the test email. Check the API key, verified sender, and Resend account logs.")
+    return {"ok": True, "message": f"Test email sent to {recipient}."}
 
 @app.get("/api/admin/coupons")
 def list_coupons(authorization: str | None = Header(default=None)):
