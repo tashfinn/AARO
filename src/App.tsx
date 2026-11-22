@@ -867,7 +867,7 @@ export default function App() {
     const offset = listingPage.nextOffset
     setListingPage((current) => ({ ...current, loadingMore: true, error: '' }))
     try {
-      const params = new URLSearchParams({ kind: catalogListingKey.startsWith('search:') ? 'search' : 'category', offset: String(offset), limit: catalogListingKey.startsWith('search:') ? '6' : '48' })
+      const params = new URLSearchParams({ kind: catalogListingKey.startsWith('search:') ? 'search' : 'category', offset: String(offset), limit: catalogListingKey.startsWith('search:') ? '12' : '48' })
       if (catalogListingKey.startsWith('search:')) params.set('search', submittedQuery.trim())
       else if (selectedCategorySourceId) params.set('category_source_id', selectedCategorySourceId)
       else if (selectedParentCategoryId) params.set('parent_category_id', selectedParentCategoryId)
@@ -997,7 +997,7 @@ export default function App() {
         let targetedNextOffset = 0
         let targetedHasMore = false
         if (kind) {
-          const params = new URLSearchParams({ kind, limit: kind === 'home' ? '50' : kind === 'trending' ? '20' : kind === 'offers' ? '90' : kind === 'search' ? '6' : '48' })
+          const params = new URLSearchParams({ kind, limit: kind === 'home' ? '50' : kind === 'trending' ? '20' : kind === 'offers' ? '90' : kind === 'search' ? '12' : '48' })
           if (page === 'category') {
             if (selectedCategorySourceId) params.set('category_source_id', selectedCategorySourceId)
             else if (selectedParentCategoryId) params.set('parent_category_id', selectedParentCategoryId)
