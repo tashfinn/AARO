@@ -257,6 +257,7 @@ def ensure_storefront_indexes():
         store = db()
         store.product_views.create_index([("views", -1), ("productId", 1)], name="storefront_trending_views")
         store.products.create_index([("source", 1), ("categorySourceId", 1), ("_id", 1)], name="storefront_category_samples")
+        store.products.create_index([("source", 1), ("sourceId", 1)], name="storefront_product_source_id")
         store.admin_products.create_index([("source", 1), ("id", 1)], name="storefront_product_overrides")
     except Exception:
         # A temporary database outage should not prevent the API from starting.
@@ -307,25 +308,30 @@ def _cloudinary_upload_data_uri(value: str, public_id: str, credentials: tuple[s
         raise RuntimeError("Cloudinary returned an invalid image URL.")
     return secure_url.replace("/image/upload/", "/image/upload/f_auto,q_auto,w_2400,c_limit/")
 
-def _mirror_inline_media(value: Any, path: str, credentials: tuple[str, str, str] | None, *, required: bool = False) -> tuple[Any, int]:
+def _mirror_inline_media(value: Any, path: str, credentials: tuple[str, str, str] | None, *, required: bool = False, image_cache: dict[str, str] | None = None) -> tuple[Any, int]:
+    image_cache = image_cache if image_cache is not None else {}
     if isinstance(value, str) and value.startswith("data:image/"):
         if credentials is None:
             if required:
                 raise HTTPException(status_code=503, detail="Cloudinary is not configured. Set CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET on the API service.")
             return value, 0
-        public_id = f"aaro/storefront/{hashlib.sha256(path.encode('utf-8')).hexdigest()[:24]}"
+        if value in image_cache:
+            return image_cache[value], 0
+        public_id = f"aaro/media/{hashlib.sha256((path + ':' + value).encode('utf-8')).hexdigest()[:32]}"
         try:
-            return _cloudinary_upload_data_uri(value, public_id, credentials), 1
+            url = _cloudinary_upload_data_uri(value, public_id, credentials)
+            image_cache[value] = url
+            return url, 1
         except (requests.RequestException, ValueError, RuntimeError) as error:
-            logging.warning("Could not mirror storefront image at %s: %s", path, error)
+            logging.warning("Could not mirror uploaded image at %s: %s", path, error)
             if required:
-                raise HTTPException(status_code=502, detail="Cloudinary could not store every storefront image. No storefront settings were changed.") from error
+                raise HTTPException(status_code=502, detail="Cloudinary could not store every uploaded image. The affected records were left unchanged.") from error
             return value, 0
     if isinstance(value, list):
         items = []
         count = 0
         for index, item in enumerate(value):
-            updated, uploaded = _mirror_inline_media(item, f"{path}/{index}", credentials, required=required)
+            updated, uploaded = _mirror_inline_media(item, f"{path}/{index}", credentials, required=required, image_cache=image_cache)
             items.append(updated)
             count += uploaded
         return items, count
@@ -333,7 +339,7 @@ def _mirror_inline_media(value: Any, path: str, credentials: tuple[str, str, str
         result = {}
         count = 0
         for key, item in value.items():
-            updated, uploaded = _mirror_inline_media(item, f"{path}/{key}", credentials, required=required)
+            updated, uploaded = _mirror_inline_media(item, f"{path}/{key}", credentials, required=required, image_cache=image_cache)
             result[key] = updated
             count += uploaded
         return result, count
@@ -356,6 +362,47 @@ def _count_cloudinary_images(value: Any) -> int:
     if isinstance(value, dict):
         return sum(_count_cloudinary_images(item) for item in value.values())
     return 0
+
+def _stored_media_counts(store) -> tuple[int, int]:
+    settings = store.store_settings.find_one({"_id": "storefront"}, {"_id": 0, "content": 1}) or {}
+    content = settings.get("content") if isinstance(settings.get("content"), dict) else {}
+    inline = _count_inline_images(content)
+    cloudinary = _count_cloudinary_images(content)
+    media_filter = {"$or": [
+        {"image": {"$regex": "^(data:image/|https://res\\.cloudinary\\.com/)"}},
+        {"images": {"$regex": "^(data:image/|https://res\\.cloudinary\\.com/)"}},
+    ]}
+    for product in store.admin_products.find(media_filter, {"_id": 0, "image": 1, "images": 1}):
+        media = {key: product[key] for key in ("image", "images") if key in product}
+        inline += _count_inline_images(media)
+        cloudinary += _count_cloudinary_images(media)
+    for offer in store.offers.find({}, {"_id": 0, "shareImage": 1}):
+        inline += _count_inline_images(offer.get("shareImage", ""))
+        cloudinary += _count_cloudinary_images(offer.get("shareImage", ""))
+    return inline, cloudinary
+
+def _migrate_product_collection_images(collection, collection_name: str, credentials: tuple[str, str, str] | None) -> int:
+    uploaded_total = 0
+    inline_filter = {"$or": [{"image": {"$regex": "^data:image/"}}, {"images": {"$regex": "^data:image/"}}]}
+    for product in collection.find(inline_filter, {"_id": 1, "id": 1, "sourceId": 1, "image": 1, "images": 1}):
+        product_key = str(product.get("id") or product.get("sourceId") or product.get("_id"))
+        cache: dict[str, str] = {}
+        updates: dict[str, Any] = {}
+        uploaded = 0
+        original_images = product.get("images")
+        if isinstance(original_images, list):
+            updates["images"], count = _mirror_inline_media(original_images, f"{collection_name}/{product_key}/images", credentials, image_cache=cache)
+            uploaded += count
+        original_image = product.get("image")
+        if isinstance(original_image, str):
+            updates["image"], count = _mirror_inline_media(original_image, f"{collection_name}/{product_key}/image", credentials, image_cache=cache)
+            uploaded += count
+        if isinstance(original_images, list) and original_images and original_image == original_images[0]:
+            updates["image"] = updates["images"][0]
+        if uploaded and updates:
+            collection.update_one({"_id": product["_id"]}, {"$set": updates})
+            uploaded_total += uploaded
+    return uploaded_total
 
 def _b64(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).decode().rstrip("=")
@@ -856,6 +903,11 @@ def save_offer(input: OfferInput, authorization: str | None = Header(default=Non
         )
     else:
         offer["productCount"] = len(input.productIds)
+    offer["shareImage"], _ = _mirror_inline_media(
+        offer.get("shareImage", ""),
+        f"offers/{offer['id']}/shareImage",
+        _cloudinary_credentials(),
+    )
     db().offers.replace_one({"id": offer["id"]}, offer, upsert=True)
     return offer
 
@@ -1228,28 +1280,38 @@ def admin_storefront_settings(authorization: str | None = Header(default=None)):
 @app.get("/api/admin/storefront-media/status")
 def storefront_media_status(authorization: str | None = Header(default=None)):
     _admin_from_auth(authorization)
-    settings = db().store_settings.find_one({"_id": "storefront"}, {"_id": 0, "content": 1}) or {}
-    content = settings.get("content") if isinstance(settings.get("content"), dict) else {}
+    store = db()
+    inline, cloudinary = _stored_media_counts(store)
     return {
         "configured": _cloudinary_credentials() is not None,
-        "cloudinaryImages": _count_cloudinary_images(content),
-        "inlineImages": _count_inline_images(content),
+        "cloudinaryImages": cloudinary,
+        "inlineImages": inline,
     }
 
 @app.post("/api/admin/storefront-media/migrate")
 def migrate_storefront_media(authorization: str | None = Header(default=None)):
     _admin_from_auth(authorization)
+    store = db()
     credentials = _cloudinary_credentials()
-    settings = db().store_settings.find_one({"_id": "storefront"}, {"_id": 0, "content": 1}) or {}
+    settings = store.store_settings.find_one({"_id": "storefront"}, {"_id": 0, "content": 1}) or {}
     content = settings.get("content") if isinstance(settings.get("content"), dict) else {}
-    updated, uploaded = _mirror_inline_media(content, "content", credentials, required=True)
+    updated, uploaded = _mirror_inline_media(content, "content", credentials)
     if uploaded:
-        db().store_settings.update_one(
+        store.store_settings.update_one(
             {"_id": "storefront"},
             {"$set": {"content": updated, "updatedAt": datetime.now(timezone.utc).isoformat()}},
         )
-    remaining = _count_inline_images(updated)
-    return {"content": updated, "uploaded": uploaded, "remainingInlineImages": remaining}
+    uploaded += _migrate_product_collection_images(store.admin_products, "admin-products", credentials)
+    offers_uploaded = 0
+    for offer in store.offers.find({"shareImage": {"$regex": "^data:image/"}}, {"_id": 1, "id": 1, "shareImage": 1}):
+        offer_id = str(offer.get("id") or offer.get("_id"))
+        share_image, count = _mirror_inline_media(offer.get("shareImage", ""), f"offers/{offer_id}/shareImage", credentials)
+        if count:
+            store.offers.update_one({"_id": offer["_id"]}, {"$set": {"shareImage": share_image}})
+            offers_uploaded += count
+    uploaded += offers_uploaded
+    remaining, cloudinary = _stored_media_counts(store)
+    return {"content": updated, "uploaded": uploaded, "remainingInlineImages": remaining, "cloudinaryImages": cloudinary}
 
 @app.get("/api/storefront-preview")
 def storefront_preview_settings():
@@ -1425,8 +1487,8 @@ def save_admin_product(input: AdminProductInput, authorization: str | None = Hea
     images = list(dict.fromkeys(image.strip() for image in images if isinstance(image, str) and image.strip()))[:20]
     if not images or any(len(image) > 8_000_000 or not image.startswith(("http://", "https://", "data:image/")) for image in images):
         raise HTTPException(status_code=422, detail="Add at least one valid product image URL.")
-    product["images"] = images
-    product["image"] = images[0]
+    product["images"], _ = _mirror_inline_media(images, f"admin-products/{product['id']}/images", _cloudinary_credentials())
+    product["image"] = product["images"][0]
     db().admin_products.replace_one({"id": product["id"]}, product, upsert=True)
     return product
 
@@ -2038,7 +2100,10 @@ def catalog_priority(
     query: dict[str, Any] = {"source": "shopbase", "sourceId": {"$exists": True}, "active": {"$ne": False}}
 
     if kind in ("home", "trending"):
-        viewed = store.product_views.find({"views": {"$gt": 0}}, {"_id": 0, "productId": 1, "views": 1}).sort([("views", -1), ("productId", 1)]).limit(20)
+        # View rows are only created by record_product_view, so scanning the
+        # top of the compound index is enough; a range filter makes MongoDB
+        # examine extra index entries before it can satisfy the same sort.
+        viewed = store.product_views.find({}, {"_id": 0, "productId": 1, "views": 1}).sort([("views", -1), ("productId", 1)]).limit(20)
         priority_trending_ids.extend(str(item.get("productId", "")) for item in viewed if item.get("productId"))
         priority_trending_ids.extend(str(item) for item in content.get("trendingIds", []) if isinstance(item, str))
         priority_trending_ids = list(dict.fromkeys(item for item in priority_trending_ids if item))[:20]
