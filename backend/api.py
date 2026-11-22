@@ -2281,6 +2281,10 @@ def catalog_priority(
             query["parentCategoryId"] = str(parent_category_id)
         elif category:
             query["category"] = category
+        if kind == "category" and search and search.strip():
+            pattern = re.escape(search.strip()[:100])
+            source_pattern = re.escape(search.strip().removeprefix("shopbase-")[:100])
+            query["$and"] = [{"$or": [{"title": {"$regex": pattern, "$options": "i"}}, {"category": {"$regex": pattern, "$options": "i"}}, {"sourceId": {"$regex": source_pattern, "$options": "i"}}, {"description": {"$regex": pattern, "$options": "i"}}, {"details": {"$regex": pattern, "$options": "i"}}]}]
 
     # Price sorting ranks only compact metadata, then fetches full product
     # records (including image URLs) for the requested page. This keeps All,
@@ -2302,6 +2306,10 @@ def catalog_priority(
                 custom_query["parentCategoryId"] = str(parent_category_id)
             elif category:
                 custom_query["category"] = category
+            if kind == "category" and search and search.strip():
+                pattern = re.escape(search.strip()[:100])
+                source_pattern = re.escape(search.strip().removeprefix("shopbase-")[:100])
+                custom_query["$and"] = [{"$or": [{"title": {"$regex": pattern, "$options": "i"}}, {"category": {"$regex": pattern, "$options": "i"}}, {"id": {"$regex": pattern, "$options": "i"}}, {"sourceId": {"$regex": source_pattern, "$options": "i"}}, {"description": {"$regex": pattern, "$options": "i"}}, {"details": {"$regex": pattern, "$options": "i"}}]}]
         # Use compact fields for the ranking scan. Large uploaded image data is
         # fetched only for the selected page below.
         metadata_fields = {"_id": 1, "sourceId": 1, "id": 1, "title": 1, "category": 1, "categorySourceId": 1, "parentCategory": 1, "parentCategoryId": 1, "price": 1, "suggestedRetailPrice": 1, "wholesalePrice": 1, "compareAt": 1, "originalPrice": 1, "discountedPrice": 1, "source": 1, "active": 1}
@@ -2442,6 +2450,10 @@ def catalog_priority(
             custom_query["parentCategoryId"] = str(parent_category_id)
         elif category:
             custom_query["category"] = category
+        if kind == "category" and search and search.strip():
+            pattern = re.escape(search.strip()[:100])
+            source_pattern = re.escape(search.strip().removeprefix("shopbase-")[:100])
+            custom_query["$and"] = [{"$or": [{"title": {"$regex": pattern, "$options": "i"}}, {"category": {"$regex": pattern, "$options": "i"}}, {"id": {"$regex": pattern, "$options": "i"}}, {"sourceId": {"$regex": source_pattern, "$options": "i"}}, {"description": {"$regex": pattern, "$options": "i"}}, {"details": {"$regex": pattern, "$options": "i"}}]}]
         custom_count = store.admin_products.count_documents(custom_query)
         search_candidates = kind == "search" and bool(search and search.strip())
         override_matches: list[dict[str, Any]] = []

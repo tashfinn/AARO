@@ -534,7 +534,8 @@ export default function App() {
   const [maxPrice, setMaxPrice] = useState(10000)
   const [priceSort, setPriceSort] = useState<'recommended' | 'low-high' | 'high-low'>('recommended')
   const [categoryNavigationSearch, setCategoryNavigationSearch] = useState('')
-  const currentCatalogListingKey = page === 'shop' && submittedQuery.trim() ? `search:${submittedQuery.trim().toLocaleLowerCase()}:${priceSort}` : page === 'category' ? `category:${selectedCategorySourceId}:${selectedParentCategoryId}:${category}:${priceSort}` : ''
+  const [categoryProductSearch, setCategoryProductSearch] = useState('')
+  const currentCatalogListingKey = page === 'shop' && submittedQuery.trim() ? `search:${submittedQuery.trim().toLocaleLowerCase()}:${priceSort}` : page === 'category' ? `category:${selectedCategorySourceId}:${selectedParentCategoryId}:${category}:${priceSort}:${categoryProductSearch.trim().toLocaleLowerCase()}` : ''
   const [productsToShow, setProductsToShow] = useState(50)
 
   const [couponInput, setCouponInput] = useState('')
@@ -890,6 +891,7 @@ export default function App() {
       else if (selectedCategorySourceId) params.set('category_source_id', selectedCategorySourceId)
       else if (selectedParentCategoryId) params.set('parent_category_id', selectedParentCategoryId)
       else if (category !== 'All') params.set('category', category)
+      if (!currentCatalogListingKey.startsWith('search:') && categoryProductSearch.trim()) params.set('search', categoryProductSearch.trim())
       const response = await fetch(`${API_BASE}/api/catalog-priority?${params.toString()}`, { cache: 'no-store' })
       const result = await response.json() as { products?: unknown; total?: number; hasMore?: boolean; nextOffset?: number; detail?: string }
       if (!response.ok) throw new Error(result.detail || 'The next group of products could not be loaded.')
@@ -1022,6 +1024,7 @@ export default function App() {
             if (selectedCategorySourceId) params.set('category_source_id', selectedCategorySourceId)
             else if (selectedParentCategoryId) params.set('parent_category_id', selectedParentCategoryId)
             else if (category !== 'All') params.set('category', category)
+            if (categoryProductSearch.trim()) params.set('search', categoryProductSearch.trim())
           }
           if (isSearch) params.set('search', submittedQuery.trim())
           const response = await fetch(`${apiUrl}/api/catalog-priority?${params.toString()}`)
@@ -1072,7 +1075,7 @@ export default function App() {
     }
     void loadCatalog()
     return () => { cancelled = true }
-  }, [admin, adminRoute, catalogRefreshTick, page, category, selectedCategorySourceId, selectedParentCategoryId, submittedQuery, selectedOfferId, priceSort])
+  }, [admin, adminRoute, catalogRefreshTick, page, category, selectedCategorySourceId, selectedParentCategoryId, submittedQuery, selectedOfferId, priceSort, categoryProductSearch])
   useEffect(() => {
     if (admin || adminRoute || page !== 'offers' || !selectedOfferId) {
       offerProductsRequestId.current += 1
@@ -1938,6 +1941,7 @@ export default function App() {
           <div className="listing-heading"><div><span className="section-kicker">{page === 'offers' ? selectedOfferCollection ? `OFFER COLLECTION / ${selectedOfferCount.toLocaleString()} FINDS` : `THE AARO EDIT / ${offerCollections.length} OFFERS` : `THE AARO EDIT / ${visibleProducts.length} FINDS`}</span><h1>{submittedQuery ? `Results for “${submittedQuery}”` : page === 'offers' && selectedOfferCollection ? selectedOfferCollection.title : formatPageTitle}</h1><p>{page === 'offers' && selectedOfferCollection ? selectedOfferCollection.description : page === 'offers' ? 'Browse a good deal by collection. Open one to see all eligible finds and offer details.' : page === 'trending' ? 'The pieces customers keep coming back for.' : page === 'wishlist' ? 'All the things you have saved for later.' : 'Good things, picked with your everyday in mind.'}</p></div>{(page === 'category' || page === 'trending' || page === 'wishlist' || page === 'offers' && Boolean(selectedOfferId) || page === 'shop' && Boolean(submittedQuery)) && <PriceSortMenu value={priceSort} onChange={(value) => { setPriceSort(value); if (page === 'offers' && selectedOfferId) void loadOfferProductPage(selectedOfferId, 0, false, value) }} />}{page === 'category' && <button className="filter-button" aria-expanded={filtersOpen} onClick={() => setFiltersOpen((open) => !open)}><SlidersHorizontal size={16} /> Filters <ChevronDown size={14} /></button>}{page === 'offers' && selectedOfferId && <button className="secondary-button offer-back-button" onClick={closeOfferCollection}><ChevronLeft size={16} /> All offers</button>}</div>
           {page === 'category' && <>
             <label className="category-navigation-search"><Search size={17} /><input type="search" value={categoryNavigationSearch} onChange={(event) => setCategoryNavigationSearch(event.target.value)} placeholder="Search categories and subcategories" aria-label="Search categories and subcategories" />{categoryNavigationSearch && <button type="button" aria-label="Clear category search" onClick={() => setCategoryNavigationSearch('')}>×</button>}</label>
+            <label className="category-navigation-search category-product-search"><Search size={17} /><input type="search" value={categoryProductSearch} onChange={(event) => setCategoryProductSearch(event.target.value)} placeholder={`Search products in ${category === 'All' ? 'all categories' : category}`} aria-label="Search products in this category" />{categoryProductSearch && <button type="button" aria-label="Clear product search" onClick={() => setCategoryProductSearch('')}>×</button>}</label>
             <div className="filter-chips">{visibleCategoryGroups.map((group) => <button className={selectedParentCategoryId === group.id ? 'selected' : ''} key={group.id} onClick={() => showStore('category', group.name, '', group.id)}>{group.name}</button>)}{!visibleCategoryGroups.length && <span className="category-search-empty">No categories match.</span>}</div>
             {selectedParentCategoryId && <div className="filter-chips subcategory-chips">{visibleSubcategories.map((child) => <button className={category === child.name ? 'selected' : ''} key={`${selectedParentCategoryId}-${child.sourceId || child.name}`} onClick={() => showStore('category', child.name, child.sourceId || '', selectedParentCategoryId)}>{child.name}</button>)}</div>}
           </>}
