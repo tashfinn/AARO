@@ -189,6 +189,17 @@ class CouponInput(BaseModel):
     kind: str
     value: float = Field(gt=0)
     minimum: float | None = Field(default=None, ge=0)
+
+class BulkPriceAdjustmentInput(BaseModel):
+    scope: Literal["all", "category", "subcategory", "offer"] = "all"
+    categorySourceId: str = ""
+    parentCategoryId: str = ""
+    category: str = ""
+    offerId: str = ""
+    search: str = ""
+    adjustmentType: Literal["amount", "percent"] = "amount"
+    direction: Literal["increase", "decrease"] = "decrease"
+    value: float = Field(gt=0, le=100000)
     active: bool = True
 
 class CouponValidationInput(BaseModel):
@@ -1491,6 +1502,67 @@ def save_admin_product(input: AdminProductInput, authorization: str | None = Hea
     product["image"] = product["images"][0]
     db().admin_products.replace_one({"id": product["id"]}, product, upsert=True)
     return product
+
+@app.post("/api/admin/products/bulk-price-adjustment")
+def bulk_adjust_product_prices(input: BulkPriceAdjustmentInput, authorization: str | None = Header(default=None)):
+    _admin_from_auth(authorization)
+    store = db()
+    query: dict[str, Any] = {"source": "shopbase", "sourceId": {"$exists": True}}
+    if input.scope == "subcategory":
+        if input.categorySourceId:
+            query["categorySourceId"] = input.categorySourceId
+        elif input.category:
+            query["category"] = input.category
+        else:
+            raise HTTPException(status_code=422, detail="Choose a subcategory first.")
+    elif input.scope == "category":
+        if input.parentCategoryId:
+            query["parentCategoryId"] = input.parentCategoryId
+        elif input.category:
+            query["category"] = input.category
+        else:
+            raise HTTPException(status_code=422, detail="Choose a category first.")
+    elif input.scope == "offer":
+        offer = store.offers.find_one({"id": input.offerId}, {"_id": 0, "productIds": 1, "productId": 1}) if input.offerId else None
+        if not offer:
+            raise HTTPException(status_code=422, detail="Choose an offer first.")
+        ids = list(dict.fromkeys((offer.get("productIds") or []) + ([offer.get("productId")] if offer.get("productId") else [])))
+        query = {"source": "shopbase", "$or": [{"sourceId": {"$in": [value.removeprefix("shopbase-") for value in ids]}}, {"id": {"$in": ids}}]}
+    if input.search.strip():
+        query["title"] = {"$regex": re.escape(input.search.strip()[:100]), "$options": "i"}
+    sources = list(store.products.find(query, {"_id": 0, "sourceId": 1, "id": 1, "title": 1, "category": 1, "price": 1, "suggestedRetailPrice": 1}))
+    source_ids = [str(item.get("sourceId")) for item in sources if item.get("sourceId")]
+    overrides = {item["id"]: item for item in store.admin_products.find({"source": "shopbase", "id": {"$in": [f"shopbase-{value}" for value in source_ids]}})}
+    changed = 0
+    now = datetime.now(timezone.utc).isoformat()
+    def adjust(value: float) -> float:
+        delta = value * input.value / 100 if input.adjustmentType == "percent" else input.value
+        return round(max(0, value + delta * (1 if input.direction == "increase" else -1)), 2)
+    for source in sources:
+        pid = f"shopbase-{source['sourceId']}"
+        override = overrides.get(pid, {})
+        regular = float(override.get("originalPrice") or override.get("compareAt") or source.get("suggestedRetailPrice") or source.get("price") or 0)
+        sale = override.get("discountedPrice")
+        sale = float(sale) if sale is not None and float(sale) < regular else None
+        new_regular = adjust(regular)
+        new_sale = min(adjust(sale), max(0, new_regular - 0.01)) if sale is not None else None
+        store.admin_products.update_one({"id": pid}, {"$set": {"id": pid, "source": "shopbase", "sourceId": str(source["sourceId"]), "title": override.get("title") or source.get("title", ""), "category": override.get("category") or source.get("category", ""), "originalPrice": new_regular, "discountedPrice": new_sale, "price": new_sale if new_sale is not None else new_regular, "compareAt": new_regular if new_sale is not None else None, "updatedAt": now}}, upsert=True)
+        changed += 1
+    custom_query: dict[str, Any] = {"source": "custom"}
+    if input.scope == "subcategory": custom_query["categorySourceId" if input.categorySourceId else "category"] = input.categorySourceId or input.category
+    elif input.scope == "category": custom_query["parentCategoryId" if input.parentCategoryId else "category"] = input.parentCategoryId or input.category
+    elif input.scope == "offer":
+        custom_query["id"] = {"$in": ids}
+    if input.search.strip(): custom_query["title"] = {"$regex": re.escape(input.search.strip()[:100]), "$options": "i"}
+    for product in store.admin_products.find(custom_query):
+        regular = float(product.get("originalPrice") or product.get("compareAt") or product.get("price") or 0)
+        sale = product.get("discountedPrice")
+        sale = float(sale) if sale is not None and float(sale) < regular else None
+        new_regular = adjust(regular)
+        new_sale = min(adjust(sale), max(0, new_regular - 0.01)) if sale is not None else None
+        store.admin_products.update_one({"_id": product["_id"]}, {"$set": {"originalPrice": new_regular, "discountedPrice": new_sale, "price": new_sale if new_sale is not None else new_regular, "compareAt": new_regular if new_sale is not None else None, "updatedAt": now}})
+        changed += 1
+    return {"updated": changed}
 
 @app.get("/api/admin/products")
 def list_admin_products(authorization: str | None = Header(default=None), offset: int | None = Query(default=None, ge=0), limit: int = Query(default=100, ge=1, le=400), search: str | None = Query(default=None, max_length=100)):
