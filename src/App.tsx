@@ -2453,7 +2453,7 @@ function OfferEditor({ offer, products, apiBase, onClose, onSave }: { offer: Off
   const [saveError, setSaveError] = useState('')
   useEffect(() => {
     const needle = search.trim()
-    if (!apiBase || needle.length < 2) { setSearchedProducts([]); return }
+    if (!apiBase || needle.length < 2) return
     const controller = new AbortController()
     const timer = window.setTimeout(() => {
       const params = new URLSearchParams({ kind: 'search', search: needle, limit: '50' })
@@ -2482,9 +2482,10 @@ function OfferEditor({ offer, products, apiBase, onClose, onSave }: { offer: Off
     return () => controller.abort()
   }, [apiBase, offer?.id, offer?.kind])
   const searchableProducts = [...new Map([...products, ...searchedProducts].map((product) => [product.id, product])).values()]
-  const matchingProducts = searchableProducts.filter((product) => `${product.title} ${product.category}`.toLowerCase().includes(search.toLowerCase()))
+  const matchingProducts = (search.trim().length >= 2 ? searchableProducts : products).filter((product) => `${product.title} ${product.category}`.toLowerCase().includes(search.trim().toLowerCase()))
   const filtered = matchingProducts.slice(0, visibleProductCount)
-  const selectedProducts = selectedProductIds.map((id) => searchableProducts.find((product) => product.id === id)).filter((product): product is Product => Boolean(product))
+  const selectedProductCatalog = [...new Map([...searchableProducts, ...thumbnailOfferProducts].map((product) => [product.id, product])).values()]
+  const selectedProducts = selectedProductIds.map((id) => selectedProductCatalog.find((product) => product.id === id)).filter((product): product is Product => Boolean(product))
   const thumbnailChoices = [...new Map([...selectedProducts, ...thumbnailOfferProducts].filter((product) => selectedProductIds.includes(product.id)).map((product) => [product.id, product])).values()]
   const selectedProduct = selectedProducts[0]
   const toggleSelectedProduct = (id: string) => setSelectedProductIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])
