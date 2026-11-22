@@ -171,6 +171,12 @@ class OrderEmailSettingsInput(BaseModel):
     serviceId: str = Field(default="", max_length=200)
     templateId: str = Field(default="", max_length=200)
     publicKey: str = Field(default="", max_length=200)
+
+
+class StoreActivityInput(BaseModel):
+    event: Literal["add_to_cart", "checkout_started"]
+    productId: str | None = Field(default=None, max_length=180)
+    quantity: int = Field(default=1, ge=1, le=50)
 try:
     with (Path(__file__).resolve().parent / "bangladesh-locations.json").open(encoding="utf-8") as location_file:
         _location_payload = json.load(location_file)
@@ -2394,6 +2400,32 @@ def record_product_view(product_id: str):
 def product_view_counts():
     counts = db().product_views.find({}, {"_id": 0, "productId": 1, "views": 1})
     return {item["productId"]: int(item.get("views", 0)) for item in counts}
+
+@app.post("/api/store-activity")
+def record_store_activity(input: StoreActivityInput):
+    """Persist storefront funnel actions without blocking the customer flow."""
+    if input.event == "add_to_cart" and not input.productId:
+        raise HTTPException(status_code=422, detail="A product ID is required for add-to-cart activity.")
+    counter_field = "addToCartActions" if input.event == "add_to_cart" else "checkoutStarts"
+    increments: dict[str, int] = {counter_field: 1}
+    if input.event == "add_to_cart":
+        increments["addedUnits"] = input.quantity
+    db().store_activity.update_one(
+        {"_id": "store-funnel"},
+        {"$inc": increments, "$set": {"updatedAt": datetime.now(timezone.utc).isoformat()}},
+        upsert=True,
+    )
+    return {"recorded": True}
+
+@app.get("/api/admin/store-activity")
+def admin_store_activity(authorization: str | None = Header(default=None)):
+    _admin_from_auth(authorization)
+    activity = db().store_activity.find_one({"_id": "store-funnel"}, {"_id": 0}) or {}
+    return {
+        "addToCartActions": int(activity.get("addToCartActions", 0)),
+        "addedUnits": int(activity.get("addedUnits", 0)),
+        "checkoutStarts": int(activity.get("checkoutStarts", 0)),
+    }
 
 def _home_category_samples(store, settings: dict[str, Any], category_offset: int, page_size: int = 15) -> tuple[list[dict[str, Any]], int, bool]:
     """Return one product image per next visible category page."""
