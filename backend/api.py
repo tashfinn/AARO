@@ -883,10 +883,10 @@ def create_order(input: OrderInput, background_tasks: BackgroundTasks, authoriza
         if not isinstance(value, str) or not value.strip() or len(value.strip()) > limit:
             raise HTTPException(status_code=422, detail=f"Enter a valid {label.lower()}.")
         customer[field] = value.strip()
-    district_areas = BANGLADESH_AREAS.get(customer["district"])
-    if not district_areas or customer["thana"] not in district_areas:
-        raise HTTPException(status_code=422, detail="Choose a valid district and thana or area from the address lists.")
-    delivery_zone = district_areas[customer["thana"]]
+    normalized_district = customer["district"].casefold()
+    normalized_thana = customer["thana"].casefold()
+    district_areas = next((areas for name, areas in BANGLADESH_AREAS.items() if name.casefold() == normalized_district), {})
+    delivery_zone = next((zone for name, zone in district_areas.items() if name.casefold() == normalized_thana), "outside")
     customer["area"] = f"{customer['thana']}, {customer['district']}"
     if customer.get("comments") is not None:
         if not isinstance(customer["comments"], str) or len(customer["comments"]) > 1000:

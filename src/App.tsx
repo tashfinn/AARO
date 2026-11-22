@@ -28,7 +28,9 @@ type BangladeshDistrict = { name: string; areas: { name: string; zone: DeliveryZ
 type DeliverySavings = { minimum: number; maximum: number }
 const bangladeshDistricts = locationData.districts as BangladeshDistrict[]
 const getDeliveryZone = (district: string, thana: string): DeliveryZone => {
-  const area = bangladeshDistricts.find((item) => item.name === district)?.areas.find((item) => item.name === thana)
+  const normalizedDistrict = district.trim().toLocaleLowerCase()
+  const normalizedThana = thana.trim().toLocaleLowerCase()
+  const area = bangladeshDistricts.find((item) => item.name.toLocaleLowerCase() === normalizedDistrict)?.areas.find((item) => item.name.toLocaleLowerCase() === normalizedThana)
   return area?.zone || 'outside'
 }
 type AccountProfile = { id: string; name: string; email: string; phone: string; addresses: Address[]; defaultAddressId?: string }
@@ -2029,7 +2031,7 @@ function CheckoutPage({ cartItems, cartLineCount, catalogLoading, subtotal, deli
   const selectedZone = getDeliveryZone(district, thana)
   const hasDeliveryLocation = Boolean(district && thana)
   const fee = freeDelivery ? 0 : !hasDeliveryLocation ? delivery : selectedZone === 'city' ? delivery : selectedZone === 'sub_dhaka' ? subDhakaDelivery : outsideDelivery
-  const districtAreas = bangladeshDistricts.find((item) => item.name === district)?.areas || []
+  const districtAreas = bangladeshDistricts.find((item) => item.name.toLocaleLowerCase() === district.trim().toLocaleLowerCase())?.areas || []
   const zoneLabel = selectedZone === 'city' ? 'Dhaka city' : selectedZone === 'sub_dhaka' ? 'Sub-Dhaka' : 'Outside Dhaka'
   return <section className="checkout-page page-width">
     <div className="checkout-page-heading"><div><span className="section-kicker">AARO / SECURE CHECKOUT</span><h1>Delivery details</h1><p>Enter where you’d like your order delivered.</p></div><button type="button" className="back-to-bag" onClick={onBack}><ChevronLeft size={16} /> Back to your bag</button></div>
@@ -2038,8 +2040,8 @@ function CheckoutPage({ cartItems, cartLineCount, catalogLoading, subtotal, deli
         <div className="checkout-note"><Phone size={18} /><span><b>Guest checkout</b></span></div>
         <label>Full name<input name="name" autoComplete="name" required placeholder="Name on the order" /></label>
         <label>Phone number<input name="phone" autoComplete="tel" required pattern="[+0-9 ()-]{8,}" placeholder="01XXX XXXXXX" /></label>
-        <label>District<select name="district" required value={district} onChange={(event) => { onDistrict(event.target.value); onThana('') }}><option value="">Select a district</option>{bangladeshDistricts.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}</select></label>
-        <label>Thana / area<select name="thana" required value={thana} disabled={!district} onChange={(event) => onThana(event.target.value)}><option value="">{district ? 'Select a thana or area' : 'Select a district first'}</option>{districtAreas.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}</select></label>
+        <label>District<input name="district" autoComplete="address-level1" list="checkout-district-options" maxLength={80} required value={district} placeholder="Type or choose a district" onChange={(event) => { onDistrict(event.target.value); onThana('') }} /><datalist id="checkout-district-options">{bangladeshDistricts.map((item) => <option key={item.name} value={item.name} />)}</datalist></label>
+        <label>Thana / area<input name="thana" autoComplete="address-level2" list="checkout-thana-options" maxLength={100} required value={thana} disabled={!district.trim()} placeholder={district ? 'Type or choose a thana / area' : 'Enter a district first'} onChange={(event) => onThana(event.target.value)} /><datalist id="checkout-thana-options">{districtAreas.map((item) => <option key={item.name} value={item.name} />)}</datalist><small className="delivery-estimate">Type your location or select a suggestion. Unlisted locations use the outside-Dhaka delivery rate.</small></label>
         <label>Full delivery address<textarea name="address" rows={3} required autoComplete="street-address" placeholder="House, road, village, or nearby landmark" /></label>
         <label><span className="field-label-title">Comments <em>(optional)</em></span><textarea name="comments" rows={2} placeholder="Any extra delivery instructions" /></label>
         <div className="checkout-delivery-rate"><span><span>Delivery charge · {hasDeliveryLocation ? zoneLabel : 'select your location'}{freeDelivery ? ' · offer applied' : ''}</span><small className="delivery-estimate">{hasDeliveryLocation ? `Estimated delivery · ${selectedZone === 'outside' ? '5–6 days' : '2–3 days'}` : 'Select your area to confirm the delivery charge'}</small></span><b>{money(fee)}</b></div>
