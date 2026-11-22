@@ -1820,7 +1820,9 @@ export default function App() {
     ...state.coupons.filter((coupon) => coupon.active).map((coupon) => ({ id: `coupon-${coupon.code}`, title: coupon.code, description: `${coupon.kind === 'percent' ? `${coupon.value}% off` : `${money(coupon.value)} off`}${coupon.minimum ? ` on orders over ${money(coupon.minimum)}` : ''}`, products: activeProducts, previewProducts: [], thumbnailProductIds: [] as string[], offer: null as OfferDeal | null, coupon, storewide: true }))
   ]
   const selectedOfferCollection = offerCollections.find((collection) => collection.id === selectedOfferId)
-  const offerPageProducts = (offerProductPage.offerId === selectedOfferId ? offerProductPage.products : []).map((product) => applySingleItemOfferPrice(product, [...state.offers, ...(selectedOfferCollection?.offer ? [selectedOfferCollection.offer] : [])]))
+  const offerPageProducts = (offerProductPage.offerId === selectedOfferId ? offerProductPage.products : [])
+    .map((product) => applySingleItemOfferPrice(product, [...state.offers, ...(selectedOfferCollection?.offer ? [selectedOfferCollection.offer] : [])]))
+    .sort((left, right) => priceSort === 'low-high' ? left.price - right.price || left.title.localeCompare(right.title) : priceSort === 'high-low' ? right.price - left.price || left.title.localeCompare(right.title) : 0)
   const selectedOfferCount = selectedOfferCollection?.offer?.productCount ?? selectedOfferCollection?.offer?.productIds?.length ?? selectedOfferCollection?.products.length ?? 0
   const categoryShuffleSeed = useRef(Math.random()).current
   const homeCategoryNames = useMemo(() => {
