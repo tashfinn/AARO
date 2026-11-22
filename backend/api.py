@@ -1565,11 +1565,11 @@ def bulk_adjust_product_prices(input: BulkPriceAdjustmentInput, authorization: s
     return {"updated": changed}
 
 @app.get("/api/admin/products")
-def list_admin_products(authorization: str | None = Header(default=None), offset: int | None = Query(default=None, ge=0), limit: int = Query(default=100, ge=1, le=400), search: str | None = Query(default=None, max_length=100)):
+def list_admin_products(authorization: str | None = Header(default=None), offset: int | None = Query(default=None, ge=0), limit: int = Query(default=100, ge=1, le=400), search: str | None = Query(default=None, max_length=100), sort: Literal["added", "updated", "name-asc", "name-desc", "price-asc", "price-desc", "views"] = "name-asc"):
     _admin_from_auth(authorization)
     store = db()
     needle = (search or "").strip()
-    if needle:
+    if needle and sort == "name-asc":
         pattern = re.escape(needle)
         source_needle = needle.removeprefix("shopbase-")
         search_fields = [
@@ -1628,7 +1628,7 @@ def list_admin_products(authorization: str | None = Header(default=None), offset
         page_offset = offset or 0
         products = results[page_offset:page_offset + limit]
         return {"products": products, "hasMore": page_offset + len(products) < total, "nextOffset": page_offset + len(products), "total": total}
-    if offset is not None:
+    if offset is not None and sort == "name-asc":
         shopbase_query = {"source": "shopbase"}
         custom_query = {"source": "custom"}
         shopbase_count = store.products.count_documents(shopbase_query)
@@ -1678,8 +1678,20 @@ def list_admin_products(authorization: str | None = Header(default=None), offset
         item["addedAt"] = item.get("addedAt") or (item.get("_id").generation_time.isoformat() if getattr(item.get("_id"), "generation_time", None) else None)
         item.pop("_id", None)
         products.append(item)
-    products.sort(key=lambda item: str(item.get("title", "")).casefold())
-    return products
+    if needle:
+        term = needle.casefold().removeprefix("shopbase-")
+        products = [item for item in products if term in " ".join(str(item.get(key, "")) for key in ("title", "category", "sourceId", "id")).casefold()]
+    views = {str(item.get("productId")): int(item.get("views", 0) or 0) for item in store.product_views.find({}, {"_id": 0, "productId": 1, "views": 1})} if sort == "views" else {}
+    if sort == "price-asc": products.sort(key=lambda item: (float(item.get("price") or 0), str(item.get("title", "")).casefold()))
+    elif sort == "price-desc": products.sort(key=lambda item: (-float(item.get("price") or 0), str(item.get("title", "")).casefold()))
+    elif sort == "added": products.sort(key=lambda item: item.get("addedAt") or "", reverse=True)
+    elif sort == "updated": products.sort(key=lambda item: item.get("updatedAt") or "", reverse=True)
+    elif sort == "name-desc": products.sort(key=lambda item: str(item.get("title", "")).casefold(), reverse=True)
+    else: products.sort(key=lambda item: (-views.get(str(item.get("id", "")), 0), str(item.get("title", "")).casefold()))
+    total = len(products)
+    page_offset = offset or 0
+    products = products[page_offset:page_offset + limit]
+    return {"products": products, "hasMore": page_offset + len(products) < total, "nextOffset": page_offset + len(products), "total": total}
 
 @app.post("/api/admin/products/{product_id}/availability-check")
 def check_one_product_availability(product_id: str, authorization: str | None = Header(default=None)):
