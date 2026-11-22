@@ -700,7 +700,7 @@ def check_admin_session(authorization: str | None = Header(default=None)):
 def get_order_email_settings(authorization: str | None = Header(default=None)):
     _admin_from_auth(authorization)
     saved = db().sync_settings.find_one({"_id": "order-email"}, {"_id": 0, "sender": 1, "recipient": 1, "encryptedApiKey": 1}) or {}
-    return {"provider": "resend", "sender": saved.get("sender", os.getenv("ORDER_NOTIFICATION_FROM", "")), "recipient": saved.get("recipient", os.getenv("ORDER_NOTIFICATION_EMAIL", "aaro.shop.bd@gmail.com")), "hasApiKey": bool(saved.get("encryptedApiKey") or os.getenv("RESEND_API_KEY")), "configured": bool((saved.get("encryptedApiKey") or os.getenv("RESEND_API_KEY")) and (saved.get("sender") or os.getenv("ORDER_NOTIFICATION_FROM")))}
+    return {"provider": "resend", "sender": saved.get("sender", os.getenv("ORDER_NOTIFICATION_FROM", "")), "recipient": saved.get("recipient", os.getenv("ORDER_NOTIFICATION_EMAIL", "aaro.shop.bd@gmail.com")), "hasApiKey": bool(saved.get("encryptedApiKey") or os.getenv("RESEND_API_KEY")), "configured": bool((saved.get("encryptedApiKey") or os.getenv("RESEND_API_KEY")) and (saved.get("sender") or os.getenv("ORDER_NOTIFICATION_FROM"))), "authSecretReady": len(os.getenv("AUTH_SECRET", "").strip()) >= 32}
 
 @app.put("/api/admin/order-email")
 def save_order_email_settings(input: OrderEmailSettingsInput, authorization: str | None = Header(default=None)):
