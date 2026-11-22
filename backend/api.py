@@ -6,6 +6,8 @@ import hmac
 import json
 import re
 import secrets
+import smtplib
+import ssl
 import time
 import uuid
 from datetime import datetime, timezone
@@ -40,10 +42,12 @@ PASSWORD_ROUNDS = 310_000
 def _send_order_notification(order: dict[str, Any]) -> None:
     """Send a best-effort store-owner email after an order has been saved."""
     settings = db().sync_settings.find_one({"_id": "order-email"}, {"_id": 0}) or {}
-    api_key = _decrypt_email_key(settings.get("encryptedApiKey", "")) if settings.get("encryptedApiKey") else os.getenv("RESEND_API_KEY", "").strip()
+    provider = settings.get("provider", "resend")
+    encrypted_credential = settings.get("encryptedCredential") or settings.get("encryptedApiKey", "")
+    credential = _decrypt_email_key(encrypted_credential) if encrypted_credential else os.getenv("RESEND_API_KEY", "").strip()
     recipient = str(settings.get("recipient") or os.getenv("ORDER_NOTIFICATION_EMAIL", "aaro.shop.bd@gmail.com")).strip()
     sender = str(settings.get("sender") or os.getenv("ORDER_NOTIFICATION_FROM", "")).strip()
-    if not api_key or not sender or not recipient:
+    if not credential or not sender or not recipient:
         logging.warning(
             "Order %s was saved, but its email notification is not configured; set RESEND_API_KEY, ORDER_NOTIFICATION_FROM, and ORDER_NOTIFICATION_EMAIL.",
             order.get("id", "unknown"),
@@ -84,6 +88,16 @@ def _send_order_notification(order: dict[str, Any]) -> None:
     ])
     text = "\n".join(lines)
     try:
+        if provider == "gmail":
+            message = f"From: AARO Orders <{sender}>\r\nTo: {recipient}\r\nSubject: New AARO order {order.get('id', '')}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n{text}"
+            with smtplib.SMTP("smtp.gmail.com", 587, timeout=15) as smtp:
+                smtp.ehlo()
+                smtp.starttls(context=ssl.create_default_context())
+                smtp.ehlo()
+                smtp.login(sender, credential)
+                smtp.sendmail(sender, [recipient], message.encode("utf-8"))
+            logging.info("Sent new-order email for order %s via Gmail SMTP", order.get("id", "unknown"))
+            return
         response = requests.post(
             "https://api.resend.com/emails",
             headers={
@@ -119,8 +133,8 @@ def _decrypt_email_key(ciphertext: str) -> str:
 
 
 class OrderEmailSettingsInput(BaseModel):
-    provider: Literal["resend"] = "resend"
-    apiKey: str = Field(default="", max_length=500)
+    provider: Literal["resend", "gmail"] = "gmail"
+    credential: str = Field(default="", max_length=500)
     sender: str = Field(min_length=3, max_length=254)
     recipient: str = Field(min_length=3, max_length=254)
 try:
@@ -699,8 +713,9 @@ def check_admin_session(authorization: str | None = Header(default=None)):
 @app.get("/api/admin/order-email")
 def get_order_email_settings(authorization: str | None = Header(default=None)):
     _admin_from_auth(authorization)
-    saved = db().sync_settings.find_one({"_id": "order-email"}, {"_id": 0, "sender": 1, "recipient": 1, "encryptedApiKey": 1}) or {}
-    return {"provider": "resend", "sender": saved.get("sender", os.getenv("ORDER_NOTIFICATION_FROM", "")), "recipient": saved.get("recipient", os.getenv("ORDER_NOTIFICATION_EMAIL", "aaro.shop.bd@gmail.com")), "hasApiKey": bool(saved.get("encryptedApiKey") or os.getenv("RESEND_API_KEY")), "configured": bool((saved.get("encryptedApiKey") or os.getenv("RESEND_API_KEY")) and (saved.get("sender") or os.getenv("ORDER_NOTIFICATION_FROM"))), "authSecretReady": len(os.getenv("AUTH_SECRET", "").strip()) >= 32}
+    saved = db().sync_settings.find_one({"_id": "order-email"}, {"_id": 0, "sender": 1, "recipient": 1, "provider": 1, "encryptedCredential": 1, "encryptedApiKey": 1}) or {}
+    configured = bool((saved.get("encryptedCredential") or saved.get("encryptedApiKey") or os.getenv("RESEND_API_KEY")) and saved.get("sender"))
+    return {"provider": saved.get("provider", "resend"), "sender": saved.get("sender", os.getenv("ORDER_NOTIFICATION_FROM", "")), "recipient": saved.get("recipient", os.getenv("ORDER_NOTIFICATION_EMAIL", "aaro.shop.bd@gmail.com")), "hasCredential": bool(saved.get("encryptedCredential") or saved.get("encryptedApiKey") or os.getenv("RESEND_API_KEY")), "configured": configured, "authSecretReady": len(os.getenv("AUTH_SECRET", "").strip()) >= 32}
 
 @app.put("/api/admin/order-email")
 def save_order_email_settings(input: OrderEmailSettingsInput, authorization: str | None = Header(default=None)):
@@ -708,25 +723,38 @@ def save_order_email_settings(input: OrderEmailSettingsInput, authorization: str
     if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", input.sender.strip()) or not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", input.recipient.strip()):
         raise HTTPException(status_code=422, detail="Enter valid sender and recipient email addresses.")
     collection = db().sync_settings
-    values: dict[str, Any] = {"sender": input.sender.strip(), "recipient": input.recipient.strip(), "updatedAt": datetime.now(timezone.utc).isoformat()}
-    if input.apiKey.strip():
-        values["encryptedApiKey"] = base64.b64encode(bytes(_email_secret_box().encrypt(input.apiKey.strip().encode()))).decode()
-    elif not collection.find_one({"_id": "order-email", "encryptedApiKey": {"$exists": True}}, {"_id": 1}) and not os.getenv("RESEND_API_KEY"):
-        raise HTTPException(status_code=422, detail="Paste a Resend API key before saving these settings.")
+    if input.provider == "gmail" and input.sender.lower().endswith("@gmail.com") is False:
+        raise HTTPException(status_code=422, detail="For Gmail SMTP, use the Gmail address that owns the App Password.")
+    values: dict[str, Any] = {"provider": input.provider, "sender": input.sender.strip(), "recipient": input.recipient.strip(), "updatedAt": datetime.now(timezone.utc).isoformat()}
+    saved = collection.find_one({"_id": "order-email"}, {"_id": 0, "encryptedCredential": 1, "encryptedApiKey": 1}) or {}
+    if input.credential.strip():
+        values["encryptedCredential"] = base64.b64encode(bytes(_email_secret_box().encrypt(input.credential.strip().encode()))).decode()
+    elif not (saved.get("encryptedCredential") or saved.get("encryptedApiKey")) and not (input.provider == "resend" and os.getenv("RESEND_API_KEY")):
+        raise HTTPException(status_code=422, detail="Enter the Gmail App Password or Resend API key before saving.")
     collection.update_one({"_id": "order-email"}, {"$set": values}, upsert=True)
-    return {"ok": True, "hasApiKey": bool(values.get("encryptedApiKey") or os.getenv("RESEND_API_KEY")), "configured": True}
+    return {"ok": True, "hasCredential": bool(values.get("encryptedCredential") or saved.get("encryptedCredential") or saved.get("encryptedApiKey") or os.getenv("RESEND_API_KEY")), "configured": True}
 
 @app.post("/api/admin/order-email/test")
 def test_order_email(authorization: str | None = Header(default=None)):
     _admin_from_auth(authorization)
     order = {"id": "TEST", "customer": {"name": "AARO email test", "phone": "-", "address": "-", "thana": "-", "district": "-"}, "items": [], "subtotal": 0, "delivery": 0, "discount": 0, "total": 0, "createdAt": datetime.now(timezone.utc).isoformat()}
     settings = db().sync_settings.find_one({"_id": "order-email"}, {"_id": 0}) or {}
-    api_key = _decrypt_email_key(settings.get("encryptedApiKey", "")) if settings.get("encryptedApiKey") else os.getenv("RESEND_API_KEY", "").strip()
+    provider = settings.get("provider", "resend")
+    encrypted_credential = settings.get("encryptedCredential") or settings.get("encryptedApiKey", "")
+    credential = _decrypt_email_key(encrypted_credential) if encrypted_credential else os.getenv("RESEND_API_KEY", "").strip()
     sender = str(settings.get("sender") or os.getenv("ORDER_NOTIFICATION_FROM", "")).strip()
     recipient = str(settings.get("recipient") or os.getenv("ORDER_NOTIFICATION_EMAIL", "aaro.shop.bd@gmail.com")).strip()
-    if not api_key or not sender:
-        raise HTTPException(status_code=422, detail="Save your Resend API key and verified sender first.")
-    response = requests.post("https://api.resend.com/emails", headers={"Authorization": f"Bearer {api_key}", "Idempotency-Key": f"aaro-email-test-{uuid.uuid4().hex}"}, json={"from": sender, "to": [recipient], "subject": "AARO order email test", "text": "Your AARO new-order email notifications are working."}, timeout=(3, 15))
+    if not credential or not sender:
+        raise HTTPException(status_code=422, detail="Save your provider credential and sender email first.")
+    if provider == "gmail":
+        message = "From: AARO email test\r\nTo: " + recipient + "\r\nSubject: AARO order email test\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nYour AARO new-order email notifications are working."
+        try:
+            with smtplib.SMTP("smtp.gmail.com", 587, timeout=15) as smtp:
+                smtp.ehlo(); smtp.starttls(context=ssl.create_default_context()); smtp.ehlo(); smtp.login(sender, credential); smtp.sendmail(sender, [recipient], message.encode("utf-8"))
+        except (smtplib.SMTPException, OSError) as error:
+            raise HTTPException(status_code=502, detail=f"Gmail could not send the test email. Check the App Password and Google 2-Step Verification. ({error})") from error
+        return {"ok": True, "message": f"Test email sent to {recipient}."}
+    response = requests.post("https://api.resend.com/emails", headers={"Authorization": f"Bearer {credential}", "Idempotency-Key": f"aaro-email-test-{uuid.uuid4().hex}"}, json={"from": sender, "to": [recipient], "subject": "AARO order email test", "text": "Your AARO new-order email notifications are working."}, timeout=(3, 15))
     if not response.ok:
         raise HTTPException(status_code=502, detail="Resend could not send the test email. Check the API key, verified sender, and Resend account logs.")
     return {"ok": True, "message": f"Test email sent to {recipient}."}
