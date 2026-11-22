@@ -348,7 +348,7 @@ class OrderInput(BaseModel):
     delivery: float | None = Field(default=None, ge=0)
     discount: float | None = Field(default=None, ge=0)
     total: float | None = Field(default=None, ge=0)
-    deliveryZone: Literal["inside", "outside", "city", "sub_dhaka"] = "outside"
+    deliveryZone: Literal["inside", "outside", "city", "sub_dhaka", "custom"] = "outside"
     coupon: str | None = None
 
 class CouponInput(BaseModel):
@@ -886,7 +886,7 @@ def create_order(input: OrderInput, background_tasks: BackgroundTasks, authoriza
     normalized_district = customer["district"].casefold()
     normalized_thana = customer["thana"].casefold()
     district_areas = next((areas for name, areas in BANGLADESH_AREAS.items() if name.casefold() == normalized_district), {})
-    delivery_zone = next((zone for name, zone in district_areas.items() if name.casefold() == normalized_thana), "outside")
+    delivery_zone = next((zone for name, zone in district_areas.items() if name.casefold() == normalized_thana), "custom")
     customer["area"] = f"{customer['thana']}, {customer['district']}"
     if customer.get("comments") is not None:
         if not isinstance(customer["comments"], str) or len(customer["comments"]) > 1000:
@@ -1004,10 +1004,10 @@ def create_order(input: OrderInput, background_tasks: BackgroundTasks, authoriza
     # Migrate the original two-tier default the first time this newer three-tier flow runs.
     legacy_default = "deliverySubDhaka" not in content and content.get("deliveryInDhaka") == 60 and content.get("deliveryOutsideDhaka", 120) == 120
     if legacy_default:
-        delivery = {"city": 70, "sub_dhaka": 100, "outside": 120}[delivery_zone]
+        delivery = {"city": 70, "sub_dhaka": 100, "outside": 120, "custom": 70}[delivery_zone]
     else:
-        rate_key = {"city": "deliveryInDhaka", "sub_dhaka": "deliverySubDhaka", "outside": "deliveryOutsideDhaka"}[delivery_zone]
-        default_rate = {"city": 70, "sub_dhaka": 100, "outside": 120}[delivery_zone]
+        rate_key = {"city": "deliveryInDhaka", "sub_dhaka": "deliverySubDhaka", "outside": "deliveryOutsideDhaka", "custom": "deliveryInDhaka"}[delivery_zone]
+        default_rate = {"city": 70, "sub_dhaka": 100, "outside": 120, "custom": 70}[delivery_zone]
         try:
             delivery = float(content.get(rate_key, default_rate))
         except (TypeError, ValueError):

@@ -4283,3 +4283,21 @@ img.image-view-failed { opacity: 0; }
 @media (prefers-reduced-motion: reduce) {
   .image-view-loading { animation: none; }
 }
+
+/* Compact, searchable checkout location picker (avoids the browser datalist popover). */
+.checkout-page-form .checkout-location-label { position: relative; z-index: auto; }
+.checkout-location-combobox { position: relative; width: 100%; }
+.checkout-location-input-wrap { position: relative; width: 100%; }
+.checkout-location-input-wrap input { padding-right: 48px !important; }
+.checkout-location-toggle { position: absolute; top: 50%; right: 5px; display: grid; width: 38px; height: 38px; padding: 0; place-items: center; transform: translateY(-50%); border: 0; border-radius: 7px; background: transparent; color: var(--text-secondary); cursor: pointer; }
+.checkout-location-toggle:hover:not(:disabled), .checkout-location-toggle:focus-visible { background: var(--surface-muted); color: var(--accent-strong); }
+.checkout-location-toggle:disabled { opacity: .45; cursor: not-allowed; }
+.checkout-location-options { position: absolute; z-index: 80; top: calc(100% + 5px); right: 0; left: 0; display: grid; max-height: min(260px, 38vh); overflow: auto; overscroll-behavior: contain; padding: 5px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); box-shadow: 0 12px 30px rgba(12, 35, 27, .18); -webkit-overflow-scrolling: touch; }
+.checkout-page-form .checkout-location-options button { width: 100%; min-height: 40px; padding: 9px 11px; border: 0; border-radius: 7px; background: transparent; color: var(--text-primary); font-size: 14px; font-weight: 500; text-align: left; cursor: pointer; }
+.checkout-page-form .checkout-location-options button:hover, .checkout-page-form .checkout-location-options button.active { background: var(--surface-muted); color: var(--accent-strong); }
+.checkout-location-no-options { padding: 12px 11px; color: var(--text-secondary); font-size: 13px; line-height: 1.45; }
+.checkout-location-helper { display: block; color: var(--text-secondary); font-size: 12px; font-weight: 400; line-height: 1.45; }
+@media (max-width: 700px) {
+  .checkout-location-options { max-height: min(220px, 34vh); }
+  .checkout-page-form .checkout-location-options button { min-height: 44px; }
+}

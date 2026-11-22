@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
 import {
   ArrowRight, ArrowUpRight, CalendarDays, Check, CheckCircle2,
   ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CircleDollarSign, Clock3, Copy, Download, Eye, EyeOff,
@@ -31,7 +31,7 @@ const getDeliveryZone = (district: string, thana: string): DeliveryZone => {
   const normalizedDistrict = district.trim().toLocaleLowerCase()
   const normalizedThana = thana.trim().toLocaleLowerCase()
   const area = bangladeshDistricts.find((item) => item.name.toLocaleLowerCase() === normalizedDistrict)?.areas.find((item) => item.name.toLocaleLowerCase() === normalizedThana)
-  return area?.zone || 'outside'
+  return area?.zone || 'custom'
 }
 type AccountProfile = { id: string; name: string; email: string; phone: string; addresses: Address[]; defaultAddressId?: string }
 type StorePage = 'shop' | 'trending' | 'offers' | 'combos' | 'category' | 'wishlist' | 'account' | 'terms' | 'delivery' | 'contact'
@@ -1282,8 +1282,7 @@ export default function App() {
   const appliedBundleSavings = Math.min(Math.max(0, subtotal - appliedOfferSavings), bundleSavings)
   const appliedCouponSavings = Math.min(Math.max(0, subtotal - appliedOfferSavings - appliedBundleSavings), couponDiscount)
   const discount = appliedOfferSavings + appliedBundleSavings + appliedCouponSavings
-  const hasDeliveryLocation = Boolean(selectedDistrict && selectedThana)
-  const selectedDeliveryFee = !hasDeliveryLocation ? state.content.deliveryInDhaka : deliveryZone === 'city' ? state.content.deliveryInDhaka : deliveryZone === 'sub_dhaka' ? state.content.deliverySubDhaka : state.content.deliveryOutsideDhaka
+  const selectedDeliveryFee = deliveryZone === 'city' || deliveryZone === 'custom' ? state.content.deliveryInDhaka : deliveryZone === 'sub_dhaka' ? state.content.deliverySubDhaka : state.content.deliveryOutsideDhaka
   const freeDeliveryApplied = state.offers.some((offer) => {
     if (!offer.active) return false
     if (offer.kind === 'free_delivery') return subtotal >= offer.value
@@ -1431,7 +1430,7 @@ export default function App() {
     const thana = String(form.get('thana') || '')
     const zone = getDeliveryZone(district, thana)
     const area = `${thana}, ${district}`
-    const fee = freeDeliveryApplied ? 0 : zone === 'city' ? state.content.deliveryInDhaka : zone === 'sub_dhaka' ? state.content.deliverySubDhaka : state.content.deliveryOutsideDhaka
+    const fee = freeDeliveryApplied ? 0 : zone === 'city' || zone === 'custom' ? state.content.deliveryInDhaka : zone === 'sub_dhaka' ? state.content.deliverySubDhaka : state.content.deliveryOutsideDhaka
     const newOrder: Order = {
       id: `AR-${Math.floor(1000 + Math.random() * 9000)}`,
       createdAt: new Date().toISOString(),
@@ -2025,14 +2024,38 @@ function CartDrawer({ cartItems, subtotal, delivery, subDhakaDelivery, outsideDe
     </aside>
   </div>
 }
+function CheckoutLocationField({ name, label, value, options, placeholder, disabled = false, helper, onChange }: { name: string; label: string; value: string; options: string[]; placeholder: string; disabled?: boolean; helper?: string; onChange: (value: string) => void }) {
+  const [open, setOpen] = useState(false)
+  const [activeIndex, setActiveIndex] = useState(-1)
+  const rootRef = useRef<HTMLDivElement>(null)
+  const listId = `${name}-suggestions`
+  const query = value.trim().toLocaleLowerCase()
+  const suggestions = query ? options.filter((option) => option.toLocaleLowerCase().includes(query)) : options
+  useEffect(() => {
+    const closeOnOutsidePress = (event: PointerEvent) => {
+      if (event.target instanceof Node && !rootRef.current?.contains(event.target)) setOpen(false)
+    }
+    document.addEventListener('pointerdown', closeOnOutsidePress)
+    return () => document.removeEventListener('pointerdown', closeOnOutsidePress)
+  }, [])
+  const choose = (option: string) => { onChange(option); setOpen(false); setActiveIndex(-1) }
+  const handleKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'ArrowDown') { event.preventDefault(); setOpen(true); setActiveIndex((current) => Math.min(current + 1, suggestions.length - 1)) }
+    else if (event.key === 'ArrowUp') { event.preventDefault(); setOpen(true); setActiveIndex((current) => Math.max(0, current - 1)) }
+    else if (event.key === 'Enter' && open && activeIndex >= 0 && suggestions[activeIndex]) { event.preventDefault(); choose(suggestions[activeIndex]) }
+    else if (event.key === 'Escape') { setOpen(false); setActiveIndex(-1) }
+  }
+  return <label className="checkout-location-label">{label}<div className="checkout-location-combobox" ref={rootRef}><div className="checkout-location-input-wrap"><input name={name} autoComplete="off" maxLength={name === 'district' ? 80 : 100} required disabled={disabled} value={value} placeholder={placeholder} role="combobox" aria-autocomplete="list" aria-expanded={open} aria-controls={listId} aria-activedescendant={activeIndex >= 0 ? `${listId}-option-${activeIndex}` : undefined} onFocus={() => { if (!disabled) setOpen(true) }} onChange={(event) => { onChange(event.target.value); setActiveIndex(-1); setOpen(true) }} onKeyDown={handleKeyDown} /><button type="button" className="checkout-location-toggle" disabled={disabled} aria-label={`Show ${label.toLowerCase()} suggestions`} aria-expanded={open} onClick={() => { setOpen((current) => !current); setActiveIndex(-1) }}><ChevronDown size={17} /></button></div>{open && !disabled && <div className="checkout-location-options" id={listId} role="listbox" aria-label={`${label} suggestions`}>{suggestions.length ? suggestions.map((option, index) => <button type="button" role="option" aria-selected={activeIndex === index} id={`${listId}-option-${index}`} className={activeIndex === index ? 'active' : ''} key={option} onMouseDown={(event) => event.preventDefault()} onClick={() => choose(option)}>{option}</button>) : <div className="checkout-location-no-options">No matches. Your typed location will be used.</div>}</div>}</div>{helper && <small className="checkout-location-helper">{helper}</small>}</label>
+}
+
 function CheckoutPage({ cartItems, cartLineCount, catalogLoading, subtotal, delivery, subDhakaDelivery, outsideDelivery, district, thana, onDistrict, onThana, offerSavings, deliverySavings, bundleSavings, couponSavings, total, freeDelivery, coupon, onPlaceOrder, onBack }: { cartItems: (CartLine & { product: Product })[]; cartLineCount: number; catalogLoading: boolean; subtotal: number; delivery: number; subDhakaDelivery: number; outsideDelivery: number; district: string; thana: string; onDistrict: (district: string) => void; onThana: (thana: string) => void; offerSavings: number; deliverySavings: DeliverySavings | null; bundleSavings: number; couponSavings: number; total: number; freeDelivery: boolean; coupon: Coupon | null; onPlaceOrder: (event: FormEvent<HTMLFormElement>) => void; onBack: () => void }) {
   if (catalogLoading && cartItems.length < cartLineCount) return <section className="checkout-page page-width"><div className="empty-state checkout-cart-restoring" role="status"><span className="loading-orbit" /><h1>Restoring your bag</h1><p>Loading your saved products. Your items are still here.</p></div></section>
   if (!cartItems.length) return <section className="checkout-page page-width"><div className="empty-state"><ShoppingBag size={27} /><h1>Your bag is empty</h1><p>Add products to your bag before checking out.</p><button className="dark-button" onClick={onBack}>Return to bag <ArrowRight size={16} /></button></div></section>
   const selectedZone = getDeliveryZone(district, thana)
   const hasDeliveryLocation = Boolean(district && thana)
-  const fee = freeDelivery ? 0 : !hasDeliveryLocation ? delivery : selectedZone === 'city' ? delivery : selectedZone === 'sub_dhaka' ? subDhakaDelivery : outsideDelivery
+  const fee = freeDelivery ? 0 : selectedZone === 'city' || selectedZone === 'custom' ? delivery : selectedZone === 'sub_dhaka' ? subDhakaDelivery : outsideDelivery
   const districtAreas = bangladeshDistricts.find((item) => item.name.toLocaleLowerCase() === district.trim().toLocaleLowerCase())?.areas || []
-  const zoneLabel = selectedZone === 'city' ? 'Dhaka city' : selectedZone === 'sub_dhaka' ? 'Sub-Dhaka' : 'Outside Dhaka'
+  const zoneLabel = selectedZone === 'custom' ? 'Unlisted location' : selectedZone === 'city' ? 'Dhaka city' : selectedZone === 'sub_dhaka' ? 'Sub-Dhaka' : 'Outside Dhaka'
   return <section className="checkout-page page-width">
     <div className="checkout-page-heading"><div><span className="section-kicker">AARO / SECURE CHECKOUT</span><h1>Delivery details</h1><p>Enter where you’d like your order delivered.</p></div><button type="button" className="back-to-bag" onClick={onBack}><ChevronLeft size={16} /> Back to your bag</button></div>
     <form className="checkout-page-layout" onSubmit={onPlaceOrder}>
@@ -2040,11 +2063,11 @@ function CheckoutPage({ cartItems, cartLineCount, catalogLoading, subtotal, deli
         <div className="checkout-note"><Phone size={18} /><span><b>Guest checkout</b></span></div>
         <label>Full name<input name="name" autoComplete="name" required placeholder="Name on the order" /></label>
         <label>Phone number<input name="phone" autoComplete="tel" required pattern="[+0-9 ()-]{8,}" placeholder="01XXX XXXXXX" /></label>
-        <label>District<input name="district" autoComplete="address-level1" list="checkout-district-options" maxLength={80} required value={district} placeholder="Type or choose a district" onChange={(event) => { onDistrict(event.target.value); onThana('') }} /><datalist id="checkout-district-options">{bangladeshDistricts.map((item) => <option key={item.name} value={item.name} />)}</datalist></label>
-        <label>Thana / area<input name="thana" autoComplete="address-level2" list="checkout-thana-options" maxLength={100} required value={thana} disabled={!district.trim()} placeholder={district ? 'Type or choose a thana / area' : 'Enter a district first'} onChange={(event) => onThana(event.target.value)} /><datalist id="checkout-thana-options">{districtAreas.map((item) => <option key={item.name} value={item.name} />)}</datalist><small className="delivery-estimate">Type your location or select a suggestion. Unlisted locations use the outside-Dhaka delivery rate.</small></label>
+        <CheckoutLocationField name="district" label="District" value={district} options={bangladeshDistricts.map((item) => item.name)} placeholder="Type to search or choose a district" onChange={(value) => { onDistrict(value); onThana('') }} />
+        <CheckoutLocationField name="thana" label="Thana / area" value={thana} options={districtAreas.map((item) => item.name)} placeholder={district ? 'Type to search or choose a thana / area' : 'Enter a district first'} disabled={!district.trim()} helper="Unlisted locations start at ৳70. If outside Dhaka, we may adjust the charge after reviewing your address." onChange={onThana} />
         <label>Full delivery address<textarea name="address" rows={3} required autoComplete="street-address" placeholder="House, road, village, or nearby landmark" /></label>
         <label><span className="field-label-title">Comments <em>(optional)</em></span><textarea name="comments" rows={2} placeholder="Any extra delivery instructions" /></label>
-        <div className="checkout-delivery-rate"><span><span>Delivery charge · {hasDeliveryLocation ? zoneLabel : 'select your location'}{freeDelivery ? ' · offer applied' : ''}</span><small className="delivery-estimate">{hasDeliveryLocation ? `Estimated delivery · ${selectedZone === 'outside' ? '5–6 days' : '2–3 days'}` : 'Select your area to confirm the delivery charge'}</small></span><b>{money(fee)}</b></div>
+        <div className="checkout-delivery-rate"><span><span>Delivery charge · {hasDeliveryLocation ? zoneLabel : 'select your location'}{freeDelivery ? ' · offer applied' : ''}</span><small className="delivery-estimate">{selectedZone === 'custom' && hasDeliveryLocation ? 'We’ll review the address and adjust the rate if needed' : hasDeliveryLocation ? `Estimated delivery · ${selectedZone === 'outside' ? '5–6 days' : '2–3 days'}` : 'Select your area to confirm the delivery charge'}</small></span><b>{money(fee)}</b></div>
         <div className="checkout-payment"><div className="cod-icon"><Truck size={18} /></div><span><b>Cash on delivery</b><small>Pay the courier when your order arrives.</small></span><CheckCircle2 size={18} /></div>
       </div>
       <aside className="checkout-order-summary panel">
