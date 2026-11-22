@@ -1569,6 +1569,56 @@ def list_admin_products(authorization: str | None = Header(default=None), offset
     _admin_from_auth(authorization)
     store = db()
     needle = (search or "").strip()
+    if sort == "views" and offset is not None:
+        fields = {"_id": 1, "sourceId": 1, "title": 1, "category": 1, "categorySourceId": 1, "parentCategory": 1, "parentCategoryId": 1, "price": 1, "suggestedRetailPrice": 1, "wholesalePrice": 1, "compareAt": 1, "image": 1, "stock": 1, "active": 1, "source": 1, "addedAt": 1, "updatedAt": 1, "trending": 1, "offer": 1, "badge": 1, "rating": 1, "reviews": 1, "sizes": 1, "options": 1}
+        view_query: dict[str, Any] = {}
+        if needle:
+            escaped = re.escape(needle.removeprefix("shopbase-")[:100])
+            view_query["productId"] = {"$regex": escaped, "$options": "i"}
+        ranked = list(store.product_views.find(view_query, {"_id": 0, "productId": 1, "views": 1}).sort([("views", -1), ("productId", 1)]).skip(offset).limit(limit))
+        ranked_ids = [str(item.get("productId", "")) for item in ranked if item.get("productId")]
+        source_ids = [value.removeprefix("shopbase-") for value in ranked_ids if value.startswith("shopbase-")]
+        custom_ids = [value for value in ranked_ids if not value.startswith("shopbase-")]
+        source_docs = list(store.products.find({"source": "shopbase", "sourceId": {"$in": source_ids}}, fields)) if source_ids else []
+        custom_fields = {**fields, "_id": 0, "id": 1}
+        custom_docs = list(store.admin_products.find({"source": "custom", "id": {"$in": custom_ids}}, custom_fields)) if custom_ids else []
+        ids = [_catalog_product_id(item) for item in source_docs]
+        override_fields = {"_id": 0, "id": 1, "title": 1, "category": 1, "categorySourceId": 1, "parentCategory": 1, "parentCategoryId": 1, "price": 1, "originalPrice": 1, "discountedPrice": 1, "compareAt": 1, "image": 1, "images": {"$slice": 1}, "stock": 1, "active": 1, "trending": 1, "offer": 1, "badge": 1, "sizes": 1, "options": 1, "updatedAt": 1}
+        overrides = {item["id"]: item for item in store.admin_products.find({"source": "shopbase", "id": {"$in": ids}}, override_fields)} if ids else {}
+        by_id: dict[str, dict[str, Any]] = {}
+        for item in source_docs:
+            product = public_product(item); product.pop("_id", None)
+            product["addedAt"] = item.get("addedAt") or (item.get("_id").generation_time.isoformat() if getattr(item.get("_id"), "generation_time", None) else None)
+            override = overrides.get(product["id"])
+            by_id[product["id"]] = _apply_shopbase_override(product, override, retailer_price=item.get("wholesalePrice")) if override else product
+        for item in custom_docs:
+            item["addedAt"] = item.get("addedAt") or (item.get("_id").generation_time.isoformat() if getattr(item.get("_id"), "generation_time", None) else None)
+            item.pop("_id", None); by_id[item["id"]] = item
+        products = [by_id[pid] for pid in ranked_ids if pid in by_id]
+        total = store.products.count_documents({"source": "shopbase"}) + store.admin_products.count_documents({"source": "custom"})
+        if len(products) < limit and offset + len(ranked) >= store.product_views.count_documents(view_query):
+            missing = max(0, limit - len(products))
+            fallback_query: dict[str, Any] = {"source": "shopbase"}
+            if needle:
+                pattern = re.escape(needle)
+                fallback_query["$or"] = [{"title": {"$regex": pattern, "$options": "i"}}, {"category": {"$regex": pattern, "$options": "i"}}, {"sourceId": {"$regex": pattern, "$options": "i"}}]
+            excluded = [pid.removeprefix("shopbase-") for pid in ranked_ids if pid.startswith("shopbase-")]
+            if excluded: fallback_query["sourceId"] = {"$nin": excluded}
+            fallback = list(store.products.find(fallback_query, fields).sort([("title", 1), ("_id", 1)]).limit(missing))
+            fallback_source_ids = [str(item.get("sourceId")) for item in fallback if item.get("sourceId")]
+            fallback_product_ids = [f"shopbase-{value}" for value in fallback_source_ids]
+            fallback_overrides = {item["id"]: item for item in store.admin_products.find({"source": "shopbase", "id": {"$in": fallback_product_ids}}, override_fields)} if fallback_product_ids else {}
+            for item in fallback:
+                product = public_product(item); product.pop("_id", None)
+                override = fallback_overrides.get(product["id"])
+                products.append(_apply_shopbase_override(product, override, retailer_price=item.get("wholesalePrice")) if override else product)
+            if missing > len(fallback):
+                custom_filter: dict[str, Any] = {"source": "custom"}
+                if needle: custom_filter["title"] = {"$regex": re.escape(needle), "$options": "i"}
+                if excluded: custom_filter["id"] = {"$nin": [f"shopbase-{value}" for value in excluded]}
+                extra = list(store.admin_products.find(custom_filter, custom_fields).sort([("title", 1), ("_id", 1)]).limit(missing - len(fallback)))
+                for item in extra: item.pop("_id", None); products.append(item)
+        return {"products": products, "hasMore": offset + len(products) < total, "nextOffset": offset + len(products), "total": total}
     if needle and sort == "name-asc":
         pattern = re.escape(needle)
         source_needle = needle.removeprefix("shopbase-")
