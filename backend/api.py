@@ -2099,7 +2099,14 @@ def catalog_priority(
     category_has_more = False
     query: dict[str, Any] = {"source": "shopbase", "sourceId": {"$exists": True}, "active": {"$ne": False}}
 
-    if kind in ("home", "trending"):
+    if kind == "trending":
+        # Keep the storefront homepage on its fast first-20 path, while the
+        # dedicated trending page can request subsequent view-ranked batches.
+        viewed = store.product_views.find({}, {"_id": 0, "productId": 1}).sort([("views", -1), ("productId", 1)]).limit(offset + limit)
+        ranked_ids = list(dict.fromkeys(str(item.get("productId", "")) for item in viewed if item.get("productId")))
+        priority_trending_ids = ranked_ids
+        explicit_ids.extend(ranked_ids)
+    elif kind == "home":
         # View rows are only created by record_product_view, so scanning the
         # top of the compound index is enough; a range filter makes MongoDB
         # examine extra index entries before it can satisfy the same sort.
@@ -2184,7 +2191,7 @@ def catalog_priority(
             product = public_product(item)
             products_by_id[product["id"]] = product
         products = [_externalize_product_images(products_by_id[item], request) for item in selected_ids if item in products_by_id]
-        total = len(explicit_ids)
+        total = store.product_views.count_documents({}) if kind == "trending" else len(explicit_ids)
         payload = {"products": products, "hasMore": offset + len(selected_ids) < total, "nextOffset": offset + len(selected_ids), "total": total, "trendingIds": priority_trending_ids}
         if category_products or kind == "home":
             payload["categoryProducts"] = [_externalize_product_images(product, request) for product in category_products]
