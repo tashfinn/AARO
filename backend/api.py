@@ -42,12 +42,16 @@ PASSWORD_ROUNDS = 310_000
 def _send_order_notification(order: dict[str, Any]) -> None:
     """Send a best-effort store-owner email after an order has been saved."""
     settings = db().sync_settings.find_one({"_id": "order-email"}, {"_id": 0}) or {}
-    provider = settings.get("provider", "resend")
+    provider = settings.get("provider", "emailjs")
     encrypted_credential = settings.get("encryptedCredential") or settings.get("encryptedApiKey", "")
-    credential = _decrypt_email_key(encrypted_credential) if encrypted_credential else os.getenv("RESEND_API_KEY", "").strip()
+    credential = _decrypt_email_key(encrypted_credential) if encrypted_credential and provider != "emailjs" else (os.getenv("RESEND_API_KEY", "").strip() if provider == "resend" else "")
     recipient = str(settings.get("recipient") or os.getenv("ORDER_NOTIFICATION_EMAIL", "aaro.shop.bd@gmail.com")).strip()
     sender = str(settings.get("sender") or os.getenv("ORDER_NOTIFICATION_FROM", "")).strip()
-    if not credential or not sender or not recipient:
+    emailjs_ready = bool(settings.get("serviceId") and settings.get("templateId") and settings.get("publicKey"))
+    if provider == "emailjs" and (not emailjs_ready or not recipient):
+        logging.warning("Order %s was saved, but EmailJS order notification is not configured.", order.get("id", "unknown"))
+        return
+    if provider != "emailjs" and (not credential or not sender or not recipient):
         logging.warning(
             "Order %s was saved, but its email notification is not configured; set RESEND_API_KEY, ORDER_NOTIFICATION_FROM, and ORDER_NOTIFICATION_EMAIL.",
             order.get("id", "unknown"),
@@ -56,6 +60,7 @@ def _send_order_notification(order: dict[str, Any]) -> None:
 
     customer = order.get("customer") if isinstance(order.get("customer"), dict) else {}
     items = order.get("items") if isinstance(order.get("items"), list) else []
+    item_lines: list[str] = []
     lines = [
         f"New AARO order: {order.get('id', 'Unknown')}",
         "",
@@ -76,7 +81,8 @@ def _send_order_notification(order: dict[str, Any]) -> None:
         choice_text = f" ({', '.join(choices)})" if choices else ""
         quantity = max(0, int(item.get("quantity") or 0))
         unit_price = float(item.get("price") or 0)
-        lines.append(f"- {item.get('title', 'Product')}{choice_text} × {quantity} — ৳{unit_price * quantity:,.0f}")
+        item_lines.append(f"- {item.get('title', 'Product')}{choice_text} × {quantity} — ৳{unit_price * quantity:,.0f}")
+    lines.extend(item_lines or ["- No items"])
     lines.extend([
         "",
         f"Subtotal: ৳{float(order.get('subtotal') or 0):,.0f}",
@@ -88,6 +94,31 @@ def _send_order_notification(order: dict[str, Any]) -> None:
     ])
     text = "\n".join(lines)
     try:
+        if provider == "emailjs":
+            params = {
+                "to_email": recipient,
+                "order_id": str(order.get("id", "Unknown")),
+                "customer_name": str(customer.get("name", "Unknown")),
+                "customer_phone": str(customer.get("phone", "Unknown")),
+                "customer_email": str(customer.get("email") or "Not provided"),
+                "delivery_address": f"{customer.get('address', '')}, {customer.get('thana', '')}, {customer.get('district', '')}".strip(" ,"),
+                "delivery_zone": str(order.get("deliveryZone", "outside")),
+                "items": "\n".join(item_lines or ["- No items"]),
+                "subtotal": f"৳{float(order.get('subtotal') or 0):,.0f}",
+                "delivery": f"৳{float(order.get('delivery') or 0):,.0f}",
+                "discount": f"৳{float(order.get('discount') or 0):,.0f}",
+                "total": f"৳{float(order.get('total') or 0):,.0f}",
+                "coupon": str(order.get("coupon") or "None"),
+                "created_at": str(order.get("createdAt", "")),
+                "order_details": text,
+            }
+            payload = {"service_id": settings["serviceId"], "template_id": settings["templateId"], "user_id": settings["publicKey"], "template_params": params}
+            if credential:
+                payload["accessToken"] = credential
+            response = requests.post("https://api.emailjs.com/api/v1.0/email/send", json=payload, timeout=(3, 15))
+            response.raise_for_status()
+            logging.info("Sent new-order email for order %s via EmailJS", order.get("id", "unknown"))
+            return
         if provider == "gmail":
             message = f"From: AARO Orders <{sender}>\r\nTo: {recipient}\r\nSubject: New AARO order {order.get('id', '')}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n{text}"
             with smtplib.SMTP("smtp.gmail.com", 587, timeout=15) as smtp:
@@ -101,7 +132,7 @@ def _send_order_notification(order: dict[str, Any]) -> None:
         response = requests.post(
             "https://api.resend.com/emails",
             headers={
-                "Authorization": f"Bearer {api_key}",
+                "Authorization": f"Bearer {credential}",
                 "Content-Type": "application/json",
                 "Idempotency-Key": f"aaro-order-{order.get('id', uuid.uuid4().hex)}",
             },
@@ -115,7 +146,7 @@ def _send_order_notification(order: dict[str, Any]) -> None:
         )
         response.raise_for_status()
         logging.info("Sent new-order email for order %s", order.get("id", "unknown"))
-    except requests.RequestException:
+    except (requests.RequestException, KeyError, OSError, smtplib.SMTPException):
         # The order is already durable. Do not turn a mail outage into a failed
         # checkout, which could cause a duplicate order when the customer retries.
         logging.exception("Could not send new-order email for order %s", order.get("id", "unknown"))
@@ -133,10 +164,13 @@ def _decrypt_email_key(ciphertext: str) -> str:
 
 
 class OrderEmailSettingsInput(BaseModel):
-    provider: Literal["resend", "gmail"] = "gmail"
+    provider: Literal["emailjs", "resend", "gmail"] = "emailjs"
     credential: str = Field(default="", max_length=500)
-    sender: str = Field(min_length=3, max_length=254)
+    sender: str = Field(default="", max_length=254)
     recipient: str = Field(min_length=3, max_length=254)
+    serviceId: str = Field(default="", max_length=200)
+    templateId: str = Field(default="", max_length=200)
+    publicKey: str = Field(default="", max_length=200)
 try:
     with (Path(__file__).resolve().parent / "bangladesh-locations.json").open(encoding="utf-8") as location_file:
         _location_payload = json.load(location_file)
@@ -713,37 +747,68 @@ def check_admin_session(authorization: str | None = Header(default=None)):
 @app.get("/api/admin/order-email")
 def get_order_email_settings(authorization: str | None = Header(default=None)):
     _admin_from_auth(authorization)
-    saved = db().sync_settings.find_one({"_id": "order-email"}, {"_id": 0, "sender": 1, "recipient": 1, "provider": 1, "encryptedCredential": 1, "encryptedApiKey": 1}) or {}
-    configured = bool((saved.get("encryptedCredential") or saved.get("encryptedApiKey") or os.getenv("RESEND_API_KEY")) and saved.get("sender"))
-    return {"provider": saved.get("provider", "resend"), "sender": saved.get("sender", os.getenv("ORDER_NOTIFICATION_FROM", "")), "recipient": saved.get("recipient", os.getenv("ORDER_NOTIFICATION_EMAIL", "aaro.shop.bd@gmail.com")), "hasCredential": bool(saved.get("encryptedCredential") or saved.get("encryptedApiKey") or os.getenv("RESEND_API_KEY")), "configured": configured, "authSecretReady": len(os.getenv("AUTH_SECRET", "").strip()) >= 32}
+    saved = db().sync_settings.find_one({"_id": "order-email"}, {"_id": 0, "sender": 1, "recipient": 1, "provider": 1, "encryptedCredential": 1, "encryptedApiKey": 1, "serviceId": 1, "templateId": 1, "publicKey": 1}) or {}
+    provider = saved.get("provider", "emailjs")
+    has_credential = bool(saved.get("encryptedCredential") or saved.get("encryptedApiKey") or (provider == "resend" and os.getenv("RESEND_API_KEY")))
+    emailjs_ready = bool(saved.get("serviceId") and saved.get("templateId") and saved.get("publicKey"))
+    configured = emailjs_ready if provider == "emailjs" else bool(has_credential and saved.get("sender"))
+    return {"provider": provider, "sender": saved.get("sender", os.getenv("ORDER_NOTIFICATION_FROM", "")), "recipient": saved.get("recipient", os.getenv("ORDER_NOTIFICATION_EMAIL", "aaro.shop.bd@gmail.com")), "serviceId": saved.get("serviceId", ""), "templateId": saved.get("templateId", ""), "publicKey": saved.get("publicKey", ""), "hasCredential": has_credential, "configured": configured, "authSecretReady": len(os.getenv("AUTH_SECRET", "").strip()) >= 32}
 
 @app.put("/api/admin/order-email")
 def save_order_email_settings(input: OrderEmailSettingsInput, authorization: str | None = Header(default=None)):
     _admin_from_auth(authorization)
-    if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", input.sender.strip()) or not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", input.recipient.strip()):
-        raise HTTPException(status_code=422, detail="Enter valid sender and recipient email addresses.")
+    if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", input.recipient.strip()):
+        raise HTTPException(status_code=422, detail="Enter a valid recipient email address.")
+    if input.provider != "emailjs" and not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", input.sender.strip()):
+        raise HTTPException(status_code=422, detail="Enter a valid sender email address.")
+    if input.provider == "emailjs" and not all(value.strip() for value in (input.serviceId, input.templateId, input.publicKey)):
+        raise HTTPException(status_code=422, detail="Enter the EmailJS Service ID, Template ID, and Public Key.")
     collection = db().sync_settings
     if input.provider == "gmail" and input.sender.lower().endswith("@gmail.com") is False:
         raise HTTPException(status_code=422, detail="For Gmail SMTP, use the Gmail address that owns the App Password.")
-    values: dict[str, Any] = {"provider": input.provider, "sender": input.sender.strip(), "recipient": input.recipient.strip(), "updatedAt": datetime.now(timezone.utc).isoformat()}
-    saved = collection.find_one({"_id": "order-email"}, {"_id": 0, "encryptedCredential": 1, "encryptedApiKey": 1}) or {}
+    values: dict[str, Any] = {"provider": input.provider, "sender": input.sender.strip(), "recipient": input.recipient.strip(), "serviceId": input.serviceId.strip(), "templateId": input.templateId.strip(), "publicKey": input.publicKey.strip(), "updatedAt": datetime.now(timezone.utc).isoformat()}
+    saved = collection.find_one({"_id": "order-email"}, {"_id": 0, "provider": 1, "encryptedCredential": 1, "encryptedApiKey": 1}) or {}
+    unset_values: dict[str, str] = {}
     if input.credential.strip():
         values["encryptedCredential"] = base64.b64encode(bytes(_email_secret_box().encrypt(input.credential.strip().encode()))).decode()
-    elif not (saved.get("encryptedCredential") or saved.get("encryptedApiKey")) and not (input.provider == "resend" and os.getenv("RESEND_API_KEY")):
-        raise HTTPException(status_code=422, detail="Enter the Gmail App Password or Resend API key before saving.")
-    collection.update_one({"_id": "order-email"}, {"$set": values}, upsert=True)
-    return {"ok": True, "hasCredential": bool(values.get("encryptedCredential") or saved.get("encryptedCredential") or saved.get("encryptedApiKey") or os.getenv("RESEND_API_KEY")), "configured": True}
+    elif saved.get("provider") != input.provider:
+        unset_values["encryptedCredential"] = ""
+        unset_values["encryptedApiKey"] = ""
+    elif not (saved.get("encryptedCredential") or saved.get("encryptedApiKey")) and not (input.provider == "resend" and os.getenv("RESEND_API_KEY")) and input.provider != "emailjs":
+        raise HTTPException(status_code=422, detail="Enter the provider credential before saving.")
+    update: dict[str, Any] = {"$set": values}
+    if unset_values:
+        update["$unset"] = unset_values
+    collection.update_one({"_id": "order-email"}, update, upsert=True)
+    has_credential = bool(values.get("encryptedCredential") or (saved.get("encryptedCredential") if not unset_values else None) or (saved.get("encryptedApiKey") if not unset_values else None) or (input.provider == "resend" and os.getenv("RESEND_API_KEY")))
+    return {"ok": True, "hasCredential": has_credential, "configured": input.provider == "emailjs" or bool(input.sender.strip())}
 
 @app.post("/api/admin/order-email/test")
 def test_order_email(authorization: str | None = Header(default=None)):
     _admin_from_auth(authorization)
     order = {"id": "TEST", "customer": {"name": "AARO email test", "phone": "-", "address": "-", "thana": "-", "district": "-"}, "items": [], "subtotal": 0, "delivery": 0, "discount": 0, "total": 0, "createdAt": datetime.now(timezone.utc).isoformat()}
     settings = db().sync_settings.find_one({"_id": "order-email"}, {"_id": 0}) or {}
-    provider = settings.get("provider", "resend")
+    provider = settings.get("provider", "emailjs")
     encrypted_credential = settings.get("encryptedCredential") or settings.get("encryptedApiKey", "")
-    credential = _decrypt_email_key(encrypted_credential) if encrypted_credential else os.getenv("RESEND_API_KEY", "").strip()
+    credential = _decrypt_email_key(encrypted_credential) if encrypted_credential and provider != "emailjs" else (os.getenv("RESEND_API_KEY", "").strip() if provider == "resend" else "")
     sender = str(settings.get("sender") or os.getenv("ORDER_NOTIFICATION_FROM", "")).strip()
     recipient = str(settings.get("recipient") or os.getenv("ORDER_NOTIFICATION_EMAIL", "aaro.shop.bd@gmail.com")).strip()
+    if provider == "emailjs":
+        service_id, template_id, public_key = (str(settings.get(key) or "").strip() for key in ("serviceId", "templateId", "publicKey"))
+        if not service_id or not template_id or not public_key:
+            raise HTTPException(status_code=422, detail="Save the EmailJS Service ID, Template ID, and Public Key first.")
+        payload = {"service_id": service_id, "template_id": template_id, "user_id": public_key, "template_params": {"to_email": recipient, "order_id": "TEST", "customer_name": "AARO email test", "customer_phone": "-", "customer_email": "-", "delivery_address": "-", "delivery_zone": "-", "items": "EmailJS connection test", "subtotal": "৳0", "delivery": "৳0", "discount": "৳0", "total": "৳0", "coupon": "None", "created_at": datetime.now(timezone.utc).isoformat(), "order_details": "Your AARO new-order email notifications are working."}}
+        if credential:
+            payload["accessToken"] = credential
+        try:
+            response = requests.post("https://api.emailjs.com/api/v1.0/email/send", json=payload, timeout=(3, 15))
+            response.raise_for_status()
+        except requests.RequestException as error:
+            detail = "EmailJS could not send the test email. Check the service, template, public key, and template's To Email setting."
+            if getattr(error, "response", None) is not None:
+                detail += f" ({error.response.status_code})"
+            raise HTTPException(status_code=502, detail=detail) from error
+        return {"ok": True, "message": f"Test email sent to {recipient}."}
     if not credential or not sender:
         raise HTTPException(status_code=422, detail="Save your provider credential and sender email first.")
     if provider == "gmail":
