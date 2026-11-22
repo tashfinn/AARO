@@ -2440,6 +2440,8 @@ function ProductEditor({ product, categories, onClose, onSave }: { product: Prod
 function OfferEditor({ offer, products, apiBase, onClose, onSave }: { offer: OfferDeal | null; products: Product[]; apiBase: string; onClose: () => void; onSave: (event: FormEvent<HTMLFormElement>) => void }) {
   const [search, setSearch] = useState('')
   const [searchedProducts, setSearchedProducts] = useState<Product[]>([])
+  const [thumbnailOfferProducts, setThumbnailOfferProducts] = useState<Product[]>([])
+  const [thumbnailOfferPage, setThumbnailOfferPage] = useState({ nextOffset: 0, total: 0, loading: false, error: '' })
   const [visibleProductCount, setVisibleProductCount] = useState(60)
   const [kind, setKind] = useState<OfferDeal['kind'] | 'percentage_each'>(offer?.kind === 'quantity_discount' && offer.quantity === 1 && offer.discountKind === 'percent' ? 'percentage_each' : offer?.kind || 'special_price')
   const [discountKind, setDiscountKind] = useState<OfferDeal['discountKind']>(offer?.discountKind || 'percent')
@@ -2462,10 +2464,28 @@ function OfferEditor({ offer, products, apiBase, onClose, onSave }: { offer: Off
     }, 220)
     return () => { window.clearTimeout(timer); controller.abort() }
   }, [apiBase, search])
+  useEffect(() => {
+    if (!apiBase || !offer?.id || offer.kind === 'free_delivery') return
+    const controller = new AbortController()
+    setThumbnailOfferProducts([])
+    setThumbnailOfferPage({ nextOffset: 0, total: 0, loading: true, error: '' })
+    const params = new URLSearchParams({ kind: 'offer', offer_id: offer.id, limit: '100', offset: '0' })
+    fetch(`${apiBase}/api/catalog-priority?${params.toString()}`, { cache: 'no-store', signal: controller.signal })
+      .then((response) => response.ok ? response.json() as Promise<{ products?: unknown; hasMore?: boolean; nextOffset?: number; total?: number }> : null)
+      .then((result) => {
+        if (controller.signal.aborted) return
+        const found = Array.isArray(result?.products) ? result.products.filter((item): item is Product => Boolean(item && typeof item === 'object' && 'id' in item && typeof item.id === 'string' && 'title' in item && typeof item.title === 'string' && 'category' in item && typeof item.category === 'string' && 'image' in item && typeof item.image === 'string' && 'price' in item && Number.isFinite(Number(item.price)))) : []
+        setThumbnailOfferProducts(found)
+        setThumbnailOfferPage({ nextOffset: Number(result?.nextOffset) || found.length, total: Number(result?.total) || found.length, loading: false, error: '' })
+      })
+      .catch(() => { if (!controller.signal.aborted) setThumbnailOfferPage((current) => ({ ...current, loading: false, error: 'Could not load all offer products for thumbnails.' })) })
+    return () => controller.abort()
+  }, [apiBase, offer?.id, offer?.kind])
   const searchableProducts = [...new Map([...products, ...searchedProducts].map((product) => [product.id, product])).values()]
   const matchingProducts = searchableProducts.filter((product) => `${product.title} ${product.category}`.toLowerCase().includes(search.toLowerCase()))
   const filtered = matchingProducts.slice(0, visibleProductCount)
   const selectedProducts = selectedProductIds.map((id) => searchableProducts.find((product) => product.id === id)).filter((product): product is Product => Boolean(product))
+  const thumbnailChoices = [...new Map([...selectedProducts, ...thumbnailOfferProducts].filter((product) => selectedProductIds.includes(product.id)).map((product) => [product.id, product])).values()]
   const selectedProduct = selectedProducts[0]
   const toggleSelectedProduct = (id: string) => setSelectedProductIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])
   const moveThumbnail = (id: string, direction: -1 | 1) => setThumbnailProductIds((current) => {
@@ -2476,6 +2496,21 @@ function OfferEditor({ offer, products, apiBase, onClose, onSave }: { offer: Off
     ;[next[index], next[target]] = [next[target], next[index]]
     return next
   })
+  const loadMoreThumbnailOfferProducts = async () => {
+    if (!apiBase || !offer?.id || thumbnailOfferPage.loading || thumbnailOfferProducts.length >= thumbnailOfferPage.total) return
+    setThumbnailOfferPage((current) => ({ ...current, loading: true, error: '' }))
+    const params = new URLSearchParams({ kind: 'offer', offer_id: offer.id, limit: '100', offset: String(thumbnailOfferPage.nextOffset) })
+    try {
+      const response = await fetch(`${apiBase}/api/catalog-priority?${params.toString()}`, { cache: 'no-store' })
+      if (!response.ok) throw new Error('Could not load more offer products.')
+      const result = await response.json() as { products?: unknown; nextOffset?: number; total?: number }
+      const found = Array.isArray(result.products) ? result.products.filter((item): item is Product => Boolean(item && typeof item === 'object' && 'id' in item && typeof item.id === 'string' && 'title' in item && typeof item.title === 'string' && 'category' in item && typeof item.category === 'string' && 'image' in item && typeof item.image === 'string' && 'price' in item && Number.isFinite(Number(item.price)))) : []
+      setThumbnailOfferProducts((current) => [...new Map([...current, ...found].map((product) => [product.id, product])).values()])
+      setThumbnailOfferPage({ nextOffset: Number(result.nextOffset) || thumbnailOfferPage.nextOffset + found.length, total: Number(result.total) || thumbnailOfferPage.total, loading: false, error: '' })
+    } catch (error) {
+      setThumbnailOfferPage((current) => ({ ...current, loading: false, error: error instanceof Error ? error.message : 'Could not load more offer products.' }))
+    }
+  }
   const submitOffer = (event: FormEvent<HTMLFormElement>) => {
     if (saving) { event.preventDefault(); return }
     setSaving(true); setSaveError('')
@@ -2492,7 +2527,7 @@ function OfferEditor({ offer, products, apiBase, onClose, onSave }: { offer: Off
     {kind === 'buy_x_get_y_free' && <div className="settings-two"><label>Buy quantity<input name="quantity" type="number" min="1" defaultValue={offer?.quantity ?? 3} required /></label><label>Free quantity<input name="freeQuantity" type="number" min="1" defaultValue={offer?.freeQuantity ?? 1} required /></label></div>}
     {kind === 'bundle' && <div className="settings-two"><label>Quantity of each bundle item<input name="quantity" type="number" min="1" defaultValue={offer?.quantity ?? 1} required /></label><label>Bundle price (৳)<input name="value" type="number" min="0" defaultValue={offer?.value} required /></label></div>}
     {kind === 'free_delivery' && <label>Minimum order subtotal (৳)<input name="value" type="number" min="0" defaultValue={offer?.value ?? 0} required /><span>Leave at 0 to offer free delivery on every order.</span></label>}
-    {kind !== 'free_delivery' && selectedProducts.length > 0 && <section className="offer-thumbnail-picker"><div className="offer-thumbnail-heading"><b>Offer card thumbnails</b><small>Select up to three products, then arrange their position from left to right. {thumbnailProductIds.length}/3 selected.</small></div>{thumbnailProductIds.length > 0 && <><div className="offer-thumbnail-heading"><b>Thumbnail order · left to right</b></div><div className="offer-thumbnail-order">{thumbnailProductIds.map((id, index) => { const product = selectedProducts.find((item) => item.id === id); return product ? <div className="offer-thumbnail-order-item" key={`order-${id}`}><span className="offer-thumbnail-position">{index + 1}</span><ImageView src={product.image} alt="" /><span title={product.title}>{product.title}</span><button type="button" aria-label={`Move thumbnail ${index + 1} left`} title="Move left" disabled={index === 0} onClick={() => moveThumbnail(id, -1)}>←</button><button type="button" aria-label={`Move thumbnail ${index + 1} right`} title="Move right" disabled={index === thumbnailProductIds.length - 1} onClick={() => moveThumbnail(id, 1)}>→</button></div> : null })}</div>{thumbnailProductIds.map((id) => <input type="hidden" name="thumbnailProductIds" value={id} key={`thumbnail-order-${id}`} />)}</>}<div className="offer-thumbnail-grid">{selectedProducts.map((product) => <label key={`thumb-${product.id}`} className={`offer-thumbnail-choice ${thumbnailProductIds.includes(product.id) ? 'selected' : ''}`}><input type="checkbox" value={product.id} checked={thumbnailProductIds.includes(product.id)} disabled={!thumbnailProductIds.includes(product.id) && thumbnailProductIds.length >= 3} onChange={(event) => setThumbnailProductIds((current) => event.target.checked ? [...current, product.id] : current.filter((id) => id !== product.id))} /><ImageView src={product.image} alt="" /><span>{product.title}</span><i>{thumbnailProductIds.includes(product.id) ? `Position ${thumbnailProductIds.indexOf(product.id) + 1}` : 'Select'}</i></label>)}</div></section>}
+    {kind !== 'free_delivery' && selectedProductIds.length > 0 && <section className="offer-thumbnail-picker"><div className="offer-thumbnail-heading"><b>Offer card thumbnails</b><small>Choose up to three from all products in this offer ({thumbnailChoices.length}{thumbnailOfferPage.total ? ` of ${thumbnailOfferPage.total}` : ''} available), then arrange their position from left to right. {thumbnailProductIds.length}/3 selected.</small></div>{thumbnailProductIds.length > 0 && <><div className="offer-thumbnail-heading"><b>Thumbnail order · left to right</b></div><div className="offer-thumbnail-order">{thumbnailProductIds.map((id, index) => { const product = thumbnailChoices.find((item) => item.id === id); return product ? <div className="offer-thumbnail-order-item" key={`order-${id}`}><span className="offer-thumbnail-position">{index + 1}</span><ImageView src={product.image} alt="" /><span title={product.title}>{product.title}</span><button type="button" aria-label={`Move thumbnail ${index + 1} left`} title="Move left" disabled={index === 0} onClick={() => moveThumbnail(id, -1)}>←</button><button type="button" aria-label={`Move thumbnail ${index + 1} right`} title="Move right" disabled={index === thumbnailProductIds.length - 1} onClick={() => moveThumbnail(id, 1)}>→</button></div> : null })}</div>{thumbnailProductIds.map((id) => <input type="hidden" name="thumbnailProductIds" value={id} key={`thumbnail-order-${id}`} />)}</>}<div className="offer-thumbnail-grid">{thumbnailChoices.map((product) => <label key={`thumb-${product.id}`} className={`offer-thumbnail-choice ${thumbnailProductIds.includes(product.id) ? 'selected' : ''}`}><input type="checkbox" value={product.id} checked={thumbnailProductIds.includes(product.id)} disabled={!thumbnailProductIds.includes(product.id) && thumbnailProductIds.length >= 3} onChange={(event) => setThumbnailProductIds((current) => event.target.checked ? [...current, product.id] : current.filter((id) => id !== product.id))} /><ImageView src={product.image} alt="" /><span>{product.title}</span><i>{thumbnailProductIds.includes(product.id) ? `Position ${thumbnailProductIds.indexOf(product.id) + 1}` : 'Select'}</i></label>)}</div>{thumbnailOfferProducts.length < thumbnailOfferPage.total && <button type="button" className="offer-show-more" disabled={thumbnailOfferPage.loading} onClick={() => void loadMoreThumbnailOfferProducts()}>{thumbnailOfferPage.loading ? 'Loading offer products…' : `Load more offer products · ${thumbnailOfferProducts.length} of ${thumbnailOfferPage.total}`}</button>}{thumbnailOfferPage.error && <p className="form-error" role="alert">{thumbnailOfferPage.error}</p>}</section>}
     <p className="form-help">Offers are checked again by the server when an order is submitted.</p>
     {saveError && <p className="form-error" role="alert">{saveError}</p>}
     <div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose} disabled={saving}>Cancel</button><button className="primary-button" disabled={saving}>{saving ? <><LoaderCircle size={16} className="availability-check-spinner" /> {offer ? 'Updating offer…' : 'Saving offer…'}</> : <><Check size={16} /> {offer ? 'Update offer' : 'Save offer'}</>}</button></div>
