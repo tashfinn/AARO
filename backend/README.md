@@ -10,6 +10,16 @@ This is an HTML importer, not an official ShopBase API. It uses an authenticated
 
 Configure the Render web service with `MONGODB_URI`, `MONGODB_DATABASE=aaro`, `FRONTEND_ORIGINS`, and the admin/account auth settings. Configure GitHub Actions repository secrets with `MONGODB_URI` and `SHOPBASE_SESSION_COOKIE`. Add the ShopBase phone number and password once from Admin → Product sync; the API encrypts them directly into Actions Secrets as `SHOPBASE_USERNAME` and `SHOPBASE_PASSWORD`. Optional Cloudinary credentials are `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, and `CLOUDINARY_API_SECRET`. These credentials enable migration and automatic mirroring of manually uploaded storefront, product, and offer-share images. Mirroring supplier product images during sync remains off unless `CLOUDINARY_MIRROR_IMAGES=true` is explicitly set. The workflow also sets the request delay, markup, and detail-refresh interval.
 
+### New-order email notifications
+
+The API sends a transactional email in the background after each order has been saved. Set these **server-only** environment variables on the Render API service:
+
+- `RESEND_API_KEY`: an API key from Resend.
+- `ORDER_NOTIFICATION_FROM`: a sender address on a domain verified in Resend, for example `AARO Orders <orders@yourdomain.com>`.
+- `ORDER_NOTIFICATION_EMAIL`: the store inbox that receives new orders. It defaults to `aaro.shop.bd@gmail.com`.
+
+Create a Resend account, verify a sending domain, create an API key, and add the three variables in Render → your API service → Environment. Redeploy the API after saving them. The order is stored before the email task runs, so a mail-provider outage will not interrupt checkout; failures are logged by the API.
+
 ## Storefront image CDN
 
 Set the three Cloudinary credentials on the Render API service, deploy the API, then open Admin → Storefront and choose **Move uploaded images to Cloudinary** once. The migration moves existing inline storefront images, manually uploaded product images, and offer share thumbnails to Cloudinary and saves the resulting CDN URLs back to MongoDB. Future storefront, product, and offer saves mirror new uploads automatically. Failed uploads remain inline so the affected images continue to work and can be retried.
@@ -24,7 +34,7 @@ The Product Sync screen can save the scheduled interval, dispatch the GitHub Act
 ## Deploy
 
 1. Deploy the `backend` directory as a Render Web Service with `pip install -r requirements.txt` and `uvicorn api:app --host 0.0.0.0 --port $PORT`.
-2. Add MongoDB, CORS, and auth variables to Render. Set `FRONTEND_ORIGINS` to the exact Vercel storefront origin.
+2. Add MongoDB, CORS, auth, and (for order emails) Resend variables to Render. Set `FRONTEND_ORIGINS` to the exact Vercel storefront origin.
 3. Add the MongoDB URI and ShopBase session cookie as GitHub repository secrets for the scheduled workflow.
 4. Set `VITE_API_URL` in Vercel to the Render Web Service URL and redeploy the frontend.
 5. Check `/api/health`, run the GitHub Actions catalog workflow when needed, and review the run summary and catalog before accepting orders.

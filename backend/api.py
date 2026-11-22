@@ -11,7 +11,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
-from fastapi import FastAPI, HTTPException, Header, Query, Request
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Header, Query, Request
 from fastapi.responses import Response, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
@@ -34,6 +34,75 @@ app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=Fals
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 _client = None
 PASSWORD_ROUNDS = 310_000
+
+
+def _send_order_notification(order: dict[str, Any]) -> None:
+    """Send a best-effort store-owner email after an order has been saved."""
+    api_key = os.getenv("RESEND_API_KEY", "").strip()
+    recipient = os.getenv("ORDER_NOTIFICATION_EMAIL", "aaro.shop.bd@gmail.com").strip()
+    sender = os.getenv("ORDER_NOTIFICATION_FROM", "").strip()
+    if not api_key or not sender or not recipient:
+        logging.warning(
+            "Order %s was saved, but its email notification is not configured; set RESEND_API_KEY, ORDER_NOTIFICATION_FROM, and ORDER_NOTIFICATION_EMAIL.",
+            order.get("id", "unknown"),
+        )
+        return
+
+    customer = order.get("customer") if isinstance(order.get("customer"), dict) else {}
+    items = order.get("items") if isinstance(order.get("items"), list) else []
+    lines = [
+        f"New AARO order: {order.get('id', 'Unknown')}",
+        "",
+        f"Customer: {customer.get('name', 'Unknown')}",
+        f"Phone: {customer.get('phone', 'Unknown')}",
+        f"Email: {customer.get('email') or 'Not provided'}",
+        f"Delivery: {customer.get('address', '')}, {customer.get('thana', '')}, {customer.get('district', '')}".strip(" ,"),
+        f"Delivery zone: {order.get('deliveryZone', 'outside')}",
+        "",
+        "Items:",
+    ]
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        choices = [str(item.get("size"))] if item.get("size") else []
+        options = item.get("options") if isinstance(item.get("options"), dict) else {}
+        choices.extend(f"{name}: {value}" for name, value in options.items())
+        choice_text = f" ({', '.join(choices)})" if choices else ""
+        quantity = max(0, int(item.get("quantity") or 0))
+        unit_price = float(item.get("price") or 0)
+        lines.append(f"- {item.get('title', 'Product')}{choice_text} × {quantity} — ৳{unit_price * quantity:,.0f}")
+    lines.extend([
+        "",
+        f"Subtotal: ৳{float(order.get('subtotal') or 0):,.0f}",
+        f"Delivery: ৳{float(order.get('delivery') or 0):,.0f}",
+        f"Discount: ৳{float(order.get('discount') or 0):,.0f}",
+        f"Total: ৳{float(order.get('total') or 0):,.0f}",
+        f"Coupon: {order.get('coupon') or 'None'}",
+        f"Order time (UTC): {order.get('createdAt', '')}",
+    ])
+    text = "\n".join(lines)
+    try:
+        response = requests.post(
+            "https://api.resend.com/emails",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+                "Idempotency-Key": f"aaro-order-{order.get('id', uuid.uuid4().hex)}",
+            },
+            json={
+                "from": sender,
+                "to": [recipient],
+                "subject": f"New AARO order {order.get('id', '')}",
+                "text": text,
+            },
+            timeout=(3, 10),
+        )
+        response.raise_for_status()
+        logging.info("Sent new-order email for order %s", order.get("id", "unknown"))
+    except requests.RequestException:
+        # The order is already durable. Do not turn a mail outage into a failed
+        # checkout, which could cause a duplicate order when the customer retries.
+        logging.exception("Could not send new-order email for order %s", order.get("id", "unknown"))
 try:
     with (Path(__file__).resolve().parent / "bangladesh-locations.json").open(encoding="utf-8") as location_file:
         _location_payload = json.load(location_file)
@@ -55,6 +124,36 @@ def _offer_tier_allocations(offer: dict[str, Any], quantity: int) -> list[tuple[
             remaining -= groups * tier_quantity
             allocations.append((tier, groups))
     return allocations
+
+
+def _single_item_offer_sort_price(product: dict[str, Any], offers: list[dict[str, Any]]) -> float:
+    """Mirror the storefront's single-item offer price when ranking listings."""
+    product_id = str(product.get("id") or "")
+    price = max(0.0, float(product.get("price") or 0))
+    candidates: list[float] = []
+    for offer in offers:
+        product_ids = offer.get("productIds") or ([offer.get("productId")] if offer.get("productId") else [])
+        if product_id not in product_ids:
+            continue
+        kind = offer.get("kind")
+        if kind == "special_price":
+            candidates.append(float(offer.get("value") or 0))
+        elif kind == "quantity_discount" and int(offer.get("quantity") or 0) == 1:
+            value = float(offer.get("value") or 0)
+            candidates.append(price * (1 - value / 100) if offer.get("discountKind") == "percent" else price - value)
+        elif kind == "buy_multiple":
+            for tier in offer.get("tiers") or []:
+                if not isinstance(tier, dict) or int(tier.get("quantity") or 0) != 1:
+                    continue
+                value = float(tier.get("value") or 0)
+                if tier.get("mode") == "price":
+                    candidates.append(value)
+                elif tier.get("mode") == "discount":
+                    candidates.append(price * (1 - value / 100) if tier.get("discountKind") == "percent" else price - value)
+                elif tier.get("mode") == "none":
+                    candidates.append(price)
+    valid_prices = [candidate for candidate in candidates if 0 < candidate < price]
+    return min(valid_prices) if valid_prices else price
 
 def _offer_units_retail(lines: list[dict[str, Any]], quantity: int, cheapest_first: bool = False) -> float:
     candidates = [{"quantity": int(line.get("quantity") or 0), "price": max(0.0, float(line.get("price") or 0))} for line in lines]
@@ -623,7 +722,7 @@ def customer_orders(authorization: str | None = Header(default=None)):
     return list(db().orders.find({"customerId": user["_id"]}, {"_id": 0}).sort("createdAt", -1))
 
 @app.post("/api/orders")
-def create_order(input: OrderInput, authorization: str | None = Header(default=None)):
+def create_order(input: OrderInput, background_tasks: BackgroundTasks, authorization: str | None = Header(default=None)):
     store = db()
     status = store.store_settings.find_one({"_id": "store-status"}, {"_id": 0, "isLive": 1})
     if status and status.get("isLive") is False:
@@ -796,6 +895,7 @@ def create_order(input: OrderInput, authorization: str | None = Header(default=N
     order = {"id": order_id, "customer": customer, "items": priced_items, "subtotal": subtotal, "delivery": delivery, "deliveryZone": delivery_zone, "discount": discount, "total": total, "coupon": coupon_code, "customerId": user["_id"] if user else None, "createdAt": datetime.now(timezone.utc).isoformat(), "status": "Pending confirmation"}
     store.orders.insert_one(order)
     order.pop("_id", None)
+    background_tasks.add_task(_send_order_notification, order.copy())
     return order
 
 
@@ -2381,30 +2481,18 @@ def catalog_priority(
             override_ids_for_sort = [f"shopbase-{item}" for item in source_ids_for_sort]
             sort_overrides = {item["id"]: item for item in store.admin_products.find({"source": "shopbase", "id": {"$in": override_ids_for_sort}}, {"_id": 0, "id": 1, "active": 1, "title": 1, "originalPrice": 1, "discountedPrice": 1, "price": 1, "compareAt": 1})} if override_ids_for_sort else {}
             prices: dict[str, tuple[float, str]] = {}
-            selected_offer = store.offers.find_one({"id": offer_id, "active": True}, {"_id": 0}) or {}
-            def deal_price(price: float) -> float:
-                candidates: list[float] = []
-                if selected_offer.get("kind") == "special_price":
-                    candidates.append(float(selected_offer.get("value") or 0))
-                elif selected_offer.get("kind") == "quantity_discount" and int(selected_offer.get("quantity") or 0) == 1:
-                    value = float(selected_offer.get("value") or 0)
-                    candidates.append(price * (1 - value / 100) if selected_offer.get("discountKind") == "percent" else price - value)
-                elif selected_offer.get("kind") == "buy_multiple":
-                    for tier in selected_offer.get("tiers") or []:
-                        if int(tier.get("quantity") or 0) != 1: continue
-                        value = float(tier.get("value") or 0)
-                        candidates.append(value if tier.get("mode") == "price" else price * (1 - value / 100) if tier.get("discountKind") == "percent" else price - value if tier.get("mode") == "discount" else price)
-                valid = [value for value in candidates if 0 < value < price]
-                return min(valid) if valid else price
+            # Sort by the same single-item discounted price the product cards
+            # display, including any other active one-item offer on that item.
+            active_sort_offers = list(store.offers.find({"active": True}, {"_id": 0, "productId": 1, "productIds": 1, "kind": 1, "value": 1, "discountKind": 1, "quantity": 1, "tiers": 1}))
             for item in source_docs_for_sort:
                 product = public_product(item)
                 override = sort_overrides.get(product["id"])
                 if override and override.get("active") is not False:
                     product = _apply_shopbase_override(product, override)
-                prices[product["id"]] = (deal_price(float(product.get("price") or 0)), str((override or {}).get("title") or product.get("title", "")).casefold())
+                prices[product["id"]] = (_single_item_offer_sort_price(product, active_sort_offers), str((override or {}).get("title") or product.get("title", "")).casefold())
             for item in store.admin_products.find({"source": "custom", "active": True, "id": {"$in": custom_ids_for_sort}}, {"_id": 0, "id": 1, "title": 1, "price": 1, "originalPrice": 1, "discountedPrice": 1, "compareAt": 1}):
                 product = public_product(item)
-                prices[product["id"]] = (deal_price(float(product.get("price") or 0)), str(product.get("title", "")).casefold())
+                prices[product["id"]] = (_single_item_offer_sort_price(product, active_sort_offers), str(product.get("title", "")).casefold())
             explicit_ids.sort(key=lambda product_id: ((prices.get(product_id, (0, ""))[0] * (-1 if sort == "high-low" else 1)), prices.get(product_id, (0, ""))[1], product_id))
         selected_ids = explicit_ids[offset:offset + limit]
         source_ids = [item.removeprefix("shopbase-") for item in selected_ids if item.startswith("shopbase-")]
