@@ -2288,6 +2288,20 @@ def catalog_priority(
     # entire image catalog into the response or browser.
     if kind in ("category", "search") and sort in ("low-high", "high-low"):
         reverse = sort == "high-low"
+        custom_query: dict[str, Any] = {"source": "custom", "active": True}
+        if kind == "search" and search and search.strip():
+            pattern = re.escape(search.strip()[:100])
+            source_pattern = re.escape(search.strip().removeprefix("shopbase-")[:100])
+            search_terms = [{"title": {"$regex": pattern, "$options": "i"}}, {"category": {"$regex": pattern, "$options": "i"}}, {"id": {"$regex": pattern, "$options": "i"}}, {"sourceId": {"$regex": source_pattern, "$options": "i"}}, {"description": {"$regex": pattern, "$options": "i"}}, {"details": {"$regex": pattern, "$options": "i"}}]
+            query["$or"] = search_terms
+            custom_query["$or"] = search_terms
+        else:
+            if category_source_id:
+                custom_query["categorySourceId"] = str(category_source_id)
+            elif parent_category_id:
+                custom_query["parentCategoryId"] = str(parent_category_id)
+            elif category:
+                custom_query["category"] = category
         # Use compact fields for the ranking scan. Large uploaded image data is
         # fetched only for the selected page below.
         metadata_fields = {"_id": 1, "sourceId": 1, "id": 1, "title": 1, "category": 1, "categorySourceId": 1, "parentCategory": 1, "parentCategoryId": 1, "price": 1, "suggestedRetailPrice": 1, "wholesalePrice": 1, "compareAt": 1, "originalPrice": 1, "discountedPrice": 1, "source": 1, "active": 1}
@@ -2308,7 +2322,7 @@ def catalog_priority(
             ranked.append(product)
         for item in store.admin_products.find(custom_query, metadata_fields):
             ranked.append(public_product(item))
-        ranked.sort(key=lambda item: (float(item.get("price") or 0), str(item.get("title", "")).casefold(), str(item.get("id", ""))), reverse=reverse)
+        ranked.sort(key=lambda item: (float(item.get("price") or 0) * (-1 if reverse else 1), str(item.get("title", "")).casefold(), str(item.get("id", ""))))
         total = store.products.count_documents(query) + store.admin_products.count_documents(custom_query)
         ranked_page = ranked[offset:offset + limit]
         source_ids = [str(item["sourceId"]) for item in ranked_page if item.get("source") == "shopbase" and item.get("sourceId")]
@@ -2354,21 +2368,36 @@ def catalog_priority(
         if kind == "offer" and sort in ("low-high", "high-low"):
             source_ids_for_sort = [item.removeprefix("shopbase-") for item in explicit_ids if item.startswith("shopbase-")]
             custom_ids_for_sort = [item for item in explicit_ids if not item.startswith("shopbase-")]
-            source_fields_for_sort = {"_id": 0, "sourceId": 1, "title": 1, "price": 1, "suggestedRetailPrice": 1}
+            source_fields_for_sort = {"_id": 0, "sourceId": 1, "title": 1, "price": 1, "suggestedRetailPrice": 1, "wholesalePrice": 1}
             source_docs_for_sort = list(store.products.find({"source": "shopbase", "sourceId": {"$in": source_ids_for_sort}}, source_fields_for_sort)) if source_ids_for_sort else []
             override_ids_for_sort = [f"shopbase-{item}" for item in source_ids_for_sort]
             sort_overrides = {item["id"]: item for item in store.admin_products.find({"source": "shopbase", "id": {"$in": override_ids_for_sort}}, {"_id": 0, "id": 1, "active": 1, "title": 1, "originalPrice": 1, "discountedPrice": 1, "price": 1, "compareAt": 1})} if override_ids_for_sort else {}
             prices: dict[str, tuple[float, str]] = {}
+            selected_offer = store.offers.find_one({"id": offer_id, "active": True}, {"_id": 0}) or {}
+            def deal_price(price: float) -> float:
+                candidates: list[float] = []
+                if selected_offer.get("kind") == "special_price":
+                    candidates.append(float(selected_offer.get("value") or 0))
+                elif selected_offer.get("kind") == "quantity_discount" and int(selected_offer.get("quantity") or 0) == 1:
+                    value = float(selected_offer.get("value") or 0)
+                    candidates.append(price * (1 - value / 100) if selected_offer.get("discountKind") == "percent" else price - value)
+                elif selected_offer.get("kind") == "buy_multiple":
+                    for tier in selected_offer.get("tiers") or []:
+                        if int(tier.get("quantity") or 0) != 1: continue
+                        value = float(tier.get("value") or 0)
+                        candidates.append(value if tier.get("mode") == "price" else price * (1 - value / 100) if tier.get("discountKind") == "percent" else price - value if tier.get("mode") == "discount" else price)
+                valid = [value for value in candidates if 0 < value < price]
+                return min(valid) if valid else price
             for item in source_docs_for_sort:
                 product = public_product(item)
                 override = sort_overrides.get(product["id"])
                 if override and override.get("active") is not False:
                     product = _apply_shopbase_override(product, override)
-                prices[product["id"]] = (float(product.get("price") or 0), str((override or {}).get("title") or product.get("title", "")).casefold())
+                prices[product["id"]] = (deal_price(float(product.get("price") or 0)), str((override or {}).get("title") or product.get("title", "")).casefold())
             for item in store.admin_products.find({"source": "custom", "active": True, "id": {"$in": custom_ids_for_sort}}, {"_id": 0, "id": 1, "title": 1, "price": 1, "originalPrice": 1, "discountedPrice": 1, "compareAt": 1}):
                 product = public_product(item)
-                prices[product["id"]] = (float(product.get("price") or 0), str(product.get("title", "")).casefold())
-            explicit_ids.sort(key=lambda product_id: prices.get(product_id, (0, "")) + (product_id,), reverse=sort == "high-low")
+                prices[product["id"]] = (deal_price(float(product.get("price") or 0)), str(product.get("title", "")).casefold())
+            explicit_ids.sort(key=lambda product_id: ((prices.get(product_id, (0, ""))[0] * (-1 if sort == "high-low" else 1)), prices.get(product_id, (0, ""))[1], product_id))
         selected_ids = explicit_ids[offset:offset + limit]
         source_ids = [item.removeprefix("shopbase-") for item in selected_ids if item.startswith("shopbase-")]
         custom_ids = [item for item in selected_ids if not item.startswith("shopbase-")]
