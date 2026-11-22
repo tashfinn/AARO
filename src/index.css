@@ -874,11 +874,15 @@ img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .catalog-filters { display: grid; grid-template-columns: minmax(180px,.7fr) minmax(260px,1.3fr) auto; align-items: end; gap: 24px; margin: 0 0 22px; padding: 20px; border: 1px solid #e2e9e2; border-radius: 8px; background: #fff; }
 .sort-control, .price-range label { display: grid; gap: 8px; color: #425e53; font-size: 14px; }
 .sort-control select { min-height: 42px; padding: 0 12px; border: 1px solid #dce5dc; border-radius: 5px; background: #fff; color: #29473e; font: inherit; }
-.listing-sort-control { min-width: 190px; gap: 5px; color: #71847a; font-size: 11px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; }
-.listing-sort-control select { appearance: none; min-height: 44px; padding: 0 38px 0 14px; border: 1px solid #cddbd1; border-radius: 10px; background: #fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23214c43' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right 13px center; color: #214c43; font-size: 14px; font-weight: 600; box-shadow: 0 2px 8px rgba(21,52,39,.05); cursor: pointer; transition: border-color .18s, box-shadow .18s, transform .18s; }
-.listing-sort-control select:hover { border-color: #92b6a0; box-shadow: 0 4px 14px rgba(21,52,39,.1); }
-.listing-sort-control select:focus-visible { outline: 3px solid rgba(224,151,62,.24); outline-offset: 2px; border-color: #d9953e; }
-.listing-heading > .listing-sort-control { align-self: center; margin-left: auto; }
+.price-sort-menu { position: relative; display: grid; gap: 5px; min-width: 190px; align-self: center; margin: 16px 0 0 auto; color: #71847a; font-size: 11px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; z-index: 5; }
+.price-sort-menu > button { display:flex; align-items:center; justify-content:space-between; gap:20px; width:100%; min-height:44px; padding:0 14px; border:1px solid #cddbd1; border-radius:10px; background:#fff; color:#214c43; font-size:14px; font-weight:600; letter-spacing:normal; text-align:left; text-transform:none; box-shadow:0 2px 8px rgba(21,52,39,.05); cursor:pointer; }
+.price-sort-menu > button:hover, .price-sort-menu.is-open > button { border-color:#92b6a0; box-shadow:0 4px 14px rgba(21,52,39,.1); }
+.price-sort-options { position:absolute; top:calc(100% + 7px); right:0; width:100%; padding:5px; border:1px solid #d9e3da; border-radius:11px; background:#fff; box-shadow:0 12px 32px rgba(19,45,35,.16); }
+.price-sort-options button { display:flex; align-items:center; justify-content:space-between; width:100%; padding:10px 9px; border:0; border-radius:7px; background:transparent; color:#29473e; font-size:13px; letter-spacing:normal; text-align:left; text-transform:none; cursor:pointer; }
+.price-sort-options button:hover, .price-sort-options button.selected { background:#eef5ee; color:#214c43; }
+.theme-dark .price-sort-menu > button, .theme-dark .price-sort-options { border-color:#34383a; background:#1b1d1f; color:#f1f2ee; }
+.theme-dark .price-sort-options button { color:#f1f2ee; }
+.theme-dark .price-sort-options button:hover, .theme-dark .price-sort-options button.selected { background:#292d2e; }
 .price-range-heading { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 10px; color: #425e53; font-size: 14px; }
 .price-range label { grid-template-columns: 125px 1fr; align-items: center; margin-top: 8px; }
 .price-range input { width: 100%; accent-color: #0f766e; }
