@@ -2287,41 +2287,32 @@ def catalog_priority(
     # parent-category, and subcategory sorting consistent without loading the
     # entire image catalog into the response or browser.
     if kind in ("category", "search") and sort in ("low-high", "high-low"):
-        direction = 1 if sort == "low-high" else -1
-        price_expression = {
-            "$let": {
-                "vars": {
-                    "original": {"$convert": {"input": {"$ifNull": ["$_override.originalPrice", {"$ifNull": ["$suggestedRetailPrice", "$price"]}]}, "to": "double", "onError": 0, "onNull": 0}},
-                    "candidate": {"$convert": {"input": {"$ifNull": ["$_override.discountedPrice", {"$cond": [{"$and": [{"$ne": ["$_override.price", None]}, {"$gt": ["$_override.compareAt", "$_override.price"]}]}, "$_override.price", None]}]}, "to": "double", "onError": None, "onNull": None}},
-                },
-                "in": {"$cond": [{"$and": [{"$ne": ["$$candidate", None]}, {"$gte": ["$$candidate", 0]}, {"$lt": ["$$candidate", "$$original"]}]}, "$$candidate", "$$original"]},
-            }
-        }
-        metadata_limit = offset + limit
-        shopbase_pipeline = [
-            {"$match": query},
-            {"$lookup": {"from": "admin_products", "let": {"source_id": "$sourceId"}, "pipeline": [{"$match": {"source": "shopbase", "$expr": {"$eq": ["$sourceId", "$$source_id"]}}}, {"$project": {"_id": 0, "id": 1, "active": 1, "originalPrice": 1, "discountedPrice": 1, "price": 1, "compareAt": 1}}], "as": "_overrides"}},
-            {"$set": {"_override": {"$arrayElemAt": ["$_overrides", 0]}}},
-            {"$match": {"$or": [{"_override": None}, {"_override.active": {"$ne": False}}]}},
-            {"$set": {"_sortPrice": price_expression}},
-            {"$sort": {"_sortPrice": direction, "title": 1, "_id": 1}},
-            {"$limit": metadata_limit},
-            {"$project": {"_id": 0, "source": {"$literal": "shopbase"}, "sourceId": 1, "_sortPrice": 1, "title": 1}},
-        ]
-        custom_pipeline = [
-            {"$match": custom_query},
-            {"$set": {"_sortPrice": {"$convert": {"input": {"$ifNull": ["$discountedPrice", "$price"]}, "to": "double", "onError": 0, "onNull": 0}}}},
-            {"$sort": {"_sortPrice": direction, "title": 1, "_id": 1}},
-            {"$limit": metadata_limit},
-            {"$project": {"_id": 0, "source": {"$literal": "custom"}, "id": 1, "_sortPrice": 1, "title": 1}},
-        ]
-        ranked = list(store.products.aggregate(shopbase_pipeline))
-        ranked.extend(store.admin_products.aggregate(custom_pipeline))
-        ranked.sort(key=lambda item: (float(item.get("_sortPrice") or 0) * direction, str(item.get("title", "")).casefold(), str(item.get("sourceId") or item.get("id") or "")))
+        reverse = sort == "high-low"
+        # Use compact fields for the ranking scan. Large uploaded image data is
+        # fetched only for the selected page below.
+        metadata_fields = {"_id": 1, "sourceId": 1, "id": 1, "title": 1, "category": 1, "categorySourceId": 1, "parentCategory": 1, "parentCategoryId": 1, "price": 1, "suggestedRetailPrice": 1, "wholesalePrice": 1, "compareAt": 1, "originalPrice": 1, "discountedPrice": 1, "source": 1, "active": 1}
+        override_fields = {"_id": 0, "id": 1, "active": 1, "title": 1, "category": 1, "categorySourceId": 1, "parentCategory": 1, "parentCategoryId": 1, "price": 1, "originalPrice": 1, "discountedPrice": 1, "compareAt": 1}
+        source_docs = list(store.products.find(query, metadata_fields))
+        source_product_ids = [_catalog_product_id(item) for item in source_docs]
+        overrides = {item["id"]: item for item in store.admin_products.find({"source": "shopbase", "id": {"$in": source_product_ids}}, override_fields)} if source_product_ids else {}
+        ranked = []
+        for item in source_docs:
+            product = public_product(item)
+            override = overrides.get(product["id"])
+            if override and override.get("active") is False:
+                continue
+            if override:
+                product = _apply_shopbase_override(product, override, retailer_price=item.get("wholesalePrice"))
+            elif item.get("wholesalePrice") is not None:
+                product["retailerPrice"] = item["wholesalePrice"]
+            ranked.append(product)
+        for item in store.admin_products.find(custom_query, metadata_fields):
+            ranked.append(public_product(item))
+        ranked.sort(key=lambda item: (float(item.get("price") or 0), str(item.get("title", "")).casefold(), str(item.get("id", ""))), reverse=reverse)
         total = store.products.count_documents(query) + store.admin_products.count_documents(custom_query)
         ranked_page = ranked[offset:offset + limit]
         source_ids = [str(item["sourceId"]) for item in ranked_page if item.get("source") == "shopbase" and item.get("sourceId")]
-        custom_ids = [str(item["id"]) for item in ranked_page if item.get("source") == "custom" and item.get("id")]
+        custom_ids = [str(item["id"]) for item in ranked_page if item.get("source") != "shopbase" and item.get("id")]
         source_fields = {"_id": 0, "sourceId": 1, "source": 1, "active": 1, "title": 1, "category": 1, "categorySourceId": 1, "parentCategory": 1, "parentCategoryId": 1, "price": 1, "suggestedRetailPrice": 1, "compareAt": 1, "image": 1, "images": {"$slice": 1}, "stock": 1, "rating": 1, "reviews": 1, "trending": 1, "offer": 1, "badge": 1}
         docs = list(store.products.find({"source": "shopbase", "sourceId": {"$in": source_ids}}, source_fields)) if source_ids else []
         product_ids = [f"shopbase-{source_id}" for source_id in source_ids]
@@ -2335,7 +2326,7 @@ def catalog_priority(
         custom_docs = list(store.admin_products.find({"source": "custom", "active": True, "id": {"$in": custom_ids}}, {"_id": 0})) if custom_ids else []
         for item in custom_docs:
             products_by_id[str(item["id"])] = public_product(item)
-        ordered_ids = [f"shopbase-{item['sourceId']}" if item.get("source") == "shopbase" else str(item.get("id", "")) for item in ranked_page]
+        ordered_ids = [str(item.get("id", "")) for item in ranked_page]
         page_products = [products_by_id[product_id] for product_id in ordered_ids if product_id in products_by_id]
         return {"products": [_externalize_product_images(product, request) for product in page_products], "hasMore": offset + len(ranked_page) < total, "nextOffset": offset + len(ranked_page), "total": total}
 
@@ -2360,6 +2351,24 @@ def catalog_priority(
     if kind == "offers" and not explicit_ids:
         return {"products": [], "hasMore": False, "nextOffset": 0, "total": 0, "trendingIds": []}
     if explicit_ids:
+        if kind == "offer" and sort in ("low-high", "high-low"):
+            source_ids_for_sort = [item.removeprefix("shopbase-") for item in explicit_ids if item.startswith("shopbase-")]
+            custom_ids_for_sort = [item for item in explicit_ids if not item.startswith("shopbase-")]
+            source_fields_for_sort = {"_id": 0, "sourceId": 1, "title": 1, "price": 1, "suggestedRetailPrice": 1}
+            source_docs_for_sort = list(store.products.find({"source": "shopbase", "sourceId": {"$in": source_ids_for_sort}}, source_fields_for_sort)) if source_ids_for_sort else []
+            override_ids_for_sort = [f"shopbase-{item}" for item in source_ids_for_sort]
+            sort_overrides = {item["id"]: item for item in store.admin_products.find({"source": "shopbase", "id": {"$in": override_ids_for_sort}}, {"_id": 0, "id": 1, "active": 1, "title": 1, "originalPrice": 1, "discountedPrice": 1, "price": 1, "compareAt": 1})} if override_ids_for_sort else {}
+            prices: dict[str, tuple[float, str]] = {}
+            for item in source_docs_for_sort:
+                product = public_product(item)
+                override = sort_overrides.get(product["id"])
+                if override and override.get("active") is not False:
+                    product = _apply_shopbase_override(product, override)
+                prices[product["id"]] = (float(product.get("price") or 0), str((override or {}).get("title") or product.get("title", "")).casefold())
+            for item in store.admin_products.find({"source": "custom", "active": True, "id": {"$in": custom_ids_for_sort}}, {"_id": 0, "id": 1, "title": 1, "price": 1, "originalPrice": 1, "discountedPrice": 1, "compareAt": 1}):
+                product = public_product(item)
+                prices[product["id"]] = (float(product.get("price") or 0), str(product.get("title", "")).casefold())
+            explicit_ids.sort(key=lambda product_id: prices.get(product_id, (0, "")) + (product_id,), reverse=sort == "high-low")
         selected_ids = explicit_ids[offset:offset + limit]
         source_ids = [item.removeprefix("shopbase-") for item in selected_ids if item.startswith("shopbase-")]
         custom_ids = [item for item in selected_ids if not item.startswith("shopbase-")]
