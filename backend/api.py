@@ -1951,13 +1951,74 @@ def product_view_counts():
     counts = db().product_views.find({}, {"_id": 0, "productId": 1, "views": 1})
     return {item["productId"]: int(item.get("views", 0)) for item in counts}
 
+def _home_category_samples(store, settings: dict[str, Any], category_offset: int, page_size: int = 15) -> tuple[list[dict[str, Any]], int, bool]:
+    """Return one product image per next visible category page."""
+    category_docs = list(store.categories.find(
+        {"source": "shopbase", "type": {"$ne": "parent"}},
+        {"_id": 0, "sourceId": 1, "name": 1, "sourceOrder": 1},
+    ))
+
+    def category_order(item: dict[str, Any]) -> tuple[float, str]:
+        try:
+            source_order = float(item.get("sourceOrder"))
+        except (TypeError, ValueError):
+            source_order = float("inf")
+        return source_order, str(item.get("name", ""))
+
+    category_docs.sort(key=category_order)
+    saved_groups = settings.get("categoryGroups")
+    if isinstance(saved_groups, list):
+        visible_source_ids = {
+            str(child.get("sourceId"))
+            for group in saved_groups if isinstance(group, dict) and group.get("showInStorefront", True) is not False
+            for child in group.get("children", []) if isinstance(child, dict) and child.get("showInStorefront", True) is not False and child.get("sourceId")
+        }
+        category_docs = [item for item in category_docs if str(item.get("sourceId", "")) in visible_source_ids]
+
+    start = min(max(0, category_offset), len(category_docs))
+    end = min(start + page_size * 2, len(category_docs))
+    category_candidates = category_docs[start:end]
+    candidate_source_ids = [item.get("sourceId") for item in category_candidates if item.get("sourceId") is not None]
+    category_samples: dict[str, dict[str, Any]] = {}
+    if candidate_source_ids:
+        for row in store.products.aggregate([
+            {"$match": {"source": "shopbase", "active": {"$ne": False}, "categorySourceId": {"$in": candidate_source_ids}}},
+            {"$project": {"sourceId": 1, "source": 1, "active": 1, "title": 1, "category": 1, "categorySourceId": 1, "parentCategory": 1, "parentCategoryId": 1, "price": 1, "suggestedRetailPrice": 1, "compareAt": 1, "image": 1, "stock": 1, "rating": 1, "reviews": 1, "trending": 1, "offer": 1, "badge": 1}},
+            {"$sort": {"categorySourceId": 1, "_id": 1}},
+            {"$group": {"_id": "$categorySourceId", "product": {"$first": "$$ROOT"}}},
+            {"$replaceRoot": {"newRoot": "$product"}},
+            {"$project": {"_id": 0, "sourceId": 1, "source": 1, "active": 1, "title": 1, "category": 1, "categorySourceId": 1, "parentCategory": 1, "parentCategoryId": 1, "price": 1, "suggestedRetailPrice": 1, "compareAt": 1, "image": 1, "stock": 1, "rating": 1, "reviews": 1, "trending": 1, "offer": 1, "badge": 1}},
+        ]):
+            category_samples[str(row.get("categorySourceId", ""))] = row
+
+    sample_rows = [category_samples[str(item.get("sourceId", ""))] for item in category_candidates if str(item.get("sourceId", "")) in category_samples]
+    sample_ids = [_catalog_product_id(item) for item in sample_rows]
+    category_overrides = {
+        item["id"]: item
+        for item in store.admin_products.find(
+            {"source": "shopbase", "id": {"$in": sample_ids}},
+            {"_id": 0, "id": 1, "active": 1, "title": 1, "category": 1, "categorySourceId": 1, "parentCategory": 1, "parentCategoryId": 1, "image": 1, "images": {"$slice": 1}, "stock": 1, "rating": 1, "reviews": 1, "trending": 1, "offer": 1, "badge": 1, "originalPrice": 1, "discountedPrice": 1, "compareAt": 1, "price": 1},
+        )
+    } if sample_ids else {}
+    products: list[dict[str, Any]] = []
+    for item in sample_rows:
+        product = public_product(item)
+        override = category_overrides.get(product["id"])
+        if override and override.get("active") is False:
+            continue
+        products.append(_apply_shopbase_override(product, override) if override else product)
+        if len(products) >= page_size:
+            break
+    return products, end, end < len(category_docs)
+
 @app.get("/api/catalog-priority")
 def catalog_priority(
     response: Response,
     request: Request,
-    kind: Literal["home", "trending", "offers", "offer", "category", "search"],
+    kind: Literal["home", "home_categories", "trending", "offers", "offer", "category", "search"],
     limit: int = Query(default=50, ge=1, le=400),
     offset: int = Query(default=0, ge=0),
+    category_offset: int = Query(default=0, ge=0),
     category: str | None = None,
     category_source_id: str | None = None,
     parent_category_id: str | None = None,
@@ -1972,6 +2033,8 @@ def catalog_priority(
     explicit_ids: list[str] = []
     priority_trending_ids: list[str] = []
     category_products: list[dict[str, Any]] = []
+    next_category_offset = category_offset
+    category_has_more = False
     query: dict[str, Any] = {"source": "shopbase", "sourceId": {"$exists": True}, "active": {"$ne": False}}
 
     if kind in ("home", "trending"):
@@ -1987,62 +2050,8 @@ def catalog_priority(
             flagged_trending = list(store.products.find(flag_query, {"_id": 0, "sourceId": 1}).limit(20 - len(priority_trending_ids)))
             priority_trending_ids.extend(f"shopbase-{item['sourceId']}" for item in flagged_trending if item.get("sourceId"))
         explicit_ids.extend(priority_trending_ids)
-        if kind == "home":
-            # Fetch one real product for each of the first visible categories.
-            # The storefront can show category tiles immediately instead of
-            # choosing arbitrary category names with no already-loaded image.
-            try:
-                category_docs = list(store.categories.find(
-                    {"source": "shopbase", "type": {"$ne": "parent"}},
-                    {"_id": 0, "sourceId": 1, "name": 1, "sourceOrder": 1},
-                ))
-                def category_order(item: dict[str, Any]) -> tuple[float, str]:
-                    try:
-                        source_order = float(item.get("sourceOrder"))
-                    except (TypeError, ValueError):
-                        source_order = float("inf")
-                    return source_order, str(item.get("name", ""))
-                category_docs.sort(key=category_order)
-                saved_groups = settings.get("categoryGroups")
-                if isinstance(saved_groups, list):
-                    visible_source_ids = {
-                        str(child.get("sourceId"))
-                        for group in saved_groups if isinstance(group, dict) and group.get("showInStorefront", True) is not False
-                        for child in group.get("children", []) if isinstance(child, dict) and child.get("showInStorefront", True) is not False and child.get("sourceId")
-                    }
-                    category_docs = [item for item in category_docs if str(item.get("sourceId", "")) in visible_source_ids]
-                category_candidates = category_docs[:30]
-                candidate_source_ids = [item.get("sourceId") for item in category_candidates if item.get("sourceId") is not None]
-                category_samples: dict[str, dict[str, Any]] = {}
-                if candidate_source_ids:
-                    for row in store.products.aggregate([
-                        {"$match": {"source": "shopbase", "active": {"$ne": False}, "categorySourceId": {"$in": candidate_source_ids}}},
-                        {"$project": {"sourceId": 1, "source": 1, "active": 1, "title": 1, "category": 1, "categorySourceId": 1, "parentCategory": 1, "parentCategoryId": 1, "price": 1, "suggestedRetailPrice": 1, "compareAt": 1, "image": 1, "stock": 1, "rating": 1, "reviews": 1, "trending": 1, "offer": 1, "badge": 1}},
-                        {"$sort": {"categorySourceId": 1, "_id": 1}},
-                        {"$group": {"_id": "$categorySourceId", "product": {"$first": "$$ROOT"}}},
-                        {"$replaceRoot": {"newRoot": "$product"}},
-                        {"$project": {"_id": 0, "sourceId": 1, "source": 1, "active": 1, "title": 1, "category": 1, "categorySourceId": 1, "parentCategory": 1, "parentCategoryId": 1, "price": 1, "suggestedRetailPrice": 1, "compareAt": 1, "image": 1, "stock": 1, "rating": 1, "reviews": 1, "trending": 1, "offer": 1, "badge": 1}},
-                    ]):
-                        category_samples[str(row.get("categorySourceId", ""))] = row
-                sample_rows = [category_samples[str(item.get("sourceId", ""))] for item in category_candidates if str(item.get("sourceId", "")) in category_samples]
-                sample_ids = [_catalog_product_id(item) for item in sample_rows]
-                category_overrides = {
-                    item["id"]: item
-                    for item in store.admin_products.find(
-                        {"source": "shopbase", "id": {"$in": sample_ids}},
-                        {"_id": 0, "id": 1, "active": 1, "title": 1, "category": 1, "categorySourceId": 1, "parentCategory": 1, "parentCategoryId": 1, "image": 1, "images": {"$slice": 1}, "stock": 1, "rating": 1, "reviews": 1, "trending": 1, "offer": 1, "badge": 1, "originalPrice": 1, "discountedPrice": 1, "compareAt": 1, "price": 1},
-                    )
-                } if sample_ids else {}
-                for item in sample_rows:
-                    product = public_product(item)
-                    override = category_overrides.get(product["id"])
-                    if override and override.get("active") is False:
-                        continue
-                    category_products.append(_apply_shopbase_override(product, override) if override else product)
-                    if len(category_products) == 15:
-                        break
-            except Exception:
-                logging.exception("Could not load homepage category samples")
+    elif kind == "home_categories":
+        pass
     elif kind == "offers":
         for offer in store.offers.find({"active": True}, {"_id": 0, "thumbnailProductIds": 1, "productIds": 1, "productId": 1}):
             thumbnail_ids = offer.get("thumbnailProductIds") or offer.get("productIds") or ([offer.get("productId")] if offer.get("productId") else [])
@@ -2065,6 +2074,19 @@ def catalog_priority(
             query["parentCategoryId"] = str(parent_category_id)
         elif category:
             query["category"] = category
+
+    if kind in ("home", "home_categories"):
+        try:
+            category_products, next_category_offset, category_has_more = _home_category_samples(store, settings, category_offset)
+        except Exception:
+            logging.exception("Could not load homepage category samples")
+    if kind == "home_categories":
+        return {
+            "products": [],
+            "categoryProducts": [_externalize_product_images(product, request) for product in category_products],
+            "categoryHasMore": category_has_more,
+            "nextCategoryOffset": next_category_offset,
+        }
 
     explicit_ids = list(dict.fromkeys(item for item in explicit_ids if item))
     if kind == "trending":
@@ -2099,8 +2121,10 @@ def catalog_priority(
         products = [_externalize_product_images(products_by_id[item], request) for item in selected_ids if item in products_by_id]
         total = len(explicit_ids)
         payload = {"products": products, "hasMore": offset + len(selected_ids) < total, "nextOffset": offset + len(selected_ids), "total": total, "trendingIds": priority_trending_ids}
-        if category_products:
+        if category_products or kind == "home":
             payload["categoryProducts"] = [_externalize_product_images(product, request) for product in category_products]
+            payload["categoryHasMore"] = category_has_more
+            payload["nextCategoryOffset"] = next_category_offset
         return payload
     else:
         source_fields = {"_id": 0, "sourceId": 1, "title": 1, "category": 1, "categorySourceId": 1, "parentCategory": 1, "parentCategoryId": 1, "price": 1, "suggestedRetailPrice": 1, "image": 1, "stock": 1, "active": 1, "source": 1, "trending": 1, "offer": 1, "badge": 1}
@@ -2182,8 +2206,10 @@ def catalog_priority(
         if kind in ("home", "trending") and not priority_trending_ids:
             priority_trending_ids = [product["id"] for product in products if product.get("trending")][:20]
         payload = {"products": [_externalize_product_images(product, request) for product in products], "hasMore": next_offset < shopbase_count + custom_count, "nextOffset": next_offset, "total": shopbase_count + custom_count, "trendingIds": priority_trending_ids}
-        if category_products:
+        if category_products or kind == "home":
             payload["categoryProducts"] = [_externalize_product_images(product, request) for product in category_products]
+            payload["categoryHasMore"] = category_has_more
+            payload["nextCategoryOffset"] = next_category_offset
         return payload
 
     total = len(products)
