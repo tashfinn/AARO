@@ -129,7 +129,7 @@ function OfferTierDetails({ offer }: { offer: OfferDeal }) {
           ? `${tier.value}% OFF`
           : `Save ${money(tier.value)}`
     const caption = tier.mode === 'price' ? 'total price' : tier.mode === 'none' ? 'on this tier' : tier.discountKind === 'percent' ? 'discount on the set' : 'per set'
-    return <div className="offer-detail-tier-card" key={`${tier.quantity}-${index}`}><span>DEAL {String(index + 1).padStart(2, '0')}</span><div className="offer-detail-tier-main"><b>Buy any {tier.quantity}</b><strong>{headline}</strong></div><small>{caption}</small>{tier.freeDelivery && tier.mode !== 'none' && <i>Free delivery included</i>}</div>
+    return <div className="offer-detail-tier-card" key={`${tier.quantity}-${index}`}><span className="offer-detail-tier-number">{String(index + 1).padStart(2, '0')}</span><div className="offer-detail-tier-content"><b>Buy any {tier.quantity}</b><div className="offer-detail-tier-main"><strong>{headline}</strong><small>{caption}</small></div>{tier.freeDelivery && tier.mode !== 'none' && <i>Free delivery included</i>}</div></div>
   })}</div>
 }
 function applySingleItemOfferPrice(product: Product, offers: OfferDeal[]) {
