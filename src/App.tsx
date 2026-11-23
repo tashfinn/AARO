@@ -2058,12 +2058,6 @@ function ProductCard({ product, wished, onWish, onOpen, onAdd }: { product: Prod
   useEffect(() => () => { if (pulseTimer.current !== null) window.clearTimeout(pulseTimer.current); if (pulseFrame.current !== null) window.cancelAnimationFrame(pulseFrame.current) }, [])
   const handleAdd = (event: ReactMouseEvent<HTMLButtonElement>) => {
     event.stopPropagation()
-    // Imported catalog cards may not include variant details. Load the full
-    // product first so customers can choose required sizes/options before add.
-    if (product.source === 'shopbase' || product.sizes?.length || product.options?.some((option) => option.values.length)) {
-      onOpen(product)
-      return
-    }
     if (pulseTimer.current !== null) window.clearTimeout(pulseTimer.current)
     if (pulseFrame.current !== null) window.cancelAnimationFrame(pulseFrame.current)
     setAddedPulse(false)
