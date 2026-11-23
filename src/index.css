@@ -429,6 +429,14 @@ img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .admin-content { max-width: 1400px; margin: 0 auto; padding: 27px 35px 50px; }
 .admin-welcome { display: flex; align-items: center; justify-content: space-between; gap: 15px; margin-bottom: 19px; }
 .admin-overview-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
+.activity-reset-modal { width: min(440px, 100%); padding: 30px; border: 1px solid var(--border); border-radius: 16px; background: var(--surface); color: var(--text-primary); box-shadow: 0 24px 80px rgba(13,31,29,.24); animation: modalPop .18s ease-out; }
+.activity-reset-icon { display: grid; place-items: center; width: 48px; height: 48px; margin-bottom: 18px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface-raised); color: var(--brand); }
+.activity-reset-modal .section-kicker { color: var(--text-muted); font-size: 11px; font-weight: 700; letter-spacing: .12em; }
+.activity-reset-modal h2 { margin: 8px 0 10px; color: var(--text-primary); font: 700 24px var(--font-display); letter-spacing: -.03em; }
+.activity-reset-modal p { margin: 0; color: var(--text-secondary); font-size: 14px; line-height: 1.65; }
+.activity-reset-modal .modal-actions { margin-top: 26px; }
+.activity-reset-modal .primary-button { background: var(--brand); }
+@keyframes modalPop { from { opacity: 0; transform: translateY(8px) scale(.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
 .admin-welcome .section-kicker { font-size: 8px; }
 .admin-welcome h2 { margin: 6px 0 3px; color: #26453a; font: 700 21px var(--font-display); letter-spacing: -.04em; }
 .admin-welcome p { margin: 0; color: #8a9891; font-size: 10px; }
