@@ -1474,8 +1474,14 @@ export default function App() {
       if (typeof result.id === 'string') orderNumber = result.id
       updateState((current) => ({ ...current, orders: [result as Order, ...current.orders] }))
     } catch (cause) { notify(cause instanceof Error ? cause.message : 'Could not save your order. Please try again.'); return }
+    const purchaseContents = cartItems.map((line) => ({
+      id: line.product.sourceId || line.product.id,
+      quantity: line.quantity,
+      item_price: line.product.price,
+    }))
     trackMetaEvent('Purchase', {
-      content_ids: cartItems.map((line) => line.product.sourceId || line.product.id),
+      content_ids: purchaseContents.map((item) => item.id),
+      contents: purchaseContents,
       content_type: 'product',
       num_items: cartItems.reduce((total, line) => total + line.quantity, 0),
       value: newOrder.total,

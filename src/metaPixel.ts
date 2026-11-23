@@ -40,7 +40,7 @@ export function initMetaPixel() {
   fbq('init', pixelId)
 }
 
-export function trackMetaEvent(event: string, parameters?: Record<string, string | number | string[]>) {
+export function trackMetaEvent(event: string, parameters?: Record<string, unknown>) {
   if (!pixelId || typeof window === 'undefined') return
   initMetaPixel()
   window.fbq?.('track', event, ...(parameters ? [parameters] : []))
