@@ -428,6 +428,7 @@ img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .admin-view-store { display: flex; align-items: center; gap: 6px; min-height: 31px; padding: 0 10px; border: 1px solid #dfe8df; border-radius: 4px; color: #47685c; background: white; font-size: 9px; font-weight: 600; }
 .admin-content { max-width: 1400px; margin: 0 auto; padding: 27px 35px 50px; }
 .admin-welcome { display: flex; align-items: center; justify-content: space-between; gap: 15px; margin-bottom: 19px; }
+.admin-overview-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
 .admin-welcome .section-kicker { font-size: 8px; }
 .admin-welcome h2 { margin: 6px 0 3px; color: #26453a; font: 700 21px var(--font-display); letter-spacing: -.04em; }
 .admin-welcome p { margin: 0; color: #8a9891; font-size: 10px; }
@@ -2196,6 +2197,8 @@ img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .theme-dark .contact-options i, .theme-dark .legal-contact-note, .theme-dark .contact-help-note { color: var(--text-secondary); }
 .theme-dark .legal-contact-note, .theme-dark .contact-help-note { border-color: var(--border); }
 @media (max-width: 600px) {
+  .admin-overview-actions { width: 100%; justify-content: stretch; }
+  .admin-overview-actions > button { flex: 1 1 100%; }
   .legal-page { padding-top: 18px; padding-bottom: 42px; }
   .legal-card { margin-top: 16px; padding: 22px 18px; }
   .legal-card p, .legal-card li { font-size: 15px; }

@@ -2410,6 +2410,12 @@ def product_view_counts():
     counts = db().product_views.find({}, {"_id": 0, "productId": 1, "views": 1})
     return {item["productId"]: int(item.get("views", 0)) for item in counts}
 
+@app.get("/api/admin/product-views")
+def admin_product_view_counts(authorization: str | None = Header(default=None)):
+    _admin_from_auth(authorization)
+    counts = db().product_views.find({}, {"_id": 0, "productId": 1, "views": 1})
+    return {item["productId"]: int(item.get("views", 0)) for item in counts}
+
 @app.post("/api/store-activity")
 def record_store_activity(input: StoreActivityInput):
     """Persist storefront funnel actions without blocking the customer flow."""
@@ -2435,6 +2441,18 @@ def admin_store_activity(authorization: str | None = Header(default=None)):
         "addedUnits": int(activity.get("addedUnits", 0)),
         "checkoutStarts": int(activity.get("checkoutStarts", 0)),
     }
+
+@app.post("/api/admin/store-activity/reset")
+def reset_admin_store_activity(authorization: str | None = Header(default=None)):
+    _admin_from_auth(authorization)
+    store = db()
+    store.product_views.delete_many({})
+    store.store_activity.update_one(
+        {"_id": "store-funnel"},
+        {"$set": {"addToCartActions": 0, "addedUnits": 0, "checkoutStarts": 0, "updatedAt": datetime.now(timezone.utc).isoformat()}},
+        upsert=True,
+    )
+    return {"reset": True}
 
 def _home_category_samples(store, settings: dict[str, Any], category_offset: int, page_size: int = 15) -> tuple[list[dict[str, Any]], int, bool]:
     """Return one product image per next visible category page."""
