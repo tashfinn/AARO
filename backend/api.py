@@ -1466,6 +1466,15 @@ def update_order(order_id: str, input: OrderStatusInput, authorization: str | No
         raise HTTPException(status_code=404, detail="Order not found.")
     return {"ok": True}
 
+
+@app.delete("/api/admin/orders/{order_id}")
+def delete_order(order_id: str, authorization: str | None = Header(default=None)):
+    _admin_from_auth(authorization)
+    result = db().orders.delete_one({"id": order_id})
+    if not result.deleted_count:
+        raise HTTPException(status_code=404, detail="Order not found.")
+    return {"ok": True}
+
 def _catalog_product_id(product: dict[str, Any]) -> str:
     return f"shopbase-{product.get('sourceId', '')}" if product.get("source") == "shopbase" else str(product.get("id", ""))
 

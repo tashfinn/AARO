@@ -3479,6 +3479,11 @@ a:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
 .quick-add-icon svg { width: 19px; height: 19px; }
 .cart-size-select { display: flex; align-items: center; gap: 8px; margin: 6px 0; color: var(--text-secondary); font-size: 13px; }
 .cart-size-select select { min-height: 36px; padding: 5px 26px 5px 9px; border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary); background: var(--surface); font: inherit; }
+.cart-size-select { flex-wrap: wrap; font-weight: 600; }
+.cart-size-select select { min-width: 140px; }
+.cart-line-needs-choice .cart-size-select select { border-color: #d98936; background: #fff8ed; }
+.delete-order-button { display: inline-flex; align-items: center; gap: 5px; border: 1px solid #e2c4bf; border-radius: 7px; padding: 7px 9px; background: transparent; color: #a94e43; font: inherit; font-size: 12px; cursor: pointer; }
+.delete-order-button:hover { background: #fff1ef; border-color: #c56a5d; }
 .checkout-delivery-rate { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin: 4px 0 18px; padding: 13px 15px; border: 1px solid #dce5dc; border-radius: 7px; background: #f5f7f2; color: #425e53; font-size: 14px; }
 .checkout-delivery-rate b { color: #173f38; font-size: 16px; }
 .checkout-submit:disabled { opacity: .5; cursor: not-allowed; }
